@@ -1,0 +1,1579 @@
+{
+  "name": "Official online Chess Steps QA source inventory",
+  "captured_at": "2026-07-18",
+  "usage": "Evaluation only. Source files are downloaded temporarily and are not redistributed.",
+  "source_pages": [
+    "https://www.stappenmethode.nl/nl/download.php",
+    "https://www.stappenmethode.nl/de/download.php",
+    "https://www.stappenmethode.nl/fr/download.php",
+    "https://www.stappenmethode.nl/en/example-lessons.php",
+    "https://www.chess-steps.com/book-stepping-stones",
+    "https://www.chess-steps.com/workbook-answers",
+    "https://www.stappenmethode.de/leseproben"
+  ],
+  "evaluated_sources": [
+    {
+      "id": "nl-in_lp_2e",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/in_lp_2e.pdf",
+      "sha256": "acb7bf656a4a3763c7f4b531d8bbfc43af7da4e55eb2c4b5276f632bb8670a70",
+      "bytes": 1355541
+    },
+    {
+      "id": "nl-in_lp_2vd",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/in_lp_2vd.pdf",
+      "sha256": "ff7f484d0676ba3fe2dc87239eb4d5687b24b9b8ae496e4bd5bfdbf75a9b0256",
+      "bytes": 960716
+    },
+    {
+      "id": "nl-in_lp_3vd",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/in_lp_3vd.pdf",
+      "sha256": "b266e5b88afe746d7b82b3d1babcfce3477b390e71b4c33bf57220c16e5ac299",
+      "bytes": 1972216
+    },
+    {
+      "id": "nl-in_lp_5",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/in_lp_5.pdf",
+      "sha256": "05ee7dcc76337b35fade5aa8a8ab756b9301e4576773d4d0a763c27a6372266f",
+      "bytes": 3247954
+    },
+    {
+      "id": "nl-nl_lp_1",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_1.pdf",
+      "sha256": "1a0da9472cf97619e2ea19f517cbea6a2af4ca788e561030f5e187e5eba0ab0a",
+      "bytes": 720093
+    },
+    {
+      "id": "nl-nl_lp_1e",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_1e.pdf",
+      "sha256": "befbdde5dad975611ba88dacf459bcb18ce85caa6243505df6ee5daef7ccc75a",
+      "bytes": 1161978
+    },
+    {
+      "id": "nl-nl_lp_1m",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_1m.pdf",
+      "sha256": "4b2f6b0a8714aa95a6e0148598eda8734aeb67c342ccfa3a80d699e0404b74c8",
+      "bytes": 1378044
+    },
+    {
+      "id": "nl-nl_lp_1p",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_1p.pdf",
+      "sha256": "22de47b6bc15ab8740ce50a434a7e3096886660fe981e64bea603e8fa42ed7bf",
+      "bytes": 958331
+    },
+    {
+      "id": "nl-nl_lp_2",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_2.pdf",
+      "sha256": "dababe485bb5f8238200ae9b0f1ad8061c9421952b8abc398d9d64a298b0f6ab",
+      "bytes": 1002654
+    },
+    {
+      "id": "nl-nl_lp_2m",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_2m.pdf",
+      "sha256": "72030de13050ac44aaba9636fb61bb651f6c23c28c0dc2da502aaef8f90c1dee",
+      "bytes": 2135985
+    },
+    {
+      "id": "nl-nl_lp_2p",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_2p.pdf",
+      "sha256": "73517d4823ce416572e7ab2e5a378e017a4bb2d4ca568612a05fe06d52e834cf",
+      "bytes": 761768
+    },
+    {
+      "id": "nl-nl_lp_3",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_3.pdf",
+      "sha256": "c77959c8250922e224c03e2a24bf75915d1fba76ffa38ed45eedbd569d4187eb",
+      "bytes": 1291757
+    },
+    {
+      "id": "nl-nl_lp_3e",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_3e.pdf",
+      "sha256": "5ba9b889733f0a40c3af1156ac5efc5129b313c86de3822b3019468d4546c572",
+      "bytes": 1176248
+    },
+    {
+      "id": "nl-nl_lp_3m",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_3m.pdf",
+      "sha256": "1623181da332170b3de3ab606294c5905d4ec03e8e62f45bb1250f69397e9dec",
+      "bytes": 2105061
+    },
+    {
+      "id": "nl-nl_lp_3p",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_3p.pdf",
+      "sha256": "a81d7bfb171a5d555f1488cae9753de037a76fc2d31aff1c6215792e30100a5c",
+      "bytes": 989531
+    },
+    {
+      "id": "nl-nl_lp_4",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_4.pdf",
+      "sha256": "06b08e635e6e0cba24d11e93b1fee4522c1607848972e53149185c138e739ea7",
+      "bytes": 1011587
+    },
+    {
+      "id": "nl-nl_lp_4e",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_4e.pdf",
+      "sha256": "ba09cb321f085d877a7166206e297b5cdebd75eb2f985eda112fbc0ef3a3bf40",
+      "bytes": 213630
+    },
+    {
+      "id": "nl-nl_lp_4m",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_4m.pdf",
+      "sha256": "79d5f0b6042c446e9d1962a52240b775447d4c6bb6fa1d072f4ce8c7e3770afa",
+      "bytes": 2210036
+    },
+    {
+      "id": "nl-nl_lp_4p",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_4p.pdf",
+      "sha256": "72d9b23d74660e064d48edd1329261a7f0f93af400ead8ff196a9c925eb53c45",
+      "bytes": 1061886
+    },
+    {
+      "id": "nl-nl_lp_5e",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_5e.pdf",
+      "sha256": "ac1a3133db02df967852d318d32950a806fe76de20a80877f61169058a55cb17",
+      "bytes": 1005853
+    },
+    {
+      "id": "nl-nl_lp_5m",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_5m.pdf",
+      "sha256": "5f271d78cbd5826fc2c3e2009347d1a78839920ae1cff7913959b426d461ef40",
+      "bytes": 2220677
+    },
+    {
+      "id": "nl-nl_lp_5p",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_5p.pdf",
+      "sha256": "ca26a7c99d1283badc15cac96d2c2e202fb5d2ebfe43eefdc9429c1e42307dc7",
+      "bytes": 1283158
+    },
+    {
+      "id": "nl-nl_lp_6",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_6.pdf",
+      "sha256": "f81c4a0fad8cb23103914731a231c70c169f6cf61ef991c25b87e15511f5bc3d",
+      "bytes": 1007160
+    },
+    {
+      "id": "nl-nl_lp_6e",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_6e.pdf",
+      "sha256": "ce348749d408981491b8b40d4128c111e1caade427e7c0dcae37a841bb402bcf",
+      "bytes": 1274429
+    },
+    {
+      "id": "de-de_lp_1",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_1.pdf",
+      "sha256": "445621625118d72b1099f5e6e9ce4cce2d92ae1299d9b5013a39b9c55b2fcd16",
+      "bytes": 724044
+    },
+    {
+      "id": "de-de_lp_1e",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_1e.pdf",
+      "sha256": "16e5e70e85ee20b99b66c635462d399baf8e5342437b6fc11c9fe3f5a6f02eaa",
+      "bytes": 1335349
+    },
+    {
+      "id": "de-de_lp_1m",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_1m.pdf",
+      "sha256": "e81663f36d0553f44415c2d07069f89244f61f1ca13e8623c8f9958397ae3444",
+      "bytes": 1396114
+    },
+    {
+      "id": "de-de_lp_1p",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_1p.pdf",
+      "sha256": "12894d001aebcf4860e2c71c8459379abde4b7df19b3e25c1437f9b0354f53ba",
+      "bytes": 958984
+    },
+    {
+      "id": "de-de_lp_2",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_2.pdf",
+      "sha256": "abb5c0874e22fbc582e9f7f666bcf8372c56b44bb2a356060d535b06cd3c931b",
+      "bytes": 968677
+    },
+    {
+      "id": "de-de_lp_2e",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_2e.pdf",
+      "sha256": "650e9b7b9247980a6f37f78ad9783fb069806e641bde26c9c5df0cd6f79c50cc",
+      "bytes": 1355536
+    },
+    {
+      "id": "de-de_lp_2m",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_2m.pdf",
+      "sha256": "9f84661e6f6cad0143103dbc50a5b964282618d6a954e38775c4e7a81d99db6c",
+      "bytes": 1014471
+    },
+    {
+      "id": "de-de_lp_2p",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_2p.pdf",
+      "sha256": "78a196ceae30941ac5c4e335ff65f7bbc115c4babaa87cbead27a946d0b86be2",
+      "bytes": 1440702
+    },
+    {
+      "id": "de-de_lp_3",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_3.pdf",
+      "sha256": "3a94f5643991ae00ccd76e0c69e3e78b7935c32c3bcd86c19e998a85c0ad7199",
+      "bytes": 1402925
+    },
+    {
+      "id": "de-de_lp_3e",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_3e.pdf",
+      "sha256": "9eda9fea1eab9d08a723ec0b4ed5d8368ae4a0e0aef41e2ed4015f33b54c0fa1",
+      "bytes": 209221
+    },
+    {
+      "id": "de-de_lp_3m",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_3m.pdf",
+      "sha256": "36587a171f679de6a1dddccfa384f3b37c6d97a19d4c70fe678255bea00a93b5",
+      "bytes": 1052723
+    },
+    {
+      "id": "de-de_lp_3p",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_3p.pdf",
+      "sha256": "5f21cec5502d6199425d0e0c3eb06ec0ea319b478954f1ccf2438117d1d14d38",
+      "bytes": 183363
+    },
+    {
+      "id": "de-de_lp_4",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_4.pdf",
+      "sha256": "949fc29af7164de33eb677b0832f8a350748e7b8761000ad31aa8c8ff15efc95",
+      "bytes": 1686594
+    },
+    {
+      "id": "de-de_lp_4m",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_4m.pdf",
+      "sha256": "79d5f0b6042c446e9d1962a52240b775447d4c6bb6fa1d072f4ce8c7e3770afa",
+      "bytes": 2210036
+    },
+    {
+      "id": "de-de_lp_4p",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_4p.pdf",
+      "sha256": "7c2a565999693b2335d1515c7787adbb77c638f4e6fbaa72b9f888ed01a85b13",
+      "bytes": 254164
+    },
+    {
+      "id": "de-de_lp_5e",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_5e.pdf",
+      "sha256": "9bffd2f0167f967f061eafa877a5815095567f0bb5a17e3934dca755376c107d",
+      "bytes": 1066772
+    },
+    {
+      "id": "de-de_lp_5m",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_5m.pdf",
+      "sha256": "b519ffb75404675e0a33f2540215e0063af134a32077046ad9fb6d7d004fcedf",
+      "bytes": 1117383
+    },
+    {
+      "id": "de-de_lp_6",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_6.pdf",
+      "sha256": "6e75085ed95494dce7cce8e96cffbfa7c8340f17b9f3ee89ae04190ab76e6e26",
+      "bytes": 1554230
+    },
+    {
+      "id": "de-de_lp_6e",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_6e.pdf",
+      "sha256": "54886bef37c932e0cf60390888a09be0d6206d486a8f5a0bb7efcc25852aa08d",
+      "bytes": 1274427
+    },
+    {
+      "id": "de-in_lp_2vd",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/in_lp_2vd.pdf",
+      "sha256": "ff7f484d0676ba3fe2dc87239eb4d5687b24b9b8ae496e4bd5bfdbf75a9b0256",
+      "bytes": 960716
+    },
+    {
+      "id": "de-in_lp_3vd",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/in_lp_3vd.pdf",
+      "sha256": "b266e5b88afe746d7b82b3d1babcfce3477b390e71b4c33bf57220c16e5ac299",
+      "bytes": 1972216
+    },
+    {
+      "id": "de-in_lp_4e",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/in_lp_4e.pdf",
+      "sha256": "eb543548624a695999a7b9518872d168a4018afd8cad0182eb4db5f37a86b690",
+      "bytes": 1427432
+    },
+    {
+      "id": "de-in_lp_5",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/in_lp_5.pdf",
+      "sha256": "05ee7dcc76337b35fade5aa8a8ab756b9301e4576773d4d0a763c27a6372266f",
+      "bytes": 3247954
+    },
+    {
+      "id": "de-in_lp_5p",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/in_lp_5p.pdf",
+      "sha256": "5d616c9f7e8fd3b0766f22e04e2b2598ff286c9ab50cc6d16a00d4449c411b72",
+      "bytes": 1214533
+    },
+    {
+      "id": "fr-fr_lp_1",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/lp/fr_lp_1.pdf",
+      "sha256": "837499b4e40733e67aa473c547d88376de42a66912b2e0a1eef1e45d831232e7",
+      "bytes": 2443506
+    },
+    {
+      "id": "fr-fr_lp_1m",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/lp/fr_lp_1m.pdf",
+      "sha256": "9108df39ba16b298ff60790e8c3c6ed518855415bf6aad66dddc6253e70daf70",
+      "bytes": 1407119
+    },
+    {
+      "id": "fr-fr_lp_1p",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/lp/fr_lp_1p.pdf",
+      "sha256": "fc690f2a2d4e6adc84978611251283f1ce73cc717d0a3667bb1d6c88192244d3",
+      "bytes": 2627637
+    },
+    {
+      "id": "fr-fr_lp_2",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/lp/fr_lp_2.pdf",
+      "sha256": "0e24fa0e76af20e7b1f4f2573d6526976b08dcef413ca4cc50b68fc223a9c478",
+      "bytes": 2545340
+    },
+    {
+      "id": "fr-fr_lp_2m",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/lp/fr_lp_2m.pdf",
+      "sha256": "72030de13050ac44aaba9636fb61bb651f6c23c28c0dc2da502aaef8f90c1dee",
+      "bytes": 2135985
+    },
+    {
+      "id": "fr-fr_lp_2p",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/lp/fr_lp_2p.pdf",
+      "sha256": "a1e8f9b1e918a6076795d222f15a56dcc83259160d7dd72ab0a0622e357f87c6",
+      "bytes": 2232946
+    },
+    {
+      "id": "fr-fr_lp_2x",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/lp/fr_lp_2x.pdf",
+      "sha256": "c5bda410d34eb341b13aed347cfcf652ab331436cce3e6f1c2645fec9e66a5b4",
+      "bytes": 1149578
+    },
+    {
+      "id": "fr-fr_lp_3m",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/lp/fr_lp_3m.pdf",
+      "sha256": "1623181da332170b3de3ab606294c5905d4ec03e8e62f45bb1250f69397e9dec",
+      "bytes": 2105061
+    },
+    {
+      "id": "fr-fr_lp_3p",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/lp/fr_lp_3p.pdf",
+      "sha256": "c148c0ab59ff62950e3c6e59ec7379c66e5328e9a26582d4596cb342fa6c544c",
+      "bytes": 2082824
+    },
+    {
+      "id": "fr-fr_lp_3x",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/lp/fr_lp_3x.pdf",
+      "sha256": "f2c962dd09f91e4c7babdf9468ac7ae932c243a00a9026e50d00992408cb486d",
+      "bytes": 2765562
+    },
+    {
+      "id": "fr-fr_lp_4",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/lp/fr_lp_4.pdf",
+      "sha256": "e15c2a600a640c68d5e4d5aa6c36574f779693304a68c3fd5a7076bd7c72f391",
+      "bytes": 1994243
+    },
+    {
+      "id": "fr-fr_lp_4m",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/lp/fr_lp_4m.pdf",
+      "sha256": "79d5f0b6042c446e9d1962a52240b775447d4c6bb6fa1d072f4ce8c7e3770afa",
+      "bytes": 2210036
+    },
+    {
+      "id": "fr-fr_lp_4p",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/lp/fr_lp_4p.pdf",
+      "sha256": "ce29e834592a4d95325a20542cd8c23540cd33ed5360b5f357bcad4305ade7cc",
+      "bytes": 2720516
+    },
+    {
+      "id": "fr-fr_lp_4x",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/lp/fr_lp_4x.pdf",
+      "sha256": "3e91eb9ac7359628f77ff6d9d580fe2648ff0d4b58a1f3a5d8f02fdd2d29891e",
+      "bytes": 2726682
+    },
+    {
+      "id": "fr-fr_lp_5",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/lp/fr_lp_5.pdf",
+      "sha256": "ed7d0d0fd05106d23c783169f6f2b5dda498a4d9db3147f563f9eb6eaa85cbf2",
+      "bytes": 2842987
+    },
+    {
+      "id": "fr-fr_lp_5m",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/lp/fr_lp_5m.pdf",
+      "sha256": "5f271d78cbd5826fc2c3e2009347d1a78839920ae1cff7913959b426d461ef40",
+      "bytes": 2220677
+    },
+    {
+      "id": "fr-fr_lp_5p",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/lp/fr_lp_5p.pdf",
+      "sha256": "c5f8ab40b57a600d1e52b7c586d251098c92d99c411683a2ab35caee189ed7c3",
+      "bytes": 2684722
+    },
+    {
+      "id": "fr-fr_lp_5x",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/lp/fr_lp_5x.pdf",
+      "sha256": "5fd6f9f3bffb17c8151cd8997b993139975f260d62e711eb3ee8fb4168c862f4",
+      "bytes": 2355246
+    },
+    {
+      "id": "fr-fr_lp_6",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/lp/fr_lp_6.pdf",
+      "sha256": "839fee46c127dee2a1ea03951f0c8af91858a26aeecce04d8ce28dfb4b4c4e72",
+      "bytes": 1082440
+    },
+    {
+      "id": "fr-fr_lp_6x",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/lp/fr_lp_6x.pdf",
+      "sha256": "4f1fe3e76d4ce77d6170d7b5e8960099c67bd55cf3c71d835f698a03c61cdf41",
+      "bytes": 3285258
+    },
+    {
+      "id": "fr-in_lp_1x",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/lp/in_lp_1x.pdf",
+      "sha256": "3eaa6f81d7f6d79769dc711fb31ca33740e6889d47095ff864c90d890e42ad55",
+      "bytes": 1998935
+    },
+    {
+      "id": "fr-in_lp_3vd",
+      "kind": "localized_workbook_sample_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/lp/in_lp_3vd.pdf",
+      "sha256": "b266e5b88afe746d7b82b3d1babcfce3477b390e71b4c33bf57220c16e5ac299",
+      "bytes": 1972216
+    },
+    {
+      "id": "chess-steps-step6_3",
+      "kind": "correction_pdf",
+      "language": "answers",
+      "url": "https://www.chess-steps.com/Images/step6_3.pdf",
+      "sha256": "fcbb533a27d65d8c1738685f08c1b445ccaaa83de5a5470a1ab1554e188957e3",
+      "bytes": 581425
+    },
+    {
+      "id": "ss-1",
+      "kind": "stepping_stones_web_image",
+      "language": "stepping-stones",
+      "url": "https://www.chess-steps.com/Images/ss-1.webp",
+      "sha256": "0254470b78400b142734cb6b5c774eaace7aee8ab57bb6cc3af6ff20b2209f9b",
+      "bytes": 121462
+    },
+    {
+      "id": "ss-2",
+      "kind": "stepping_stones_web_image",
+      "language": "stepping-stones",
+      "url": "https://www.chess-steps.com/Images/ss-2.webp",
+      "sha256": "7a84acf9ec33ed29033814c822ddd529d151344e61a34fb08b8b8935b7bad153",
+      "bytes": 33246
+    },
+    {
+      "id": "ss-3",
+      "kind": "stepping_stones_web_image",
+      "language": "stepping-stones",
+      "url": "https://www.chess-steps.com/Images/ss-3.webp",
+      "sha256": "789a4b8019da4220e743372ddca9789997708d851c59fce4ed5dd00a2272c372",
+      "bytes": 64792
+    },
+    {
+      "id": "ss-4",
+      "kind": "stepping_stones_web_image",
+      "language": "stepping-stones",
+      "url": "https://www.chess-steps.com/Images/ss-4.webp",
+      "sha256": "3a75bfb5df0d7e544d2a1a83af1634df97d2cb1ef882ca95ad4f4786b5afcfc0",
+      "bytes": 35178
+    },
+    {
+      "id": "ss-5",
+      "kind": "stepping_stones_web_image",
+      "language": "stepping-stones",
+      "url": "https://www.chess-steps.com/Images/ss-5.webp",
+      "sha256": "673ebb402f768424d255882b14b6570093780b19a45ee00e7167296636710935",
+      "bytes": 45584
+    },
+    {
+      "id": "ss-6",
+      "kind": "stepping_stones_web_image",
+      "language": "stepping-stones",
+      "url": "https://www.chess-steps.com/Images/ss-6.webp",
+      "sha256": "a0d86a94c0a7cc9d0c3c85c793ea7e423228bf31b822dfc655ea591738cdd289",
+      "bytes": 49440
+    },
+    {
+      "id": "ss-7",
+      "kind": "stepping_stones_web_image",
+      "language": "stepping-stones",
+      "url": "https://www.chess-steps.com/Images/ss-7.webp",
+      "sha256": "f02b0ba2d61b243ca0694741bc7fc07f2076ef71a48ecd54be7db473d0607cd6",
+      "bytes": 42592
+    },
+    {
+      "id": "ss-8",
+      "kind": "stepping_stones_web_image",
+      "language": "stepping-stones",
+      "url": "https://www.chess-steps.com/Images/ss-8.webp",
+      "sha256": "a6b04ada10a509dcc9559fb4b5a276e8239b516b35df5d2bfb860919459c2307",
+      "bytes": 45968
+    },
+    {
+      "id": "ss-9",
+      "kind": "stepping_stones_web_image",
+      "language": "stepping-stones",
+      "url": "https://www.chess-steps.com/Images/ss-9.webp",
+      "sha256": "01d08827dfb97ba497964be59af8b8647d7699aae2a16b47d3e63a9665ba2f17",
+      "bytes": 41978
+    },
+    {
+      "id": "ss-10",
+      "kind": "stepping_stones_web_image",
+      "language": "stepping-stones",
+      "url": "https://www.chess-steps.com/Images/ss-10.webp",
+      "sha256": "29dcb45ea3063380dbc98c694597cbadbec5b245133ce94c41f1f88cad49ba78",
+      "bytes": 41682
+    },
+    {
+      "id": "ss-11",
+      "kind": "stepping_stones_web_image",
+      "language": "stepping-stones",
+      "url": "https://www.chess-steps.com/Images/ss-11.webp",
+      "sha256": "b817569d9b28f6cea9e0fd2294054c1437f3a9d80bb02066e3a8ff431aaec5e2",
+      "bytes": 44844
+    },
+    {
+      "id": "ss-12",
+      "kind": "stepping_stones_web_image",
+      "language": "stepping-stones",
+      "url": "https://www.chess-steps.com/Images/ss-12.webp",
+      "sha256": "0fcb80e54711e0249225fb1093a701bc1d623c78e31952013ed5ab5b7cb6740b",
+      "bytes": 44316
+    },
+    {
+      "id": "ss-13",
+      "kind": "stepping_stones_web_image",
+      "language": "stepping-stones",
+      "url": "https://www.chess-steps.com/Images/ss-13.webp",
+      "sha256": "6fe0d9064e61e87d9fbddb924b88fc868f7f304b4c910dad75868b7c68eca2b0",
+      "bytes": 49340
+    },
+    {
+      "id": "ss-14",
+      "kind": "stepping_stones_web_image",
+      "language": "stepping-stones",
+      "url": "https://www.chess-steps.com/Images/ss-14.webp",
+      "sha256": "3945618b940b5fb1464f872279378afe7f6489d1e8fc0b3ea6e6e23d9f71958e",
+      "bytes": 54914
+    },
+    {
+      "id": "ss-15",
+      "kind": "stepping_stones_web_image",
+      "language": "stepping-stones",
+      "url": "https://www.chess-steps.com/Images/ss-15.webp",
+      "sha256": "120150dbc1a28c95b8917cd2a1cab1092df1c70670be0c72c6023a0584554bb5",
+      "bytes": 49604
+    },
+    {
+      "id": "ss-16",
+      "kind": "stepping_stones_web_image",
+      "language": "stepping-stones",
+      "url": "https://www.chess-steps.com/Images/ss-16.webp",
+      "sha256": "2bdda9510b5d65ff5780b9b70b86c0a31077370580b93c985adc85e232024811",
+      "bytes": 53452
+    },
+    {
+      "id": "ss-17",
+      "kind": "stepping_stones_web_image",
+      "language": "stepping-stones",
+      "url": "https://www.chess-steps.com/Images/ss-17.webp",
+      "sha256": "cc8309db8598dfa013f352fb0e7ad1efe15bcd7b402a6d4b8a8c33aedc7c983e",
+      "bytes": 28256
+    },
+    {
+      "id": "interactive-basic-step-1",
+      "kind": "interactive_position_set",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/opgaven/stap1/exercises_en.js",
+      "sha256": "0186777b1c1074932abda027473a31ad8fd6ae5d06715b2e79b9e06877c7b45c",
+      "bytes": 813,
+      "positions": 12
+    },
+    {
+      "id": "interactive-extra-step-1",
+      "kind": "interactive_position_set",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/opgaven/stap1x/exercises_en.js",
+      "sha256": "78d9d8e09dd4ed7593675e49c8504b9523814f4396d513379aba9f94902483c8",
+      "bytes": 1028,
+      "positions": 12
+    },
+    {
+      "id": "interactive-plus-step-1",
+      "kind": "interactive_position_set",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/opgaven/stap1p/exercises_en.js",
+      "sha256": "840a3b612c8198a0707e9ca0342a427d7d9b4198e80e5ec76dd785eb049bf6ca",
+      "bytes": 1178,
+      "positions": 12
+    },
+    {
+      "id": "interactive-basic-step-2",
+      "kind": "interactive_position_set",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/opgaven/stap2/exercises_en.js",
+      "sha256": "1de1c86c5f37ad28489c3e3369fa86d946857e81a6aa81e065f8accf93109aab",
+      "bytes": 1160,
+      "positions": 12
+    },
+    {
+      "id": "interactive-extra-step-2",
+      "kind": "interactive_position_set",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/opgaven/stap2x/exercises_en.js",
+      "sha256": "2c356cb951ce4ec645c1d1c59c465765bc68d9b2a8bcd3ba42cf5708c2fb0c87",
+      "bytes": 1213,
+      "positions": 12
+    },
+    {
+      "id": "interactive-plus-step-2",
+      "kind": "interactive_position_set",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/opgaven/stap2p/exercises_en.js",
+      "sha256": "e491f7a4383f5f96b54c253e5855b41fff5242aa45743e1928700c722d56f897",
+      "bytes": 1089,
+      "positions": 12
+    },
+    {
+      "id": "interactive-basic-step-3",
+      "kind": "interactive_position_set",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/opgaven/stap3/exercises_en.js",
+      "sha256": "9402b47e92e2a276dd3545bc3a3e0a20f6906875a4a0ab260d91226688b4c8b6",
+      "bytes": 906,
+      "positions": 12
+    },
+    {
+      "id": "interactive-extra-step-3",
+      "kind": "interactive_position_set",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/opgaven/stap3x/exercises_en.js",
+      "sha256": "97d8463edd247db35476d120e8e8ecc0b8d4aaceb993f7e867da83ccb7fcef7f",
+      "bytes": 1364,
+      "positions": 12
+    },
+    {
+      "id": "interactive-plus-step-3",
+      "kind": "interactive_position_set",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/opgaven/stap3p/exercises_en.js",
+      "sha256": "a3dc160ef31daa2314a33fb97ed73491c4b5f8c13c514e917a0212cab7267c70",
+      "bytes": 1070,
+      "positions": 12
+    },
+    {
+      "id": "interactive-basic-step-4",
+      "kind": "interactive_position_set",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/opgaven/stap4/exercises_en.js",
+      "sha256": "7cfeccca6e30ac94f240a733623d339e6f9d55abe35cd7c6410bc5d08a358975",
+      "bytes": 1493,
+      "positions": 12
+    },
+    {
+      "id": "interactive-extra-step-4",
+      "kind": "interactive_position_set",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/opgaven/stap4x/exercises_en.js",
+      "sha256": "8b90efd64d3c6f3653e36a4a83828cc8c303ec94c13236683acb6fb1670bca58",
+      "bytes": 1522,
+      "positions": 12
+    },
+    {
+      "id": "interactive-plus-step-4",
+      "kind": "interactive_position_set",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/opgaven/stap4p/exercises_en.js",
+      "sha256": "7c967c87b20d6ced44005bd0dbab252788f0cb45d241dbcb7cf78abd2effa024",
+      "bytes": 1210,
+      "positions": 12
+    },
+    {
+      "id": "interactive-basic-step-5",
+      "kind": "interactive_position_set",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/opgaven/stap5/exercises_en.js",
+      "sha256": "26c5ae7c2e05a1ffc0965d11341e00e20f925e49df652999b40a3d98e1099c33",
+      "bytes": 2973,
+      "positions": 12
+    },
+    {
+      "id": "interactive-extra-step-5",
+      "kind": "interactive_position_set",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/opgaven/stap5x/exercises_en.js",
+      "sha256": "46d9522f1a413746a6f159545b26d91555e3a826c685734f4c76b1a23907e30d",
+      "bytes": 1912,
+      "positions": 12
+    },
+    {
+      "id": "interactive-plus-step-5",
+      "kind": "interactive_position_set",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/opgaven/stap5p/exercises_en.js",
+      "sha256": "6add271aa882a4e8e367bf9323f74d758242b2859af830b3140b61cd36abbda1",
+      "bytes": 1987,
+      "positions": 12
+    },
+    {
+      "id": "interactive-basic-step-6",
+      "kind": "interactive_position_set",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/opgaven/stap6/exercises_en.js",
+      "sha256": "b2c5a8ba100561a095b487fa4188754f88c173d79b108bafbe163a00382aeadd",
+      "bytes": 1665,
+      "positions": 12
+    },
+    {
+      "id": "interactive-extra-step-6",
+      "kind": "interactive_position_set",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/opgaven/stap6x/exercises_en.js",
+      "sha256": "38089ea36542f65cab8b8d1c744db05912bf0e4915bf34e25afc7b4758ebdfa0",
+      "bytes": 1937,
+      "positions": 12
+    },
+    {
+      "id": "de_lp_h1",
+      "kind": "german_manual_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.de/media/pdf/bb/19/6b/de_lp_h1.pdf",
+      "sha256": "cff5934bbca8e57035e0c229eb9fc0d6720ca5436853015cc821ac0d68b30a6b",
+      "bytes": 305991
+    },
+    {
+      "id": "de_lp_h2_25",
+      "kind": "german_manual_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.de/media/pdf/57/a0/f5/de_lp_h2_25.pdf",
+      "sha256": "56384f5e7875e7161d08b45d2ece4bced32058e7dbb6d9d9b79c72369b9fca23",
+      "bytes": 1635873
+    },
+    {
+      "id": "de_lp_h3_25",
+      "kind": "german_manual_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.de/media/pdf/ef/1e/3f/de_lp_h3_25.pdf",
+      "sha256": "fc0e6379d67a36da0a2bfa5a68921bc75f829ce509f3730a0e3f92e388aae1d9",
+      "bytes": 1641727
+    },
+    {
+      "id": "de_lp_h4_25",
+      "kind": "german_manual_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.de/media/pdf/a8/73/5c/de_lp_h4_25.pdf",
+      "sha256": "94ee21228a55d4783f7e2a55dc8397d476c630b114d29ced6f6620e9f9f43ff0",
+      "bytes": 1730535
+    },
+    {
+      "id": "de_lp_h5",
+      "kind": "german_manual_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.de/media/pdf/15/5c/ca/de_lp_h5.pdf",
+      "sha256": "6da4d1a1b0e44c222f6e5346d78d70c03b43eebbc9dc6b59de304afeb08bb854",
+      "bytes": 1787714
+    },
+    {
+      "id": "de_lp_h6",
+      "kind": "german_manual_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.de/media/pdf/36/d3/4e/de_lp_h6.pdf",
+      "sha256": "0bd36284d94d31248e5dca5662c6eaa773e4d56d3139df141746c084ed7e8488",
+      "bytes": 281701
+    },
+    {
+      "id": "en-en_gs_1e",
+      "kind": "lesson_reminder_pdf",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/en/gs/en_gs_1e.pdf",
+      "sha256": "90a4a26dbba58f7914d857f967b23a1161275e260b2a27f03501d04befa52d97",
+      "bytes": 283631
+    },
+    {
+      "id": "en-en_gs_1m",
+      "kind": "lesson_reminder_pdf",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/en/gs/en_gs_1m.pdf",
+      "sha256": "af80f108f8079b410674944bec53ac4a9aa0b635b395ecd91c832b89e2239837",
+      "bytes": 648579
+    },
+    {
+      "id": "en-en_gs_2e",
+      "kind": "lesson_reminder_pdf",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/en/gs/en_gs_2e.pdf",
+      "sha256": "98ab4c877db4868d13e6d2ff8abc90ec9e35dedaa5725421c1cd0c4752c15ec8",
+      "bytes": 296873
+    },
+    {
+      "id": "en-en_gs_2m",
+      "kind": "lesson_reminder_pdf",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/en/gs/en_gs_2m.pdf",
+      "sha256": "16414279dec82b5a228d6f3cad544b470ab2f1f3863bcdae052d6c658464eeec",
+      "bytes": 1050334
+    },
+    {
+      "id": "en-en_gs_2p",
+      "kind": "lesson_reminder_pdf",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/en/gs/en_gs_2p.pdf",
+      "sha256": "897dd3c16d770aed41764e2b4a81adcfafb9f14cdb7b91bf45ab90993c93cbf4",
+      "bytes": 1316447
+    },
+    {
+      "id": "en-en_gs_2vd",
+      "kind": "lesson_reminder_pdf",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/en/gs/en_gs_2vd.pdf",
+      "sha256": "41342d1c09810eb1b5c18dac2e46d27599e93e9dd9c452cbbc3ffdff1af5d211",
+      "bytes": 1097211
+    },
+    {
+      "id": "en-en_gs_3",
+      "kind": "lesson_reminder_pdf",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/en/gs/en_gs_3.pdf",
+      "sha256": "626f9b7e0c332e47d4b34226cabf4fa9c45502568008938871a785af2133815f",
+      "bytes": 1337183
+    },
+    {
+      "id": "en-en_gs_3e",
+      "kind": "lesson_reminder_pdf",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/en/gs/en_gs_3e.pdf",
+      "sha256": "65541efafa1cd0282262b2383ed0ce0aeb2c2b552792c044f59a7ce5afe99666",
+      "bytes": 311998
+    },
+    {
+      "id": "en-en_gs_3p",
+      "kind": "lesson_reminder_pdf",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/en/gs/en_gs_3p.pdf",
+      "sha256": "e9f0ec9d7244451bd3e27c8962a808195342d2b76fee93084b4a1d6e83db0141",
+      "bytes": 3375224
+    },
+    {
+      "id": "en-en_gs_3vd",
+      "kind": "lesson_reminder_pdf",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/en/gs/en_gs_3vd.pdf",
+      "sha256": "186d5958b61295932950140a4c08f1e2c55aaf0acbc883939c126a9f6f91ae98",
+      "bytes": 1205938
+    },
+    {
+      "id": "en-en_gs_4",
+      "kind": "lesson_reminder_pdf",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/en/gs/en_gs_4.pdf",
+      "sha256": "8d0293235db79ba2de88649c41f5ad118d3273b26c2e07e642968b6048c86457",
+      "bytes": 1254055
+    },
+    {
+      "id": "en-en_gs_4e",
+      "kind": "lesson_reminder_pdf",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/en/gs/en_gs_4e.pdf",
+      "sha256": "df326c9c726213c91ab9498989ecd18291da55139656f7927dff3c28ce85d93b",
+      "bytes": 239380
+    },
+    {
+      "id": "en-en_gs_4p",
+      "kind": "lesson_reminder_pdf",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/en/gs/en_gs_4p.pdf",
+      "sha256": "b831fead091d35d4eb063aba24efeac2c3ade36c0186ed67c99742217f6af72f",
+      "bytes": 1599608
+    },
+    {
+      "id": "en-en_gs_5",
+      "kind": "lesson_reminder_pdf",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/en/gs/en_gs_5.pdf",
+      "sha256": "9cd10c492d6fb599fa20dd61410ea287164dbcb731200365a5b4566708e2e3c7",
+      "bytes": 1820625
+    },
+    {
+      "id": "en-en_gs_5e",
+      "kind": "lesson_reminder_pdf",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/en/gs/en_gs_5e.pdf",
+      "sha256": "b42a6ef097a7c6601b82419a4a6ea1d04dd29697f5b577c292cde61872b3fabd",
+      "bytes": 357939
+    },
+    {
+      "id": "en-en_gs_5p",
+      "kind": "lesson_reminder_pdf",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/en/gs/en_gs_5p.pdf",
+      "sha256": "a77d16e88ab887a1d71a62ccb7c9882f41e4047fff8b3d55e9b27584d64bfba9",
+      "bytes": 1442834
+    },
+    {
+      "id": "en-en_gs_6",
+      "kind": "lesson_reminder_pdf",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/en/gs/en_gs_6.pdf",
+      "sha256": "e93213d2c0cbbf630153249e2e3e1207dd6f069dc45dfab655ceffb825c2c0f2",
+      "bytes": 147050
+    },
+    {
+      "id": "en-en_lp_h1",
+      "kind": "official_manual_sample_pdf",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/en/lp/en_lp_h1.pdf",
+      "sha256": "37572e266289ac91dfa537131c8c23131dfb15552aca664263ddc5552bca5a15",
+      "bytes": 268936
+    },
+    {
+      "id": "en-en_lp_h2",
+      "kind": "official_manual_sample_pdf",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/en/lp/en_lp_h2.pdf",
+      "sha256": "272e63cd1b323a69d9a67da1bff2992a8d4e2a8d5532e50059624c22707e5c4c",
+      "bytes": 398080
+    },
+    {
+      "id": "en-en_lp_h3",
+      "kind": "official_manual_sample_pdf",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/en/lp/en_lp_h3.pdf",
+      "sha256": "d65298efb42e89d334bc3fa2fc9033ee9232411173fdce7da332458c6a30d8af",
+      "bytes": 1436887
+    },
+    {
+      "id": "en-en_lp_h4",
+      "kind": "official_manual_sample_pdf",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/en/lp/en_lp_h4.pdf",
+      "sha256": "649d9bacf751d16091fa4fadcec01e1f666b2186ba9d20586e9ecb9f36834e24",
+      "bytes": 1645288
+    },
+    {
+      "id": "en-en_lp_h5",
+      "kind": "official_manual_sample_pdf",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/en/lp/en_lp_h5.pdf",
+      "sha256": "1bba8eefebe07622ac84293a1581188e8757679e91b13ba4be68101fc6d065da",
+      "bytes": 393651
+    },
+    {
+      "id": "en-en_lp_h6",
+      "kind": "official_manual_sample_pdf",
+      "language": "en",
+      "url": "https://www.stappenmethode.nl/en/lp/en_lp_h6.pdf",
+      "sha256": "e6c561ac762795db9b6d82b7e89b379e2d502562a1b09c84b7f2eda1c47f7609",
+      "bytes": 224279
+    },
+    {
+      "id": "nl-nl_gs_1e",
+      "kind": "lesson_reminder_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_1e.pdf",
+      "sha256": "90f70171b6bdc4665cfcdb7e0ffcf3cee65d26c522882c5251c5427d31b9286f",
+      "bytes": 283823
+    },
+    {
+      "id": "nl-nl_gs_1m",
+      "kind": "lesson_reminder_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_1m.pdf",
+      "sha256": "2ca21fe4dc8371d460216dd3336f7b97d8fd7c183cb047e672d274b184bbb67e",
+      "bytes": 648116
+    },
+    {
+      "id": "nl-nl_gs_2e",
+      "kind": "lesson_reminder_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_2e.pdf",
+      "sha256": "5a7965276e4874da41eba3a12f5992c6103e8389f304414843272f4378268019",
+      "bytes": 335734
+    },
+    {
+      "id": "nl-nl_gs_2m",
+      "kind": "lesson_reminder_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_2m.pdf",
+      "sha256": "18a32ea0f0dd3d00797222a1e078b7862367c4d86071a191ff830ec4bd9a7ee4",
+      "bytes": 1061725
+    },
+    {
+      "id": "nl-nl_gs_2p",
+      "kind": "lesson_reminder_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_2p.pdf",
+      "sha256": "46d64285df6406052f82ced28ed29a4e858ca001fe43cad1203f99622475f275",
+      "bytes": 2002433
+    },
+    {
+      "id": "nl-nl_gs_2vd",
+      "kind": "lesson_reminder_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_2vd.pdf",
+      "sha256": "86b2aa2e5fd6867c8924cf4a7d9f6664c3870ec452dacea503ac0b33624234d8",
+      "bytes": 1056394
+    },
+    {
+      "id": "nl-nl_gs_3",
+      "kind": "lesson_reminder_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_3.pdf",
+      "sha256": "ab17228f16f8fc7ba5e5847d916fca4b9f0673dfc819de65ae5194636c3b5429",
+      "bytes": 1334456
+    },
+    {
+      "id": "nl-nl_gs_3e",
+      "kind": "lesson_reminder_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_3e.pdf",
+      "sha256": "f870264866912cdebe3cf7cb335d977a90e948150b038058316a92602a0417b2",
+      "bytes": 246192
+    },
+    {
+      "id": "nl-nl_gs_3p",
+      "kind": "lesson_reminder_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_3p.pdf",
+      "sha256": "b70984280912bf29c1c4220ee94cf25a1e80fff193b51d9c35c3224fd0522f12",
+      "bytes": 2630778
+    },
+    {
+      "id": "nl-nl_gs_3vd",
+      "kind": "lesson_reminder_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_3vd.pdf",
+      "sha256": "196fbb1538a05223033c45e59352d30752b8ca195c7c8b628e442a4ab7984f68",
+      "bytes": 1214691
+    },
+    {
+      "id": "nl-nl_gs_4",
+      "kind": "lesson_reminder_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_4.pdf",
+      "sha256": "2692b9aa09cdae9a36a3bdeec33bfc1e38ae8b4a11d561a8e667ea0e42de7623",
+      "bytes": 1466236
+    },
+    {
+      "id": "nl-nl_gs_4e",
+      "kind": "lesson_reminder_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_4e.pdf",
+      "sha256": "8081505818767795cba4844bbc0bfaf5ba7ada4700baa7dd02f32ee32e06fd45",
+      "bytes": 258293
+    },
+    {
+      "id": "nl-nl_gs_4p",
+      "kind": "lesson_reminder_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_4p.pdf",
+      "sha256": "6c804061f8692b3d3e72698c7c85534f616da488ff25782c42f428ec770e50f8",
+      "bytes": 1674843
+    },
+    {
+      "id": "nl-nl_gs_5",
+      "kind": "lesson_reminder_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_5.pdf",
+      "sha256": "a035d08d1bda7e7fc83b9ee768183569c73ca40c27dc9a4318527c3e7fbf1e21",
+      "bytes": 1802950
+    },
+    {
+      "id": "nl-nl_gs_5e",
+      "kind": "lesson_reminder_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_5e.pdf",
+      "sha256": "8040fbbd8b55b597b4ee7591f492e95a772826a30e604112131f395342b9e878",
+      "bytes": 358778
+    },
+    {
+      "id": "nl-nl_gs_5p",
+      "kind": "lesson_reminder_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_5p.pdf",
+      "sha256": "ab4c19a66f20f5f727e86df993dee93aefa85267d20349eea0fba2b936f73c95",
+      "bytes": 1511862
+    },
+    {
+      "id": "nl-nl_lp_h1",
+      "kind": "official_manual_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_h1.pdf",
+      "sha256": "0daebc93c62ebac0b570f9eda95dac7ec2dd90a9f4573e7f9ebe7f4bbc1773a8",
+      "bytes": 302306
+    },
+    {
+      "id": "nl-nl_lp_h2",
+      "kind": "official_manual_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_h2.pdf",
+      "sha256": "fe97f6cfc1c632e917d34b837c2676f28737772e7a0d9f08f9d31a8f620387fc",
+      "bytes": 412998
+    },
+    {
+      "id": "nl-nl_lp_h3",
+      "kind": "official_manual_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_h3.pdf",
+      "sha256": "d6d9cab7318e013e681b13a253cab74cfa43d22ab439a23eb161d3a5e69bf688",
+      "bytes": 906732
+    },
+    {
+      "id": "nl-nl_lp_h4",
+      "kind": "official_manual_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_h4.pdf",
+      "sha256": "5ee051a0b526bb40415a22e8ce302ce446c53e7df5f58e72d61cc46009a6e2e0",
+      "bytes": 838548
+    },
+    {
+      "id": "nl-nl_lp_h5",
+      "kind": "official_manual_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_h5.pdf",
+      "sha256": "c8836a2885b5ebf89dee8ad8044419c6ee5c479ece85891363ee38cc6feb775b",
+      "bytes": 298209
+    },
+    {
+      "id": "nl-nl_lp_h6",
+      "kind": "official_manual_sample_pdf",
+      "language": "nl",
+      "url": "https://www.stappenmethode.nl/nl/lp/nl_lp_h6.pdf",
+      "sha256": "8da7c54e905c8bd8a685721ea65d772e740859b876b93bdd236c7e94aa47ce26",
+      "bytes": 223671
+    },
+    {
+      "id": "de-de_gs_1e",
+      "kind": "lesson_reminder_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/gs/de_gs_1e.pdf",
+      "sha256": "eb4fc9f7f2390bd20327cb3d7588a66ac6bb6368440dc60c979c1941d7f9663a",
+      "bytes": 285660
+    },
+    {
+      "id": "de-de_gs_1m",
+      "kind": "lesson_reminder_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/gs/de_gs_1m.pdf",
+      "sha256": "28ee879cba9bb295ad449b72e262b77098df3992b3b0a71cf8e5637496150c1e",
+      "bytes": 651443
+    },
+    {
+      "id": "de-de_gs_2e",
+      "kind": "lesson_reminder_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/gs/de_gs_2e.pdf",
+      "sha256": "7661fedd2450c6715967800258ae6e377462d4f1f87e1cca5ced7ad008fc7f86",
+      "bytes": 370279
+    },
+    {
+      "id": "de-de_gs_2p",
+      "kind": "lesson_reminder_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/gs/de_gs_2p.pdf",
+      "sha256": "997dfd04dc77ace7a63d3e3f7c731e3a4d90368dd2ea2324c2b78ca6115614b8",
+      "bytes": 1961532
+    },
+    {
+      "id": "de-de_gs_2vd",
+      "kind": "lesson_reminder_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/gs/de_gs_2vd.pdf",
+      "sha256": "1a1c35f81e610023f2971745d7d205b4c08a174e5f4cf59cc8f89d6492de91e1",
+      "bytes": 1083413
+    },
+    {
+      "id": "de-de_gs_3",
+      "kind": "lesson_reminder_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/gs/de_gs_3.pdf",
+      "sha256": "ddab0a645b86f59c85d09350384ecd67e0de2874bcd452af9216b348a8d1fb66",
+      "bytes": 1316700
+    },
+    {
+      "id": "de-de_gs_3e",
+      "kind": "lesson_reminder_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/gs/de_gs_3e.pdf",
+      "sha256": "9eeac3b94ba4419ec4cba067de9c5bf6a35f8342f32c0bbd8e0476368faacbeb",
+      "bytes": 315322
+    },
+    {
+      "id": "de-de_gs_3p",
+      "kind": "lesson_reminder_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/gs/de_gs_3p.pdf",
+      "sha256": "b69e89faff3e11e171a7efeae914de13743da3926cb0ad4bdfa9800fa7e84f2c",
+      "bytes": 3346031
+    },
+    {
+      "id": "de-de_gs_3vd",
+      "kind": "lesson_reminder_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/gs/de_gs_3vd.pdf",
+      "sha256": "a19dc399320c1195aa47cb28f99ad7c0f4526e54013f74432f42fc9986fc06a8",
+      "bytes": 1266194
+    },
+    {
+      "id": "de-de_gs_4",
+      "kind": "lesson_reminder_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/gs/de_gs_4.pdf",
+      "sha256": "77692a2daad9514040136e9176a4cfb8c2530d708fffcd7991a333f52432d471",
+      "bytes": 1265844
+    },
+    {
+      "id": "de-de_gs_4e",
+      "kind": "lesson_reminder_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/gs/de_gs_4e.pdf",
+      "sha256": "3a4fb24e2354f2a6428e2af740bfcc172d567b3b798f89c61eb2f4b623e8f415",
+      "bytes": 218762
+    },
+    {
+      "id": "de-de_gs_4p",
+      "kind": "lesson_reminder_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/gs/de_gs_4p.pdf",
+      "sha256": "f52a3beb90cd4a61596fd3aebf7f9a7c68ad0cee85cba8f2d061f25dc5876599",
+      "bytes": 1636372
+    },
+    {
+      "id": "de-de_gs_5",
+      "kind": "lesson_reminder_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/gs/de_gs_5.pdf",
+      "sha256": "21ba785b666633013ceb54ec98b2703d7294b07d29af5beb9d8f5ffd27da993f",
+      "bytes": 1800885
+    },
+    {
+      "id": "de-de_gs_5e",
+      "kind": "lesson_reminder_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/gs/de_gs_5e.pdf",
+      "sha256": "591870a8dd51aea535fa7be9fd68b416dc4fd7e4d46df1b3a51eb97239e7adbc",
+      "bytes": 775577
+    },
+    {
+      "id": "de-de_gs_5p",
+      "kind": "lesson_reminder_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/gs/de_gs_5p.pdf",
+      "sha256": "2cd549947b0783cfda5a77587f0ccf24a0c424c866640a18867fe8bf20fd9c73",
+      "bytes": 1645020
+    },
+    {
+      "id": "de-de_gs_6",
+      "kind": "lesson_reminder_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/gs/de_gs_6.pdf",
+      "sha256": "3a6e25a0378d8278420946a64db5d4ff7a231073c390ccc766671438be2ed617",
+      "bytes": 95676
+    },
+    {
+      "id": "de-de_lp_h1",
+      "kind": "official_manual_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_h1.pdf",
+      "sha256": "27d7f409597424a27832c359425511aa17d4e23d7a3b3f5fcd63b9c4f77eb614",
+      "bytes": 1295988
+    },
+    {
+      "id": "de-de_lp_h2",
+      "kind": "official_manual_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_h2.pdf",
+      "sha256": "56384f5e7875e7161d08b45d2ece4bced32058e7dbb6d9d9b79c72369b9fca23",
+      "bytes": 1635873
+    },
+    {
+      "id": "de-de_lp_h3",
+      "kind": "official_manual_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_h3.pdf",
+      "sha256": "fc0e6379d67a36da0a2bfa5a68921bc75f829ce509f3730a0e3f92e388aae1d9",
+      "bytes": 1641727
+    },
+    {
+      "id": "de-de_lp_h4",
+      "kind": "official_manual_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_h4.pdf",
+      "sha256": "94ee21228a55d4783f7e2a55dc8397d476c630b114d29ced6f6620e9f9f43ff0",
+      "bytes": 1730535
+    },
+    {
+      "id": "de-de_lp_h5",
+      "kind": "official_manual_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_h5.pdf",
+      "sha256": "6da4d1a1b0e44c222f6e5346d78d70c03b43eebbc9dc6b59de304afeb08bb854",
+      "bytes": 1787714
+    },
+    {
+      "id": "de-de_lp_h6",
+      "kind": "official_manual_sample_pdf",
+      "language": "de",
+      "url": "https://www.stappenmethode.nl/de/lp/de_lp_h6.pdf",
+      "sha256": "0bd36284d94d31248e5dca5662c6eaa773e4d56d3139df141746c084ed7e8488",
+      "bytes": 281701
+    },
+    {
+      "id": "fr-fr_gs_1e",
+      "kind": "lesson_reminder_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/gs/fr_gs_1e.pdf",
+      "sha256": "27b0ca98ddedb3249326cc56209727b92fd4c5960ae59082d086784f514d6e02",
+      "bytes": 439317
+    },
+    {
+      "id": "fr-fr_gs_2e",
+      "kind": "lesson_reminder_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/gs/fr_gs_2e.pdf",
+      "sha256": "851b4bd8762da9f7d44814522bd51110a87a25bac1f861d3504be5ba8f022ad8",
+      "bytes": 537878
+    },
+    {
+      "id": "fr-fr_gs_2p",
+      "kind": "lesson_reminder_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/gs/fr_gs_2p.pdf",
+      "sha256": "750b73cd8645906418cf0a1003fa2f99d15dcb1bde9c2692256bf2fa94d27c17",
+      "bytes": 1475887
+    },
+    {
+      "id": "fr-fr_gs_3",
+      "kind": "lesson_reminder_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/gs/fr_gs_3.pdf",
+      "sha256": "26b5526168956631f23d897a2bb7d4bf6141c20316d07633e71961462203db02",
+      "bytes": 1359130
+    },
+    {
+      "id": "fr-fr_gs_3e",
+      "kind": "lesson_reminder_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/gs/fr_gs_3e.pdf",
+      "sha256": "ff6f60036db47a3e1bbd464201a1fe6132251735c5cb27865469d4831a5ca3b1",
+      "bytes": 314045
+    },
+    {
+      "id": "fr-fr_gs_3p",
+      "kind": "lesson_reminder_pdf",
+      "language": "fr",
+      "url": "https://www.stappenmethode.nl/fr/gs/fr_gs_3p.pdf",
+      "sha256": "4092d13b8d8682fcaa681d9193519d4506a5280ff9d649c78fa6b6dd520501d5",
+      "bytes": 2632655
+    }
+  ],
+  "interactive_render_assets": [
+    {
+      "id": "c40bb",
+      "url": "https://www.stappenmethode.nl/opgaven/images/c40bb.png",
+      "sha256": "f41d74cf07142a4da888670bbeb432c103aec2a666dea9167727f002091730eb",
+      "bytes": 1034
+    },
+    {
+      "id": "c40bk",
+      "url": "https://www.stappenmethode.nl/opgaven/images/c40bk.png",
+      "sha256": "319a15b5a1bd3229877da70d2af3fbfb2988511ace8267cfa5642cdc96573b86",
+      "bytes": 1523
+    },
+    {
+      "id": "c40bn",
+      "url": "https://www.stappenmethode.nl/opgaven/images/c40bn.png",
+      "sha256": "203263c7323884f7db3f508bfbfecc422e22825d0dfb1d633083cbf64cd4ab45",
+      "bytes": 1107
+    },
+    {
+      "id": "c40bp",
+      "url": "https://www.stappenmethode.nl/opgaven/images/c40bp.png",
+      "sha256": "f001425adf7c6dd5a0ed2237771e86ec4305fe1d6a06841d5cf5a59b79e26ca0",
+      "bytes": 522
+    },
+    {
+      "id": "c40bq",
+      "url": "https://www.stappenmethode.nl/opgaven/images/c40bq.png",
+      "sha256": "5217be4fc24ea205b74f80f0330b1af5c00c912dc9d5cd11d3ab0405dff650d5",
+      "bytes": 1337
+    },
+    {
+      "id": "c40br",
+      "url": "https://www.stappenmethode.nl/opgaven/images/c40br.png",
+      "sha256": "d4d740b9e01de548794d06b8bccae2ed345049c5001b22e82086873924426c91",
+      "bytes": 802
+    },
+    {
+      "id": "c40wb",
+      "url": "https://www.stappenmethode.nl/opgaven/images/c40wb.png",
+      "sha256": "f689d1ec43b0012e2f505e9128ff9058e07ffcb64ea501cd7814462729a959b3",
+      "bytes": 1412
+    },
+    {
+      "id": "c40wk",
+      "url": "https://www.stappenmethode.nl/opgaven/images/c40wk.png",
+      "sha256": "cb722fe7db49d945c7f95abc18f9303eef2857a84acd0c50702e72ff387e8ab5",
+      "bytes": 1428
+    },
+    {
+      "id": "c40wn",
+      "url": "https://www.stappenmethode.nl/opgaven/images/c40wn.png",
+      "sha256": "27bb06fc7112bf71ac6de04cba43789d68bc5684fd03a5ff4c9b3a406d979341",
+      "bytes": 1170
+    },
+    {
+      "id": "c40wp",
+      "url": "https://www.stappenmethode.nl/opgaven/images/c40wp.png",
+      "sha256": "ac6fedc6c6919f53f8f7996fc183a083b23bcd65f1952f523c228f1e492b728a",
+      "bytes": 880
+    },
+    {
+      "id": "c40wq",
+      "url": "https://www.stappenmethode.nl/opgaven/images/c40wq.png",
+      "sha256": "47205095cd2853cf2d5b45027770cfe7426d25a091940f9cc4272ef888966035",
+      "bytes": 1847
+    },
+    {
+      "id": "c40wr",
+      "url": "https://www.stappenmethode.nl/opgaven/images/c40wr.png",
+      "sha256": "c9133d06748c3830a974401e10a3a44f89d54f4dc1523678699c8618930f38ca",
+      "bytes": 1024
+    }
+  ]
+}

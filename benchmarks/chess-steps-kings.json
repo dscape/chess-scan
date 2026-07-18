@@ -1,0 +1,21 @@
+{
+  "name": "Independent official Chess Steps king-location gate",
+  "source_url": "https://www.stappenmethode.nl/en/lp/en_lp_3.pdf",
+  "source_sha256": "5f999cc43b14945501e2f19a865ed3765f543ce1a1007275e0524d0674c57a4f",
+  "pdf_page_index": 1,
+  "usage": "Manually audited king locations. This entire PDF is excluded from training and template construction.",
+  "positions": [
+    {"board_index": 0, "white_king_square": 54, "black_king_square": 6},
+    {"board_index": 1, "white_king_square": 56, "black_king_square": 6},
+    {"board_index": 2, "white_king_square": 58, "black_king_square": 6},
+    {"board_index": 3, "white_king_square": 62, "black_king_square": 6},
+    {"board_index": 4, "white_king_square": 62, "black_king_square": 6},
+    {"board_index": 5, "white_king_square": 63, "black_king_square": 6},
+    {"board_index": 6, "white_king_square": 62, "black_king_square": 7},
+    {"board_index": 7, "white_king_square": 57, "black_king_square": 6},
+    {"board_index": 8, "white_king_square": 63, "black_king_square": 7},
+    {"board_index": 9, "white_king_square": 47, "black_king_square": 7},
+    {"board_index": 10, "white_king_square": 55, "black_king_square": 5},
+    {"board_index": 11, "white_king_square": 55, "black_king_square": 22}
+  ]
+}

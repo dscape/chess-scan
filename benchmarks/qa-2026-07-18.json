@@ -1,0 +1,1390 @@
+{
+  "name": "Chess Scan official online and runtime QA results",
+  "run_date": "2026-07-18",
+  "runtime_version": "chess-steps-v2",
+  "weight_version": "chess-steps-v2",
+  "artifact_sha256": "51049359e9b9e4f2b101d2f762adc2ca049dc48ed515e9b9e6778d1efd12a363",
+  "source_manifest": "benchmarks/chess-steps-online-sources.json",
+  "methodology": {
+    "localized_render_scale": 3,
+    "localized_deduplication": "SHA-256 of normalized 512x512 board pixels",
+    "training_overlap_rule": "Exact normalized image hashes present in English adaptation data were excluded.",
+    "standard_position_rule": "Template labels contain exactly one king of each color.",
+    "template_validation": "99.7% square accuracy on the manually audited Step 2 reference page.",
+    "adjudication": "Every standard-board model/template disagreement was inspected as a source square crop.",
+    "interactive_labels": "Piece-placement FEN embedded by the official interactive exercise JavaScript."
+  },
+  "corpus": {
+    "official_source_artifacts": 184,
+    "localized_pdf_sources": 70,
+    "localized_candidate_diagrams": 3293,
+    "localized_exact_training_duplicates_removed": 1944,
+    "localized_unique_unseen_images": 1078,
+    "localized_standard_images": 976,
+    "localized_nonstandard_checkerboard_grids": 85,
+    "localized_non_grid_or_ambiguous_extractions": 17,
+    "interactive_position_sets": 17,
+    "interactive_positions": 204,
+    "stepping_stones_web_images": 17,
+    "stepping_stones_diagrams": 64,
+    "german_manual_sample_pdfs": 6,
+    "german_manual_candidate_diagrams": 67,
+    "german_manual_standard_diagrams": 63,
+    "expanded_manual_and_reminder_pdfs": 73,
+    "expanded_candidate_diagrams": 2634,
+    "expanded_unique_new_diagrams": 1632,
+    "expanded_two_king_diagrams": 1376,
+    "expanded_nonstandard_or_malformed_disagreements_excluded": 10,
+    "expanded_evaluable_diagrams": 1366
+  },
+  "standard_accuracy": {
+    "localized": {
+      "boards": 976,
+      "raw_template_agreement_boards": 927,
+      "raw_template_agreement_squares": 62410,
+      "total_squares": 62464,
+      "exact_king_positions": 976,
+      "board_exact_after_adjudication": 976,
+      "novel_placement_images": 358,
+      "novel_raw_template_agreement_boards": 315,
+      "novel_exact_king_positions": 358,
+      "novel_board_exact_after_adjudication": 358,
+      "base_board_exact_after_adjudication": 967,
+      "base_queen_color_errors": 9,
+      "final_queen_color_errors": 0
+    },
+    "interactive": {
+      "boards": 204,
+      "unique_piece_placements": 204,
+      "board_exact": 204,
+      "square_exact": 13056,
+      "total_squares": 13056,
+      "exact_king_positions": 204,
+      "placement_images_absent_from_adaptation_data": 191
+    },
+    "combined": {
+      "standard_source_images": 1243,
+      "board_exact_after_adjudication": 1243,
+      "exact_king_positions": 1243,
+      "unique_piece_placements": 1022,
+      "unique_piece_placements_absent_from_adaptation_data": 597
+    },
+    "german_manuals": {
+      "boards": 63,
+      "board_exact_after_disagreement_adjudication": 63,
+      "square_exact_after_disagreement_adjudication": 4032,
+      "total_squares": 4032,
+      "exact_king_positions": 63,
+      "unique_piece_placements": 63,
+      "piece_placements_absent_from_adaptation_data": 63
+    },
+    "expanded_manuals_and_reminders": {
+      "two_king_diagrams": 1376,
+      "excluded_nonstandard_or_malformed_disagreements": 10,
+      "evaluable_diagrams": 1366,
+      "board_exact_after_adjudication": 1364,
+      "square_accuracy_after_adjudication": 0.9999771229868228,
+      "exact_king_positions": 1366,
+      "remaining_queen_color_errors": 2,
+      "base_board_exact_after_adjudication": 1359
+    }
+  },
+  "localized_disagreement_adjudication": {
+    "boards": 49,
+    "squares": 54,
+    "base_model_confirmed_squares": 45,
+    "template_confirmed_squares": 9,
+    "final_model_confirmed_squares": 54,
+    "base_model_exact_boards": 40,
+    "final_model_exact_boards": 49,
+    "items": [
+      {
+        "source_id": "fr-fr_lp_4",
+        "diagram": "p04-b04",
+        "normalized_image_sha256": "faf51a5166c31b2f04417faf28641953f32529fbc5c610a0cd2b9cc05bb8c947",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 23,
+            "template_label": "empty",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "fr-fr_lp_4",
+        "diagram": "p04-b10",
+        "normalized_image_sha256": "51fde7b680f1000405a9e05b2adc305d21c39ee3f4807ce68e380fd773089acf",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 12,
+            "template_label": "Q",
+            "base_model_label": "q",
+            "adjudicated_label": "q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "fr-fr_lp_4",
+        "diagram": "p04-b00",
+        "normalized_image_sha256": "be9336ec9e4e0b2d86cc26aca29c9d9229b8cbf2412b197426a8c08d29372706",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 12,
+            "template_label": "q",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "fr-fr_lp_4",
+        "diagram": "p04-b02",
+        "normalized_image_sha256": "552caea6290bf39e84a847bdb40c985ede1bb877e178ed10b46b77bedcebc742",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 13,
+            "template_label": "q",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "fr-fr_lp_4",
+        "diagram": "p01-b02",
+        "normalized_image_sha256": "e6490af99e54b2f9e887e755825fb8dd6307755c61d74944d12b1b9800d39ef3",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 9,
+            "template_label": "q",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "nl-nl_lp_4e",
+        "diagram": "p04-b11",
+        "normalized_image_sha256": "ce350d09d491b83d6c0bbdd2823b24370b8e4985c2dd01bcadda055bb85885ca",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 10,
+            "template_label": "q",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "nl-nl_lp_4e",
+        "diagram": "p04-b04",
+        "normalized_image_sha256": "c62260cd5d53de97cec8af6703b1d8c3ecd950c00aa15eced73148f2f57aa063",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 12,
+            "template_label": "Q",
+            "base_model_label": "q",
+            "adjudicated_label": "q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "q"
+          },
+          {
+            "index": 23,
+            "template_label": "empty",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "nl-nl_lp_4e",
+        "diagram": "p04-b00",
+        "normalized_image_sha256": "606d2dbd79567d177bdc341dbb58f4f69524edb8a20b4aab2d1b67b6abc784d2",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 22,
+            "template_label": "q",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "nl-nl_lp_4e",
+        "diagram": "p04-b01",
+        "normalized_image_sha256": "074c53f59bfc31d9a97ec53a619f5731610af1a2d45a8aece3a1749e0b1974d0",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 12,
+            "template_label": "Q",
+            "base_model_label": "q",
+            "adjudicated_label": "q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "nl-nl_lp_4e",
+        "diagram": "p03-b09",
+        "normalized_image_sha256": "0e820b7effe2e0a00187f21c9bff69356e5865c408f4ca7846b96ec451df36cc",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 10,
+            "template_label": "q",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "nl-nl_lp_4e",
+        "diagram": "p03-b04",
+        "normalized_image_sha256": "1eaa3ac36842540300883f56d3bdd8ab9e7c8ed42f68c748df33129367f6e93e",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 10,
+            "template_label": "Q",
+            "base_model_label": "q",
+            "adjudicated_label": "q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "nl-nl_lp_4e",
+        "diagram": "p02-b07",
+        "normalized_image_sha256": "05c4cc4b9b0b442f36b7dba55b2b889dcfc11e9ab4dfd9ea2aa7f8ee7ad27871",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 23,
+            "template_label": "empty",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "nl-nl_lp_4e",
+        "diagram": "p02-b04",
+        "normalized_image_sha256": "f53f5ce8647a52772e931ed5e74fbde41f2be59508f322f2e2e4656dce944291",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 14,
+            "template_label": "Q",
+            "base_model_label": "q",
+            "adjudicated_label": "q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "q"
+          },
+          {
+            "index": 23,
+            "template_label": "empty",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          },
+          {
+            "index": 30,
+            "template_label": "empty",
+            "base_model_label": "B",
+            "adjudicated_label": "B",
+            "adjudication_winner": "base_model",
+            "final_model_label": "B"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "de-de_lp_4p",
+        "diagram": "p03-b10",
+        "normalized_image_sha256": "575d52ec2f25d49fab53eafd8a3da96b6498a89fe7fdb6a8010ff0f8ad3106b0",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 30,
+            "template_label": "empty",
+            "base_model_label": "B",
+            "adjudicated_label": "B",
+            "adjudication_winner": "base_model",
+            "final_model_label": "B"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "de-de_lp_4p",
+        "diagram": "p01-b02",
+        "normalized_image_sha256": "0981e8420f314d1062ebaa84d9a944d618824e1d2c786448419307ab9d6da698",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 20,
+            "template_label": "q",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "de-de_lp_4p",
+        "diagram": "p01-b03",
+        "normalized_image_sha256": "a25dabfc94e78104efff578feae5be632637626e03a457ce13ccc7a119559226",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 2,
+            "template_label": "q",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "de-de_lp_4p",
+        "diagram": "p01-b01",
+        "normalized_image_sha256": "2dbc878450b9a354c141df4e2e9079cfd97f4f96a536c4f998f665034662d8dd",
+        "novel_vs_adaptation_data": false,
+        "squares": [
+          {
+            "index": 34,
+            "template_label": "Q",
+            "base_model_label": "q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "template",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": false,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "de-de_lp_3p",
+        "diagram": "p04-b07",
+        "normalized_image_sha256": "6e4efcd447cdede87ae3285fefaf2638b9ce8e839764ca837c667db0f0c1f522",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 23,
+            "template_label": "empty",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "de-de_lp_3p",
+        "diagram": "p04-b04",
+        "normalized_image_sha256": "3aad55420a13bc13c92ecc657349d9d7311a03f7083be009ff1b7f27ed35f430",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 8,
+            "template_label": "q",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "de-de_lp_3p",
+        "diagram": "p04-b03",
+        "normalized_image_sha256": "516abb245a4fd464f249ccda333d3761fbec5c7cc5b753efb9e5291ff7e65988",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 14,
+            "template_label": "q",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "de-de_lp_3p",
+        "diagram": "p02-b06",
+        "normalized_image_sha256": "a81d2db597b8a6e8ffe8c384d378f0a78b47918896b30cf269dca694809303dc",
+        "novel_vs_adaptation_data": false,
+        "squares": [
+          {
+            "index": 32,
+            "template_label": "Q",
+            "base_model_label": "q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "template",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": false,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "de-de_lp_3p",
+        "diagram": "p02-b11",
+        "normalized_image_sha256": "8a0d112a040425fc2bdbeff6abb0f5fe028aee884503c31cc6d087df55feee56",
+        "novel_vs_adaptation_data": false,
+        "squares": [
+          {
+            "index": 38,
+            "template_label": "Q",
+            "base_model_label": "q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "template",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": false,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "de-de_lp_3p",
+        "diagram": "p01-b03",
+        "normalized_image_sha256": "be0cea7955bf964925f719c4d936962d359b16fe5e159728be16d7ff99c393f1",
+        "novel_vs_adaptation_data": false,
+        "squares": [
+          {
+            "index": 32,
+            "template_label": "Q",
+            "base_model_label": "q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "template",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": false,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "de-de_lp_3e",
+        "diagram": "p04-b04",
+        "normalized_image_sha256": "7501e3081fe005f823e364e8c28333969a8abf251d3b3923bd15392b5765ea1f",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 10,
+            "template_label": "Q",
+            "base_model_label": "q",
+            "adjudicated_label": "q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "q"
+          },
+          {
+            "index": 30,
+            "template_label": "empty",
+            "base_model_label": "B",
+            "adjudicated_label": "B",
+            "adjudication_winner": "base_model",
+            "final_model_label": "B"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "de-de_lp_3e",
+        "diagram": "p03-b10",
+        "normalized_image_sha256": "b398571f51d93f9c64907aa56111cf78e6ba24f71481ddf320927d3b3d4f4e90",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 10,
+            "template_label": "q",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "de-de_lp_3e",
+        "diagram": "p02-b02",
+        "normalized_image_sha256": "d5a4e9c9dc547de2eac9a39872338c938a3f127ad969966e2ea657151b5a2616",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 9,
+            "template_label": "q",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "de-de_lp_3e",
+        "diagram": "p03-b02",
+        "normalized_image_sha256": "d46f0ff2319f6aebd0176ac5ab5f5e151ea9155b60c3f3f6fe900d814e6fe9b4",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 1,
+            "template_label": "q",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "de-de_lp_3e",
+        "diagram": "p02-b05",
+        "normalized_image_sha256": "05717336c8f06e87ac607ef51c5dbbfc152588ee8bf956039ce0673abf8f5f0c",
+        "novel_vs_adaptation_data": false,
+        "squares": [
+          {
+            "index": 32,
+            "template_label": "Q",
+            "base_model_label": "q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "template",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": false,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "de-de_lp_3e",
+        "diagram": "p01-b01",
+        "normalized_image_sha256": "a9b8adbd6ff4fb0a88f80243524c599b2583ad8f78cd0c4e9164ada06b86f409",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 9,
+            "template_label": "q",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "de-de_lp_3e",
+        "diagram": "p01-b04",
+        "normalized_image_sha256": "129a8be637be5ce7b24bb065af8c839a53c966b3c775e79d0c6a0f4bc92d9a6d",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 10,
+            "template_label": "Q",
+            "base_model_label": "q",
+            "adjudicated_label": "q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "fr-fr_lp_2x",
+        "diagram": "p04-b05",
+        "normalized_image_sha256": "076fe0740351ba932fd016b3c6b4308abce944e1898b3a55deec0984aeb847cc",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 38,
+            "template_label": "Q",
+            "base_model_label": "q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "template",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": false,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "fr-fr_lp_2x",
+        "diagram": "p02-b08",
+        "normalized_image_sha256": "0af9f1848ccf33efc9f4e7191b940cc3a0fd86c742bdf6474d74aeb56298a77f",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 38,
+            "template_label": "Q",
+            "base_model_label": "q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "template",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": false,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "fr-fr_lp_2x",
+        "diagram": "p03-b04",
+        "normalized_image_sha256": "db83ae38a713d5b8aefa38f188a2091f3e7d6b88676e99027746ee34d4a5e02a",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 14,
+            "template_label": "Q",
+            "base_model_label": "q",
+            "adjudicated_label": "q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "fr-fr_lp_2x",
+        "diagram": "p02-b02",
+        "normalized_image_sha256": "65eeb2db7c7444d4925f6dd40b07148fa3799a227a63732ed4f78f536b50ea78",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 23,
+            "template_label": "q",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "fr-fr_lp_2x",
+        "diagram": "p02-b03",
+        "normalized_image_sha256": "fe0bb533be91ea43a0bb0ebd2d56fd0770a2c362614a61f8bd88a371abeaefcb",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 25,
+            "template_label": "q",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "fr-fr_lp_2x",
+        "diagram": "p03-b03",
+        "normalized_image_sha256": "255b0ee8d2bbd07152ebfa96942e939560c34ce2ececa8803ec38d621d9e66e4",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 24,
+            "template_label": "q",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "fr-fr_lp_2x",
+        "diagram": "p02-b10",
+        "normalized_image_sha256": "de97d0a6b90965165f61ff4aee547b685b9285b20f8729c2817d163e201597f9",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 10,
+            "template_label": "Q",
+            "base_model_label": "q",
+            "adjudicated_label": "q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "fr-fr_lp_2x",
+        "diagram": "p03-b00",
+        "normalized_image_sha256": "2eb5845dedea6a94b01c30626104b8acb235e3a319fa4a5fbb19f79cab40e84b",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 23,
+            "template_label": "q",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "fr-fr_lp_2x",
+        "diagram": "p01-b10",
+        "normalized_image_sha256": "03063665edc060d9c31e1351f38e2865a88d25cb62616f1528c5bb28bd31aa40",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 12,
+            "template_label": "Q",
+            "base_model_label": "q",
+            "adjudicated_label": "q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "fr-fr_lp_6",
+        "diagram": "p06-b07",
+        "normalized_image_sha256": "e87283fe42bfe7c8b97c98ebc44c9d31da5b2ba4eb0c4ed25f847ce85853078b",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 7,
+            "template_label": "q",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "fr-fr_lp_6",
+        "diagram": "p03-b08",
+        "normalized_image_sha256": "f792497521e6eb30dc1aa7eb8e1fcc35aef48c64f4c651c787e7ff9d528bea8b",
+        "novel_vs_adaptation_data": false,
+        "squares": [
+          {
+            "index": 38,
+            "template_label": "Q",
+            "base_model_label": "q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "template",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": false,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "fr-fr_lp_6",
+        "diagram": "p03-b10",
+        "normalized_image_sha256": "4a9e4fcdf8612167cbe7749ffc06d26a91e4c33dd47cd0a58e4c3b004d4a7489",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 30,
+            "template_label": "empty",
+            "base_model_label": "B",
+            "adjudicated_label": "B",
+            "adjudication_winner": "base_model",
+            "final_model_label": "B"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "fr-fr_lp_6",
+        "diagram": "p03-b01",
+        "normalized_image_sha256": "9b7f70a860febc9fb8b9891257a4ff2043be74c8d67c387f8d900f2524950a23",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 14,
+            "template_label": "Q",
+            "base_model_label": "q",
+            "adjudicated_label": "q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "fr-fr_lp_6",
+        "diagram": "p03-b00",
+        "normalized_image_sha256": "dd5f80933ea6e32fdf673c18d6dd6cfc3aeb5a2ad7c8465e12550889e9e5e2e5",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 23,
+            "template_label": "q",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "fr-fr_lp_6",
+        "diagram": "p01-b01",
+        "normalized_image_sha256": "cd428e8f3d4c47e54139e35e60df9f64e605e0712047a04af62ead26a10fe56b",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 19,
+            "template_label": "q",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "fr-fr_lp_6",
+        "diagram": "p01-b04",
+        "normalized_image_sha256": "da13454ae5bce701777dafa95dae54d282d5910d97b482fec91360dfc6e89441",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 0,
+            "template_label": "q",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          },
+          {
+            "index": 10,
+            "template_label": "Q",
+            "base_model_label": "q",
+            "adjudicated_label": "q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "nl-nl_lp_6",
+        "diagram": "p05-b07",
+        "normalized_image_sha256": "91b7d858203bbdfac0b86348b9f02c17f49b151388b1e80b882ab60cd684aa0e",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 34,
+            "template_label": "Q",
+            "base_model_label": "q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "template",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": false,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "nl-nl_lp_6",
+        "diagram": "p06-b02",
+        "normalized_image_sha256": "add0e43fdab7cde9b43b94f5d498a02f239191d36c92e1e81e8e67b934fd69cd",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 20,
+            "template_label": "q",
+            "base_model_label": "Q",
+            "adjudicated_label": "Q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "Q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      },
+      {
+        "source_id": "nl-nl_lp_6",
+        "diagram": "p06-b10",
+        "normalized_image_sha256": "14fab1953db8070da73ba168df0f2debd153be8aff759769994c91160d78b22d",
+        "novel_vs_adaptation_data": true,
+        "squares": [
+          {
+            "index": 12,
+            "template_label": "Q",
+            "base_model_label": "q",
+            "adjudicated_label": "q",
+            "adjudication_winner": "base_model",
+            "final_model_label": "q"
+          }
+        ],
+        "base_model_exact_after_adjudication": true,
+        "final_model_exact_after_adjudication": true
+      }
+    ]
+  },
+  "photo_stress": {
+    "boards": 12,
+    "reference_manifest": "benchmarks/chess-steps-step2.json",
+    "moderate_perspective": {
+      "before": {
+        "detected": 5,
+        "board_exact": 5
+      },
+      "after": {
+        "detected": 12,
+        "board_exact": 12,
+        "square_exact": 768,
+        "total_squares": 768
+      }
+    },
+    "severe_perspective_blur": {
+      "before": {
+        "detected": 5,
+        "board_exact": 5
+      },
+      "after": {
+        "detected": 12,
+        "board_exact": 12,
+        "square_exact": 768,
+        "total_squares": 768
+      }
+    },
+    "faded_board_256px": {
+      "before": {
+        "board_exact": 0
+      },
+      "after": {
+        "board_exact": 12,
+        "square_exact": 768,
+        "total_squares": 768
+      }
+    },
+    "clean_board_256px": {
+      "board_exact": 12,
+      "square_exact": 768,
+      "total_squares": 768
+    },
+    "clean_board_128px": {
+      "board_exact": 1,
+      "square_exact": 748,
+      "total_squares": 768
+    },
+    "random_seed_rule": "Board index for perspective sets; fixed deterministic transforms.",
+    "rectification": "Outer homography fitted to all 49 detected internal checkerboard intersections."
+  },
+  "nonstandard_grids": {
+    "boards": 85,
+    "production_false_marker_as_king_predictions": 86,
+    "best_experimental_false_marker_as_king_predictions": 7,
+    "candidate_promoted": false,
+    "rejection_reason": "Standard pieces and an independently gated king regressed."
+  },
+  "stepping_stones": {
+    "boards": 64,
+    "approximate_board_edge_pixels": 100,
+    "automatic_geometry_success": 15,
+    "accepted_as_normal_input": false
+  },
+  "mobile_usability": {
+    "viewport_css_pixels": [
+      390,
+      844
+    ],
+    "horizontal_overflow": false,
+    "manual_capture_reached_corner_editor": true,
+    "photo_fallback_available_in_camera": true,
+    "piece_picker_accessible_labels": 13,
+    "faded_camera_expected_fen": "k7/pp3p2/4n1p1/5p2/8/1r5P/1P4PK/5Q2",
+    "faded_camera_fen_exact": true
+  },
+  "german_manual_disagreement_adjudication": {
+    "boards": 1,
+    "squares": 1,
+    "model_confirmed_boards": 1,
+    "items": [
+      {
+        "source_id": "de_lp_h6",
+        "pdf_page_index": 11,
+        "board_index": 0,
+        "square_index": 3,
+        "template_label": "q",
+        "model_label": "Q",
+        "adjudication": "model_label_visually_confirmed"
+      }
+    ]
+  },
+  "expanded_disagreement_adjudication": {
+    "base_disagreement_boards": 18,
+    "excluded_nonstandard_or_malformed": 10,
+    "evaluable_disagreement_boards": 8,
+    "base_model_exact_evaluable_boards": 1,
+    "final_model_exact_evaluable_boards": 6,
+    "remaining_final_errors": 2,
+    "items": [
+      {
+        "source_id": "de-de_gs_3",
+        "pdf_page_index": 11,
+        "board_index": 4,
+        "status": "excluded_nonstandard",
+        "reason": "instructional dots",
+        "base_mismatches": null,
+        "final_mismatches": null
+      },
+      {
+        "source_id": "de-de_gs_3vd",
+        "pdf_page_index": 1,
+        "board_index": 5,
+        "status": "excluded_nonstandard",
+        "reason": "question-mark notation",
+        "base_mismatches": null,
+        "final_mismatches": null
+      },
+      {
+        "source_id": "de-de_gs_5",
+        "pdf_page_index": 5,
+        "board_index": 3,
+        "status": "evaluable",
+        "reason": "queen color determined from the source glyph",
+        "base_mismatches": [
+          {
+            "index": 52,
+            "expected": "Q",
+            "predicted": "q"
+          }
+        ],
+        "final_mismatches": []
+      },
+      {
+        "source_id": "de-de_gs_5p",
+        "pdf_page_index": 3,
+        "board_index": 0,
+        "status": "evaluable",
+        "reason": "queen color determined from the source glyph",
+        "base_mismatches": [
+          {
+            "index": 52,
+            "expected": "Q",
+            "predicted": "q"
+          }
+        ],
+        "final_mismatches": []
+      },
+      {
+        "source_id": "de-de_gs_5p",
+        "pdf_page_index": 6,
+        "board_index": 3,
+        "status": "evaluable",
+        "reason": "queen color determined from the source glyph",
+        "base_mismatches": [
+          {
+            "index": 11,
+            "expected": "Q",
+            "predicted": "q"
+          }
+        ],
+        "final_mismatches": [
+          {
+            "index": 11,
+            "expected": "Q",
+            "predicted": "q"
+          }
+        ]
+      },
+      {
+        "source_id": "de-de_gs_6",
+        "pdf_page_index": 0,
+        "board_index": 1,
+        "status": "evaluable",
+        "reason": "queen color determined from the source glyph",
+        "base_mismatches": [
+          {
+            "index": 38,
+            "expected": "Q",
+            "predicted": "q"
+          }
+        ],
+        "final_mismatches": []
+      },
+      {
+        "source_id": "de-de_gs_6",
+        "pdf_page_index": 0,
+        "board_index": 7,
+        "status": "evaluable",
+        "reason": "queen color determined from the source glyph",
+        "base_mismatches": [
+          {
+            "index": 43,
+            "expected": "Q",
+            "predicted": "q"
+          }
+        ],
+        "final_mismatches": [
+          {
+            "index": 43,
+            "expected": "Q",
+            "predicted": "q"
+          }
+        ]
+      },
+      {
+        "source_id": "en-en_gs_2m",
+        "pdf_page_index": 2,
+        "board_index": 1,
+        "status": "evaluable",
+        "reason": "queen color determined from the source glyph",
+        "base_mismatches": [
+          {
+            "index": 13,
+            "expected": "Q",
+            "predicted": "q"
+          }
+        ],
+        "final_mismatches": []
+      },
+      {
+        "source_id": "en-en_gs_3",
+        "pdf_page_index": 11,
+        "board_index": 4,
+        "status": "excluded_nonstandard",
+        "reason": "instructional dots",
+        "base_mismatches": null,
+        "final_mismatches": null
+      },
+      {
+        "source_id": "en-en_gs_3vd",
+        "pdf_page_index": 1,
+        "board_index": 5,
+        "status": "excluded_nonstandard",
+        "reason": "question-mark notation",
+        "base_mismatches": null,
+        "final_mismatches": null
+      },
+      {
+        "source_id": "en-en_gs_3vd",
+        "pdf_page_index": 9,
+        "board_index": 6,
+        "status": "excluded_nonstandard",
+        "reason": "malformed crop includes page heading",
+        "base_mismatches": null,
+        "final_mismatches": null
+      },
+      {
+        "source_id": "en-en_gs_3vd",
+        "pdf_page_index": 9,
+        "board_index": 9,
+        "status": "excluded_nonstandard",
+        "reason": "malformed crop includes page heading",
+        "base_mismatches": null,
+        "final_mismatches": null
+      },
+      {
+        "source_id": "fr-fr_gs_3",
+        "pdf_page_index": 11,
+        "board_index": 4,
+        "status": "excluded_nonstandard",
+        "reason": "instructional dots",
+        "base_mismatches": null,
+        "final_mismatches": null
+      },
+      {
+        "source_id": "nl-nl_gs_3",
+        "pdf_page_index": 11,
+        "board_index": 4,
+        "status": "excluded_nonstandard",
+        "reason": "instructional dots",
+        "base_mismatches": null,
+        "final_mismatches": null
+      },
+      {
+        "source_id": "nl-nl_gs_3p",
+        "pdf_page_index": 11,
+        "board_index": 7,
+        "status": "evaluable",
+        "reason": "queen color determined from the source glyph",
+        "base_mismatches": [
+          {
+            "index": 13,
+            "expected": "Q",
+            "predicted": "q"
+          }
+        ],
+        "final_mismatches": []
+      },
+      {
+        "source_id": "nl-nl_gs_3vd",
+        "pdf_page_index": 1,
+        "board_index": 5,
+        "status": "excluded_nonstandard",
+        "reason": "question-mark notation",
+        "base_mismatches": null,
+        "final_mismatches": null
+      },
+      {
+        "source_id": "nl-nl_lp_h1",
+        "pdf_page_index": 7,
+        "board_index": 0,
+        "status": "excluded_nonstandard",
+        "reason": "instructional route circles",
+        "base_mismatches": null,
+        "final_mismatches": null
+      },
+      {
+        "source_id": "nl-nl_lp_h6",
+        "pdf_page_index": 6,
+        "board_index": 0,
+        "status": "template_error",
+        "reason": "source square visibly contains a white bishop",
+        "base_mismatches": [],
+        "final_mismatches": []
+      }
+    ]
+  },
+  "model_reproduction": {
+    "script": "scripts/train_queen_adaptation.py",
+    "manifest": "benchmarks/chess-steps-queen-colors.json",
+    "verified": true,
+    "device": "mps",
+    "promoted_artifact_sha256": "51049359e9b9e4f2b101d2f762adc2ca049dc48ed515e9b9e6778d1efd12a363",
+    "reproduced_artifact_sha256": "471cea17cb41887f1ea8fda04257f9fde3d0270b50fd91d289778a64fa703ecc",
+    "byte_identical": false,
+    "gate_equivalent": true,
+    "metrics": {
+      "localized_actual_board_exact": [
+        976,
+        976
+      ],
+      "expanded_actual_board_exact": [
+        1364,
+        1366
+      ],
+      "expanded_exact_king_positions": [
+        1366,
+        1366
+      ],
+      "argus_replay_exact": [
+        19306,
+        19456
+      ],
+      "manual_king_gate": [
+        12,
+        12
+      ],
+      "online_exact": [
+        267,
+        267
+      ],
+      "moderate_perspective_exact": [
+        12,
+        12
+      ],
+      "severe_perspective_exact": [
+        12,
+        12
+      ],
+      "faded_256px_exact": [
+        12,
+        12
+      ]
+    }
+  }
+}

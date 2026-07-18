@@ -1,0 +1,26 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Web
+web/node_modules/
+web/dist/
+
+# Runtime data
+/data/*
+!/data/.gitkeep
+
+# Training outputs
+artifacts/
+datasets/
+
+# Local configuration
+.env
+.DS_Store
+*.log

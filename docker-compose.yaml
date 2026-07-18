@@ -1,0 +1,20 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - chess-scan-data:/app/data
+    restart: unless-stopped
+
+  trainer:
+    profiles: ["training"]
+    build:
+      context: .
+      dockerfile: Dockerfile.ml
+    volumes:
+      - chess-scan-data:/app/data
+    command: ["python", "scripts/train_candidate.py"]
+
+volumes:
+  chess-scan-data:

@@ -1,0 +1,88 @@
+{
+  "version": "chess-steps-v1",
+  "trained_at": "2026-07-17T21:56:29.333558+00:00",
+  "runtime_format": "onnx",
+  "architecture": "fused_tiny_square_cnn",
+  "base_model": "argus-v2r5",
+  "input_size": 64,
+  "num_classes": 13,
+  "seed": 42,
+  "epochs": 8,
+  "training_items_before_sampling": 39880,
+  "eligible_for_promotion": true,
+  "artifact_sha256": "8dced5157c87322a02bcfb1bf44f4c6ea3792e412df34e568f73542f68ab574a",
+  "sources": {
+    "argus_backup": "2026-03-29/argus_data.tar.gz",
+    "argus_replay_squares": 19500,
+    "official_sample_base_url": "https://www.stappenmethode.nl/en/",
+    "official_sample_pdfs": 24,
+    "detected_candidate_diagrams": 1129,
+    "standard_two_king_diagrams": 1064,
+    "official_images_redistributed": false,
+    "labeling": "Class templates from 12 manually audited Step 2 diagrams; only diagrams with exactly one template-matched king of each color enter training"
+  },
+  "benchmarks": {
+    "template_reference_manifest": "benchmarks/chess-steps-step2.json",
+    "template_reference_url": "https://www.stappenmethode.nl/en/lp/en_lp_2.pdf",
+    "independent_king_gate_manifest": "benchmarks/chess-steps-kings.json",
+    "independent_king_gate_url": "https://www.stappenmethode.nl/en/lp/en_lp_3.pdf",
+    "training_pixel_exclusion": [
+      "en_lp_2",
+      "en_lp_2e",
+      "en_lp_3"
+    ]
+  },
+  "baseline_metrics": {
+    "replay_square_accuracy": 0.9776923076923076,
+    "selection_en_lp_2e": {
+      "boards": 47.0,
+      "king_accuracy": 0.2765957446808511,
+      "exact_position_rate": 0.0
+    },
+    "independent_manual_king_gate": {
+      "boards": 12.0,
+      "king_accuracy": 0.20833333333333334,
+      "exact_position_rate": 0.0
+    },
+    "official_standard": {
+      "boards": 1064.0,
+      "king_accuracy": 0.206296992481203,
+      "exact_position_rate": 0.008458646616541353
+    },
+    "template_reference_step2_page": {
+      "boards": 12.0,
+      "square_accuracy": 0.9453125,
+      "king_accuracy": 0.08333333333333333,
+      "board_exact": 0.0
+    }
+  },
+  "candidate_metrics": {
+    "replay_square_accuracy": 0.9903846153846154,
+    "selection_en_lp_2e": {
+      "boards": 47.0,
+      "king_accuracy": 1.0,
+      "exact_position_rate": 1.0
+    },
+    "independent_manual_king_gate": {
+      "boards": 12.0,
+      "king_accuracy": 1.0,
+      "exact_position_rate": 1.0
+    },
+    "official_standard": {
+      "boards": 1064.0,
+      "king_accuracy": 1.0,
+      "exact_position_rate": 1.0
+    },
+    "template_reference_step2_page": {
+      "boards": 12.0,
+      "square_accuracy": 1.0,
+      "king_accuracy": 1.0,
+      "board_exact": 1.0
+    }
+  },
+  "promotion_gates": "100% independent manually audited king gate; 100% king positions on official standard diagrams; 100% exact template-reference page; Argus replay accuracy does not regress",
+  "metric_correction": {
+    "recorded_official_exact_position_rate": "Agreement with automated template labels, not fully human-adjudicated board exactness. Later QA found white-queen color errors; see chess-steps-v2 and benchmarks/qa-2026-07-18.json.",
+    "superseded_by": "chess-steps-v2"
+  }
+}

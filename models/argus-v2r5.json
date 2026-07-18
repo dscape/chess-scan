@@ -1,0 +1,24 @@
+{
+  "code_version": "v2",
+  "revision": 5,
+  "version": "v2r5",
+  "trained_at": "2026-04-10T01:26:51.800093+00:00",
+  "best_val_accuracy": 0.998,
+  "epochs": 8,
+  "train_size": 27050,
+  "val_size": 5540,
+  "seed": 42,
+  "input_size": 64,
+  "runtime_format": "onnx",
+  "architecture": "tiny_square_cnn",
+  "sources": {
+    "synthetic_train_per_class": 250,
+    "synthetic_val_per_class": 80,
+    "chess_positions_train_per_piece_class": 700,
+    "chess_positions_val_per_piece_class": 250,
+    "chess_positions_empty_multiplier": 6,
+    "real_board_train_dir": "data/overlay/val_real",
+    "real_board_augment_copies": 4,
+    "label_smoothing": 0.0
+  }
+}

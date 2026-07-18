@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "chess-scan"
+version = "0.1.0"
+description = "Photograph a Chess Steps diagram, correct it, and analyse it on Lichess"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+license = "MIT"
+dependencies = [
+    "chess==1.11.2",
+    "fastapi==0.139.2",
+    "numpy>=2.0,<3",
+    "onnxruntime==1.27.0",
+    "opencv-python-headless==5.0.0.93",
+    "pillow==12.3.0",
+    "python-multipart>=0.0.20,<1",
+    "uvicorn[standard]==0.51.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "httpx>=0.28,<1",
+    "pytest>=8.3,<10",
+    "ruff>=0.11,<1",
+]
+ml = [
+    "onnx>=1.17,<2",
+    "torch>=2.6,<3",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["server/chess_scan"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["server"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["server", "scripts", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP"]

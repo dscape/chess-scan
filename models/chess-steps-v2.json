@@ -1,0 +1,81 @@
+{
+  "version": "chess-steps-v2",
+  "trained_at": "2026-07-18T13:05:24.816500+00:00",
+  "runtime_format": "onnx",
+  "architecture": "fused_tiny_square_cnn",
+  "base_model": "chess-steps-v1r1",
+  "input_size": 64,
+  "num_classes": 13,
+  "seed_sequence": [
+    43,
+    43,
+    45
+  ],
+  "eligible_for_promotion": true,
+  "artifact_sha256": "51049359e9b9e4f2b101d2f762adc2ca049dc48ed515e9b9e6778d1efd12a363",
+  "adaptation": {
+    "purpose": "Correct white/black queen color on official lesson-reminder and localized workbook glyphs",
+    "manifest": "benchmarks/chess-steps-queen-colors.json",
+    "queen_examples": 2725,
+    "king_retention_examples": 2168,
+    "argus_replay_squares": 19500,
+    "official_images_redistributed": false
+  },
+  "gates": {
+    "localized_standard_boards": 976,
+    "localized_board_exact_after_adjudication": 1.0,
+    "localized_exact_king_positions": 1.0,
+    "localized_base_queen_color_errors": 9,
+    "localized_candidate_queen_color_errors": 0,
+    "reproducible_online_boards": 267,
+    "reproducible_online_board_exact": 1.0,
+    "expanded_two_king_diagrams": 1376,
+    "expanded_nonstandard_or_malformed_disagreements_excluded": 10,
+    "expanded_evaluable_boards": 1366,
+    "expanded_board_exact_after_adjudication": 0.9985358711566618,
+    "expanded_exact_king_positions": 1.0,
+    "expanded_remaining_queen_color_errors": 2,
+    "argus_replay_squares": 19456,
+    "argus_replay_base_accuracy": 0.9911595394736842,
+    "argus_replay_candidate_accuracy": 0.9922902960526315,
+    "independent_manual_king_gate": 1.0,
+    "manual_full_board_gate": 1.0,
+    "moderate_perspective_board_exact": 1.0,
+    "severe_perspective_board_exact": 1.0,
+    "faded_256px_board_exact": 1.0,
+    "official_qa_source_artifacts": 184,
+    "expanded_source_pdfs": 73
+  },
+  "runtime_revision": {
+    "geometry": "CLAHE fallback plus all-49-intersection homography fitting",
+    "preprocessing": "Guarded LAB luminance normalization for sharp faded diagrams",
+    "minimum_reliable_board_edge_pixels": 256
+  },
+  "source_manifest": "benchmarks/chess-steps-online-sources.json",
+  "result_manifest": "benchmarks/qa-2026-07-18.json",
+  "report": "docs/qa-report.md",
+  "promotion_gates": "All prior king, full-board, online, photo, and replay gates pass; nine adjudicated localized queen errors fixed without a clean-source regression.",
+  "loader_seed_sequence": [
+    43,
+    44,
+    45
+  ],
+  "reproduction": {
+    "script": "scripts/train_queen_adaptation.py",
+    "manifest": "benchmarks/chess-steps-queen-colors.json",
+    "verified": true,
+    "verified_on": "mps",
+    "reproduced_artifact_sha256": "471cea17cb41887f1ea8fda04257f9fde3d0270b50fd91d289778a64fa703ecc",
+    "byte_identical": false,
+    "note": "MPS training is not byte-deterministic; the reproduced candidate matched all recorded promotion metrics.",
+    "gates": {
+      "localized_final_exact_after_adjudication": 1.0,
+      "expanded_board_exact_after_adjudication": 0.9985358711566618,
+      "expanded_exact_king_positions": 1.0,
+      "argus_replay_accuracy": 0.9922902960526315,
+      "independent_manual_king_gate": 1.0,
+      "reproducible_online_board_exact": 1.0,
+      "photo_stress_board_exact": 1.0
+    }
+  }
+}
