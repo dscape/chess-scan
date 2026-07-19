@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { confirmScan, getLearningStatus, reprocessScan, scanImage } from "./api";
 import { countKings, fullFen, predictionNeedsReview } from "./board";
 import AppHeader from "./components/AppHeader";
@@ -23,7 +23,7 @@ export default function App() {
   const [scan, setScan] = useState<ScanResult | null>(null);
   const [corners, setCorners] = useState<Point[]>([]);
   const [labels, setLabels] = useState<number[]>([]);
-  const [predictedLabels, setPredictedLabels] = useState<number[]>([]);
+  const [rectifiedImageUrl, setRectifiedImageUrl] = useState<string | null>(null);
   const [orientation, setOrientation] = useState<Orientation>("white");
   const [sideToMove, setSideToMove] = useState<SideToMove>("w");
   const [castlingRights, setCastlingRights] = useState<string[]>([]);
@@ -35,6 +35,7 @@ export default function App() {
   const [geometryOpen, setGeometryOpen] = useState(false);
   const [learningStatus, setLearningStatus] = useState<LearningStatus | null>(null);
   const [clientSessionId] = useState(getClientSessionId);
+  const requestGeneration = useRef(0);
 
   useEffect(() => {
     void getLearningStatus().then(setLearningStatus).catch(() => undefined);
@@ -50,9 +51,46 @@ export default function App() {
     return () => URL.revokeObjectURL(url);
   }, [sourceFile]);
 
+  const rectifiedSourceUrl = scan?.rectified_image_url;
+  useEffect(() => {
+    setRectifiedImageUrl(null);
+    if (!rectifiedSourceUrl) return;
+
+    const controller = new AbortController();
+    let active = true;
+    let objectUrl: string | null = null;
+    void fetch(rectifiedSourceUrl, { cache: "no-store", signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Image request failed (${response.status})`);
+        return response.blob();
+      })
+      .then((blob) => {
+        const url = URL.createObjectURL(blob);
+        if (!active) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        objectUrl = url;
+        setRectifiedImageUrl(url);
+      })
+      .catch((cause: unknown) => {
+        if (
+          active
+          && !(cause instanceof DOMException && cause.name === "AbortError")
+        ) {
+          setRectifiedImageUrl(rectifiedSourceUrl);
+        }
+      });
+    return () => {
+      active = false;
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [rectifiedSourceUrl]);
+
   const castling = castlingRights.length > 0 ? "KQkq".split("").filter((right) => castlingRights.includes(right)).join("") : "-";
   const fen = scan ? fullFen(labels, orientation, sideToMove, castling) : "";
-  const changedSquares = labels.filter((label, index) => label !== predictedLabels[index]).length;
+  const changedSquares = labels.filter((label, index) => label !== scan?.labels[index]).length;
   const kings = countKings(labels);
   const confidence = scan
     ? Math.round((scan.confidences.reduce((sum, value) => sum + value, 0) / 64) * 100)
@@ -68,21 +106,24 @@ export default function App() {
     : 0;
 
   async function handleImage(file: File) {
+    const generation = ++requestGeneration.current;
     setError(null);
     setConfirmation(null);
     setBusy("scan");
     setSourceFile(file);
     try {
       const result = await scanImage(file);
+      if (generation !== requestGeneration.current) return;
       applyScan(result);
       const needsManualFrame = result.detection_method === "manual_adjustment_needed";
       setReviewReady(needsManualFrame);
       setGeometryOpen(needsManualFrame);
     } catch (cause) {
+      if (generation !== requestGeneration.current) return;
       setError(messageFrom(cause));
       setSourceFile(null);
     } finally {
-      setBusy(null);
+      if (generation === requestGeneration.current) setBusy(null);
     }
   }
 
@@ -90,27 +131,30 @@ export default function App() {
     setScan(result);
     setCorners(result.corners);
     setLabels(result.labels);
-    setPredictedLabels(result.labels);
   }
 
   async function handleReprocess() {
     if (!scan) return;
+    const generation = ++requestGeneration.current;
     setError(null);
     setConfirmation(null);
     setBusy("reprocess");
     try {
-      applyScan(await reprocessScan(scan.scan_id, corners));
+      const result = await reprocessScan(scan.scan_id, corners);
+      if (generation !== requestGeneration.current) return;
+      applyScan(result);
       setReviewReady(true);
       setGeometryOpen(false);
     } catch (cause) {
-      setError(messageFrom(cause));
+      if (generation === requestGeneration.current) setError(messageFrom(cause));
     } finally {
-      setBusy(null);
+      if (generation === requestGeneration.current) setBusy(null);
     }
   }
 
   async function handleConfirm() {
     if (!scan) return;
+    const generation = ++requestGeneration.current;
     setError(null);
     setBusy("confirm");
     const lichessTab = window.open("about:blank", "_blank");
@@ -129,24 +173,29 @@ export default function App() {
         consent_training: consentTraining,
         client_session_id: clientSessionId,
       });
+      if (generation !== requestGeneration.current) {
+        lichessTab?.close();
+        return;
+      }
       setConfirmation(result);
       void getLearningStatus().then(setLearningStatus).catch(() => undefined);
       if (lichessTab) lichessTab.location.replace(result.lichess_url);
       else window.location.assign(result.lichess_url);
     } catch (cause) {
       lichessTab?.close();
-      setError(messageFrom(cause));
+      if (generation === requestGeneration.current) setError(messageFrom(cause));
     } finally {
-      setBusy(null);
+      if (generation === requestGeneration.current) setBusy(null);
     }
   }
 
   function reset() {
+    requestGeneration.current += 1;
     setSourceFile(null);
     setScan(null);
     setCorners([]);
     setLabels([]);
-    setPredictedLabels([]);
+    setRectifiedImageUrl(null);
     setOrientation("white");
     setSideToMove("w");
     setCastlingRights([]);
@@ -186,7 +235,7 @@ export default function App() {
 
   return (
     <div className="app-frame">
-      <AppHeader onReset={scan ? reset : undefined} />
+      <AppHeader onReset={scan && busy === null ? reset : undefined} />
       {error && (
         <div className="error-banner" role="alert">
           <span>!</span>
@@ -198,7 +247,10 @@ export default function App() {
       {!scan ? (
         <CapturePanel busy={busy === "scan"} status={learningStatus} onImage={handleImage} />
       ) : !reviewReady ? (
-        <RecognitionSuccess scan={scan} onContinue={() => setReviewReady(true)} />
+        <RecognitionSuccess
+          imageUrl={rectifiedImageUrl}
+          onContinue={() => setReviewReady(true)}
+        />
       ) : (
         <main className="review-shell">
           <nav className="progress-rail" aria-label="Scan progress">
@@ -216,7 +268,7 @@ export default function App() {
                 <strong>Position saved.</strong>
                 <p>Lichess opened in a new tab. This board changed {confirmation.changed_squares} model prediction{confirmation.changed_squares === 1 ? "" : "s"}.</p>
               </div>
-              <button type="button" className="secondary-button" onClick={reset}>Scan another</button>
+              <button type="button" className="secondary-button" disabled={busy !== null} onClick={reset}>Scan another</button>
             </section>
           )}
 
@@ -285,7 +337,9 @@ export default function App() {
                 <small>After perspective correction</small>
               </div>
               <div className="source-board-frame">
-                <img src={scan.rectified_image_url} alt="Rectified workbook diagram" />
+                {rectifiedImageUrl && (
+                  <img src={rectifiedImageUrl} alt="Rectified workbook diagram" />
+                )}
                 <div className="source-board-grid" aria-hidden="true" />
               </div>
             </article>
@@ -297,7 +351,7 @@ export default function App() {
               </div>
               <BoardEditor
                 labels={labels}
-                predictedLabels={predictedLabels}
+                predictedLabels={scan.labels}
                 confidences={scan.confidences}
                 probabilities={scan.probabilities}
                 orientation={orientation}
@@ -360,7 +414,7 @@ export default function App() {
           </label>
 
           <footer className="review-actions">
-            <button type="button" className="text-button" onClick={reset}>Start over</button>
+            <button type="button" className="text-button" disabled={busy !== null} onClick={reset}>Start over</button>
             <button type="button" className="primary-button analyse-button" disabled={busy !== null || confirmation !== null} onClick={handleConfirm}>
               <span>{busy === "confirm" ? "Saving…" : "Save & analyse on Lichess"}</span>
               <span aria-hidden="true">↗</span>
@@ -387,7 +441,10 @@ function minimumBoardEdge(corners: Point[]): number {
 }
 
 function getClientSessionId(): string {
-  return crypto.randomUUID();
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return Array.from(crypto.getRandomValues(new Uint32Array(4)), (value) =>
+    value.toString(16).padStart(8, "0"),
+  ).join("");
 }
 
 function geometryMessage(method: string): string {

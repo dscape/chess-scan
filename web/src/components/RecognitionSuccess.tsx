@@ -1,12 +1,11 @@
 import { useEffect, useRef } from "react";
-import type { ScanResult } from "../types";
 
 interface RecognitionSuccessProps {
-  scan: ScanResult;
+  imageUrl: string | null;
   onContinue: () => void;
 }
 
-export default function RecognitionSuccess({ scan, onContinue }: RecognitionSuccessProps) {
+export default function RecognitionSuccess({ imageUrl, onContinue }: RecognitionSuccessProps) {
   const onContinueRef = useRef(onContinue);
   onContinueRef.current = onContinue;
 
@@ -19,7 +18,7 @@ export default function RecognitionSuccess({ scan, onContinue }: RecognitionSucc
     <main className="recognition-shell" aria-live="polite">
       <section className="recognition-card">
         <div className="recognition-board">
-          <img src={scan.rectified_image_url} alt="Identified chess board" />
+          {imageUrl && <img src={imageUrl} alt="Identified chess board" />}
           <div className="recognition-board__green" aria-hidden="true" />
           <div className="recognition-board__grid" aria-hidden="true" />
           <span className="recognition-board__check" aria-hidden="true">✓</span>

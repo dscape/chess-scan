@@ -39,12 +39,16 @@ export default function LiveCamera({
   }, [onCapture]);
 
   useEffect(() => {
+    let cancelled = false;
     stoppedRef.current = false;
-    void startCamera();
-    return stopCamera;
+    void startCamera(() => cancelled);
+    return () => {
+      cancelled = true;
+      stopCamera();
+    };
   }, []);
 
-  async function startCamera() {
+  async function startCamera(isCancelled: () => boolean) {
     if (!navigator.mediaDevices?.getUserMedia) {
       setCameraError("This browser cannot open a live camera. Choose an existing photo instead.");
       return;
@@ -58,18 +62,28 @@ export default function LiveCamera({
           height: { ideal: 1080 },
         },
       });
-      if (stoppedRef.current) {
+      if (isCancelled()) {
         stream.getTracks().forEach((track) => track.stop());
         return;
       }
       streamRef.current = stream;
       const video = videoRef.current;
-      if (!video) return;
+      if (!video) {
+        stream.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+        return;
+      }
       video.srcObject = stream;
       await video.play();
+      if (isCancelled()) {
+        stream.getTracks().forEach((track) => track.stop());
+        if (streamRef.current === stream) streamRef.current = null;
+        return;
+      }
       setPhase("searching");
       scheduleDetection(120);
     } catch (cause) {
+      if (isCancelled()) return;
       const denied = cause instanceof DOMException && cause.name === "NotAllowedError";
       setCameraError(
         denied
