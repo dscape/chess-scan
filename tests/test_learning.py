@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import sqlite3
 from pathlib import Path
 
 import cv2
@@ -122,6 +124,47 @@ def test_training_snapshot_caps_one_installation(tmp_path: Path) -> None:
         "accepted": [],
         "batch": [f"feedback-{index}" for index in range(5)],
     }
+
+
+def test_feedback_adjudication_supersedes_labels_without_mutating_confirmation(
+    tmp_path: Path,
+) -> None:
+    base_path = tmp_path / "base.onnx"
+    base_path.write_bytes(b"base")
+    database = Database(tmp_path / "db.sqlite3")
+    database.initialize(
+        base_model_version="base",
+        base_model_path=base_path,
+        base_model_metadata={"artifact_sha256": _sha256(base_path)},
+    )
+    _add_feedback(database, tmp_path, "feedback", changed=False)
+    corrected = [1] + [0] * 63
+    database.append_feedback_adjudication(
+        adjudication_id="first-review",
+        feedback_id="feedback",
+        labels=corrected,
+        full_fen="P7/8/8/8/8/8/8/8 w - - 0 1",
+        reason="The source crop shows a white pawn",
+    )
+
+    with sqlite3.connect(database.path) as connection:
+        original = connection.execute(
+            "SELECT final_labels_json FROM feedback_events WHERE id = 'feedback'"
+        ).fetchone()
+    assert json.loads(original[0]) == [0] * 64
+    assert json.loads(database.training_examples()[0]["final_labels_json"]) == corrected
+    assert database.training_examples()[0]["changed_squares"] == 1
+
+    revised = [2] + [0] * 63
+    database.append_feedback_adjudication(
+        adjudication_id="second-review",
+        feedback_id="feedback",
+        labels=revised,
+        full_fen="N7/8/8/8/8/8/8/8 w - - 0 1",
+        reason="A second review identifies the piece as a knight",
+    )
+    assert json.loads(database.training_examples()[0]["final_labels_json"]) == revised
+    assert json.loads(next(database.iter_preference_examples())["final_labels_json"]) == revised
 
 
 def test_database_learning_cycle_accepts_only_a_promoted_training_batch(tmp_path: Path) -> None:

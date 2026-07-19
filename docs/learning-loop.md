@@ -26,7 +26,7 @@ Every confirmation stores:
 - random anonymous installation id for leakage-aware grouping and contribution caps
 - training consent
 
-Only explicit confirmations are training labels. Intermediate taps are not. Unchanged confirmations are useful positive examples, but should be monitored for inattentive acceptance.
+Only explicit confirmations are training labels. Intermediate taps are not. Unchanged confirmations are useful positive examples, but should be monitored for inattentive acceptance. A later manual review never mutates the confirmation: it appends an immutable adjudication, and exports and training resolve the newest adjudicated labels.
 
 ## Preference records
 

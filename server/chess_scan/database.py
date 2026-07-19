@@ -634,11 +634,19 @@ class Database:
             rows = connection.execute(
                 """
                 SELECT
-                    f.id AS feedback_id, f.created_at, f.final_labels_json,
+                    f.id AS feedback_id, f.created_at,
+                    COALESCE(a.corrected_labels_json, f.final_labels_json) AS final_labels_json,
                     f.client_session_id, s.image_sha256, s.rectified_image_path,
                     s.model_version, s.predicted_labels_json
                 FROM feedback_events f
                 JOIN scans s ON s.id = f.scan_id
+                LEFT JOIN feedback_adjudications a ON a.id = (
+                    SELECT latest.id
+                    FROM feedback_adjudications latest
+                    WHERE latest.feedback_id = f.id
+                    ORDER BY latest.created_at DESC, latest.id DESC
+                    LIMIT 1
+                )
                 LEFT JOIN shadow_evaluations e
                     ON e.cycle_id = ? AND e.feedback_id = f.id
                 WHERE f.consent_training = 1
@@ -813,6 +821,80 @@ class Database:
             "candidate_model": None if candidate is None else str(candidate),
         }
 
+    def feedback_for_adjudication(self, feedback_id: str) -> dict[str, Any]:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    f.id AS feedback_id, f.orientation, f.side_to_move, f.castling,
+                    f.en_passant,
+                    COALESCE(a.corrected_labels_json, f.final_labels_json) AS final_labels_json,
+                    COALESCE(a.corrected_fen, f.final_fen) AS final_fen,
+                    s.predicted_labels_json
+                FROM feedback_events f
+                JOIN scans s ON s.id = f.scan_id
+                LEFT JOIN feedback_adjudications a ON a.id = (
+                    SELECT latest.id
+                    FROM feedback_adjudications latest
+                    WHERE latest.feedback_id = f.id
+                    ORDER BY latest.created_at DESC, latest.id DESC
+                    LIMIT 1
+                )
+                WHERE f.id = ?
+                """,
+                (feedback_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Unknown feedback: {feedback_id}")
+        return dict(row)
+
+    def append_feedback_adjudication(
+        self,
+        *,
+        adjudication_id: str,
+        feedback_id: str,
+        labels: list[int],
+        full_fen: str,
+        reason: str,
+    ) -> int:
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            feedback = connection.execute(
+                """
+                SELECT s.predicted_labels_json
+                FROM feedback_events f
+                JOIN scans s ON s.id = f.scan_id
+                WHERE f.id = ?
+                """,
+                (feedback_id,),
+            ).fetchone()
+            if feedback is None:
+                raise KeyError(f"Unknown feedback: {feedback_id}")
+            predicted = [int(value) for value in json.loads(feedback["predicted_labels_json"])]
+            changed_squares = sum(
+                predicted_label != final_label
+                for predicted_label, final_label in zip(predicted, labels, strict=True)
+            )
+            connection.execute(
+                """
+                INSERT INTO feedback_adjudications (
+                    id, feedback_id, created_at, corrected_labels_json,
+                    corrected_fen, changed_squares, reason
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    adjudication_id,
+                    feedback_id,
+                    _now(),
+                    json.dumps(labels),
+                    full_fen,
+                    changed_squares,
+                    reason,
+                ),
+            )
+            connection.commit()
+        return changed_squares
+
     def training_examples(self, feedback_ids: set[str] | None = None) -> list[dict[str, Any]]:
         rows = list(self.iter_training_examples())
         if feedback_ids is None:
@@ -823,12 +905,22 @@ class Database:
         yield from self._iter_rows(
             """
             SELECT
-                f.id AS feedback_id, f.scan_id, f.created_at, f.final_labels_json,
-                f.orientation, f.side_to_move, f.final_fen, f.changed_squares,
+                f.id AS feedback_id, f.scan_id, f.created_at,
+                COALESCE(a.corrected_labels_json, f.final_labels_json) AS final_labels_json,
+                f.orientation, f.side_to_move,
+                COALESCE(a.corrected_fen, f.final_fen) AS final_fen,
+                COALESCE(a.changed_squares, f.changed_squares) AS changed_squares,
                 f.client_session_id, s.rectified_image_path, s.model_version,
                 s.predicted_labels_json, s.image_sha256
             FROM feedback_events f
             JOIN scans s ON s.id = f.scan_id
+            LEFT JOIN feedback_adjudications a ON a.id = (
+                SELECT latest.id
+                FROM feedback_adjudications latest
+                WHERE latest.feedback_id = f.id
+                ORDER BY latest.created_at DESC, latest.id DESC
+                LIMIT 1
+            )
             WHERE f.consent_training = 1
             ORDER BY f.created_at
             """
@@ -838,12 +930,22 @@ class Database:
         yield from self._iter_rows(
             """
             SELECT
-                f.id AS feedback_id, f.changed_squares, f.final_labels_json,
+                f.id AS feedback_id,
+                COALESCE(a.changed_squares, f.changed_squares) AS changed_squares,
+                COALESCE(a.corrected_labels_json, f.final_labels_json) AS final_labels_json,
                 s.rectified_image_path, s.model_version, s.predicted_labels_json,
                 s.predicted_probabilities_json
             FROM feedback_events f
             JOIN scans s ON s.id = f.scan_id
-            WHERE f.consent_training = 1 AND f.changed_squares > 0
+            LEFT JOIN feedback_adjudications a ON a.id = (
+                SELECT latest.id
+                FROM feedback_adjudications latest
+                WHERE latest.feedback_id = f.id
+                ORDER BY latest.created_at DESC, latest.id DESC
+                LIMIT 1
+            )
+            WHERE f.consent_training = 1
+              AND COALESCE(a.changed_squares, f.changed_squares) > 0
             ORDER BY f.created_at
             """
         )
@@ -1108,6 +1210,16 @@ CREATE TABLE IF NOT EXISTS feedback_events (
     client_session_id TEXT
 );
 
+CREATE TABLE IF NOT EXISTS feedback_adjudications (
+    id TEXT PRIMARY KEY,
+    feedback_id TEXT NOT NULL REFERENCES feedback_events(id),
+    created_at TEXT NOT NULL,
+    corrected_labels_json TEXT NOT NULL,
+    corrected_fen TEXT NOT NULL,
+    changed_squares INTEGER NOT NULL,
+    reason TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS feedback_split_assignments (
     feedback_id TEXT PRIMARY KEY REFERENCES feedback_events(id),
     split TEXT NOT NULL CHECK (split IN ('train', 'selection', 'gate', 'quarantine')),
@@ -1171,6 +1283,9 @@ CREATE TABLE IF NOT EXISTS shadow_evaluations (
 
 CREATE INDEX IF NOT EXISTS idx_feedback_training
 ON feedback_events(consent_training, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_adjudications_latest
+ON feedback_adjudications(feedback_id, created_at, id);
 
 CREATE INDEX IF NOT EXISTS idx_learning_cycles_active
 ON learning_cycles(state, created_at);
