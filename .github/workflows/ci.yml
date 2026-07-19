@@ -1,0 +1,27 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: python -m pip install uv==0.11.7
+      - run: uv sync --frozen --extra dev
+      - run: npm ci
+        working-directory: web
+      - run: make check
+      - run: docker build -t chess-scan:ci .
+      - run: docker build -f Dockerfile.ml -t chess-scan-learner:ci .
