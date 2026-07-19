@@ -23,7 +23,7 @@ Every confirmation stores:
 - final 64 image-order labels
 - changed-square count
 - orientation and side to move
-- client session id for leakage-aware grouping
+- random anonymous installation id for leakage-aware grouping and contribution caps
 - training consent
 
 Only explicit confirmations are training labels. Intermediate taps are not. Unchanged confirmations are useful positive examples, but should be monitored for inattentive acceptance.
@@ -71,44 +71,47 @@ The adapted weights moved from 9/1,064 to 1,064/1,064 exact king locations on st
 
 ## Continuous improvement, not per-request online learning
 
-The application collects feedback continuously. Model updates are micro-batched:
+The application collects feedback continuously and advances one automatic learning cycle at a time:
 
-1. Wait for a minimum number of new confirmed boards and adequate class coverage.
-2. Snapshot an immutable training dataset.
-3. Split at board/page/session level, never randomly by square.
-4. Use separate training, checkpoint-selection, and untouched promotion-gate splits.
-5. Initialize from the active ONNX artifact and fine-tune on the full feedback replay dataset, not only recent corrections.
-6. Evaluate candidate and active models on the same untouched gate split.
-7. Promote only when gates pass.
-8. Canary if traffic warrants it, then activate atomically.
-9. Keep the previous artifact for immediate rollback.
+1. Collect an initial batch of 100 consented boards, then batches of at least 40.
+2. Snapshot accepted replay feedback plus the new pending batch.
+3. Split at image and installation level, never randomly by square.
+4. Initialize from the active ONNX artifact and fine-tune with extra weight on explicitly corrected squares.
+5. Reject candidates that regress on the grouped feedback gate or immutable official online/photo gates.
+6. Keep a passing candidate hidden and evaluate it on confirmations created only after training.
+7. Score the active and candidate models against the same final labels.
+8. Promote automatically only when the candidate saves a meaningful number of square errors while exact boards and occupied-square errors do not regress.
+9. Mark the candidate's training batch accepted after promotion, or quarantine it after rejection.
+10. Activate the winner atomically and repeat.
+
+This train-on-A, judge-on-later-B design means an individual public label is never trusted as a deployment decision. Bad feedback can produce a bad candidate, but that candidate must still preserve the fixed benchmarks and beat the active model on later, diverse submissions. Contributions are capped per anonymous installation and perceptually duplicate boards count once.
 
 Updating model weights after each confirmation is intentionally forbidden. It would make results irreproducible and expose the live model to accidental labels, abuse, class collapse, and catastrophic forgetting.
 
-## Required metrics
+## Automatic promotion metrics
 
-The primary metric is **whole-board exact match**. Square accuracy can conceal unusable boards.
+The primary product metric is **whole-board exact match**. Square accuracy can conceal unusable boards. An automatic promotion requires:
 
-Promotion gates should include:
+- a meaningful reduction in total square errors on fresh shadow feedback
+- no regression in whole-board exact matches
+- no regression in non-empty square errors
+- no regression in grouped square accuracy or macro-F1 across all 13 classes
+- exact passage of the fixed online examples, king slices, and photo/geometry stress gates
+- a verified immutable artifact hash
 
-- board exact match: candidate must improve
-- non-empty square accuracy: no regression
-- macro-F1 across all 13 classes: no regression
-- king confusion rates
-- confidence calibration
-- geometry success rate, measured separately
-- latency and model size
+Candidates retain the same tiny classifier architecture and runtime as the active model, keeping deployment size and latency bounded independently of public feedback.
 
 At 99% independent square accuracy, expected board exact match is only about `0.99^64 = 52.6%`. “QR-like” reliability requires extremely high per-square accuracy and a strong correction interface.
 
 ## Data splits and poisoning controls
 
-- Keep all photos of a page or capture session in one split.
+- Keep all photos of a page or anonymous installation in one split.
 - Deduplicate rectified crops with perceptual hashes before weighting them.
-- Cap contributions from repeated positions.
+- Cap contributions from one installation and repeated positions.
+- Keep pending, accepted, and quarantined feedback pools; only a promoted batch joins accepted replay.
+- Evaluate candidates on later confirmations that were unavailable during training.
 - Require both kings only as an evaluation slice, not as a label-repair rule.
-- Keep a manually audited benchmark that never enters training.
-- If the app becomes public, separate trusted and untrusted feedback pools.
+- Keep manually audited benchmarks that never enter training.
 - Preserve model version, dataset snapshot, seed, metrics, and artifact hash for every run.
 
 ## Privacy

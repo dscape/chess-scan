@@ -47,22 +47,15 @@ docker compose up --build
 
 Persist `/app/data`; it contains SQLite records, confirmed rectified crops, and promoted candidate artifacts. Browsers require HTTPS for camera access outside `localhost`.
 
-Run a training job against the same persistent volume:
+Production runs an automatic learner against the same persistent volume:
 
 ```bash
-docker compose --profile training run --rm trainer \
-  python scripts/train_candidate.py --min-boards 100
-
-docker compose --profile training run --rm trainer \
-  python scripts/promote_model.py steps-YYYYMMDDHHMMSS --confirm
-
-# Suitable for a scheduled job after the feedback pool is established:
-docker compose --profile training run --rm trainer \
-  python scripts/run_learning_cycle.py \
-  --min-total-boards 100 --min-new-boards 40 --auto-promote
+docker compose --profile learning up -d learner
 ```
 
-The app checks the SQLite model registry on each scan and atomically reloads a newly promoted ONNX artifact without a redeploy. `promote_model.py` rejects candidates whose recorded gate failed; `--override-gate` exists only for an intentional rollback or diagnosed exception.
+The learner waits for 100 initial consented boards, trains a supervised candidate, and runs the immutable official online and photo gates. A passing candidate remains hidden while it is compared with the active model on at least 40 later confirmations from diverse installations and diagrams. It is promoted only when it makes strictly fewer square errors without regressing exact boards or occupied squares. Rejected training batches are quarantined automatically; successful batches enter the accepted replay pool. Later cycles begin after 40 new boards.
+
+The app checks the SQLite model registry on each scan and atomically reloads a newly promoted ONNX artifact without a redeploy. Model artifacts and lifecycle state remain in the persistent data volume across application deployments. Successful `main` CI dispatches the exact source SHA to `s46-infra`; the repository requires the `S46_INFRA_DISPATCH_TOKEN` Actions secret for that one-time deployment setup.
 
 ## Base-model adaptation
 
@@ -81,26 +74,22 @@ Official source files are downloaded during training or QA and are not redistrib
 
 ## Learning loop
 
-Corrections are exact labels, so the production learner uses supervised fine-tuning initialized from the active ONNX artifact. Corrected predictions are also exported as `chosen`/`rejected` preference pairs for RLHF-style experiments.
+Corrections are exact labels, so the production learner uses supervised fine-tuning initialized from the active ONNX artifact. The normal lifecycle is fully automatic:
 
 ```bash
-# Export auditable datasets
+uv sync --extra dev --extra ml
+uv run python scripts/automatic_learner.py --once
+```
+
+In production the learner polls continuously. Code deployments and model promotions are independent: successful `main` CI dispatches the exact source SHA to `s46-infra`, while a promoted model is activated directly from the persistent registry.
+
+Manual tools remain available for audits and experiments:
+
+```bash
 uv run python scripts/export_feedback.py
 uv run python scripts/export_preferences.py
-
-# Once enough representative boards exist, install ML dependencies and train
-uv sync --extra dev --extra ml
 uv run python scripts/train_candidate.py --min-boards 100
-
-# Optional preference-learning experiment; compare it against the SFT run
-uv run python scripts/train_candidate.py \
-  --min-boards 100 --preference-weight 0.1
-
-# Or run the micro-batched cycle from cron; it waits for enough new boards
-uv run python scripts/run_learning_cycle.py \
-  --min-total-boards 100 --min-new-boards 40 --auto-promote
-
-# Manual promotion is also immediately visible to new scan requests
+uv run python scripts/train_candidate.py --min-boards 100 --preference-weight 0.1
 uv run python scripts/promote_model.py steps-YYYYMMDDHHMMSS --confirm
 ```
 

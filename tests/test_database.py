@@ -176,11 +176,6 @@ def test_confirmed_feedback_is_immutable_and_counted(tmp_path: Path) -> None:
     assert status["training_boards"] == 1
     assert len(examples) == 1
     assert examples[0]["feedback_id"] == "feedback"
-    assert database.learning_cycle_progress() == {
-        "total_training_boards": 1,
-        "boards_in_last_completed_run": 0,
-        "new_training_boards": 1,
-    }
     database.save_feedback_split_assignments({"feedback": "gate"})
     assert database.feedback_split_assignments() == {"feedback": "gate"}
     with pytest.raises(ValueError):
@@ -208,7 +203,6 @@ def test_confirmed_feedback_is_immutable_and_counted(tmp_path: Path) -> None:
     )
     database.promote_model("candidate")
 
-    assert database.learning_cycle_progress()["new_training_boards"] == 0
     assert database.get_active_model()["version"] == "candidate"
 
 

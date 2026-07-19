@@ -85,3 +85,7 @@ class LearningStatusResponse(BaseModel):
     corrected_boards: int
     training_boards: int
     active_model: str
+    learning_state: Literal["collecting", "training", "benchmarking", "shadowing"]
+    learning_progress: int
+    learning_target: int
+    candidate_model: str | None

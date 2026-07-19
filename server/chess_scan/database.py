@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections import Counter
 from collections.abc import Iterator
 from contextlib import closing
 from datetime import UTC, datetime
@@ -11,6 +12,12 @@ from pathlib import Path
 from typing import Any
 
 from chess_scan.errors import ScanAlreadyConfirmedError, ScanExpiredError
+from chess_scan.learning import (
+    INITIAL_TRAINING_BOARDS,
+    MAX_BOARDS_PER_CLIENT,
+    NEW_TRAINING_BOARDS,
+    diverse_shadow_rows,
+)
 from chess_scan.model_artifact import verify_model_artifact
 
 
@@ -385,25 +392,341 @@ class Database:
             )
             connection.commit()
 
-    def learning_cycle_progress(self) -> dict[str, int]:
+    def learning_feedback_snapshot(
+        self,
+        *,
+        min_total_boards: int,
+        min_new_boards: int,
+        max_boards_per_client: int = MAX_BOARDS_PER_CLIENT,
+    ) -> dict[str, list[str]] | None:
         with closing(self._connect()) as connection:
-            confirmed = connection.execute(
-                "SELECT COUNT(*) AS count FROM feedback_events WHERE consent_training = 1"
-            ).fetchone()
-            previous = connection.execute(
+            active_cycle = connection.execute(
                 """
-                SELECT COALESCE(MAX(training_example_count), 0) AS count
-                FROM training_runs
-                WHERE status = 'completed'
+                SELECT 1 FROM learning_cycles
+                WHERE state IN ('training', 'benchmarking', 'shadowing')
+                LIMIT 1
                 """
             ).fetchone()
-        total = int(confirmed["count"])
-        previous_total = int(previous["count"])
-        return {
-            "total_training_boards": total,
-            "boards_in_last_completed_run": previous_total,
-            "new_training_boards": max(0, total - previous_total),
-        }
+            if active_cycle is not None:
+                return None
+            accepted = connection.execute(
+                """
+                SELECT f.id
+                FROM feedback_events f
+                JOIN feedback_learning_pool p ON p.feedback_id = f.id
+                WHERE f.consent_training = 1 AND p.state = 'accepted'
+                ORDER BY f.created_at
+                """
+            ).fetchall()
+            pending = connection.execute(
+                """
+                SELECT f.id, f.client_session_id, s.image_sha256
+                FROM feedback_events f
+                JOIN scans s ON s.id = f.scan_id
+                LEFT JOIN feedback_learning_pool p ON p.feedback_id = f.id
+                WHERE f.consent_training = 1 AND p.feedback_id IS NULL
+                ORDER BY f.created_at
+                """
+            ).fetchall()
+        accepted_ids = [str(row["id"]) for row in accepted]
+        pending_ids = _limited_feedback_ids(
+            pending,
+            max_boards_per_client=max_boards_per_client,
+        )
+        required = min_new_boards if accepted_ids else min_total_boards
+        if len(pending_ids) < required:
+            return None
+        return {"accepted": accepted_ids, "batch": pending_ids}
+
+    def create_learning_cycle(
+        self,
+        *,
+        cycle_id: str,
+        base_model_version: str,
+        accepted_feedback_ids: list[str],
+        batch_feedback_ids: list[str],
+        shadow_target_boards: int,
+    ) -> dict[str, Any]:
+        if not batch_feedback_ids:
+            raise ValueError("A learning cycle requires a new feedback batch")
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            active = connection.execute(
+                """
+                SELECT 1 FROM learning_cycles
+                WHERE state IN ('training', 'benchmarking', 'shadowing')
+                LIMIT 1
+                """
+            ).fetchone()
+            if active is not None:
+                raise RuntimeError("A learning cycle is already active")
+            active_model = connection.execute(
+                "SELECT version FROM model_versions WHERE is_active = 1 LIMIT 1"
+            ).fetchone()
+            if active_model is None or active_model["version"] != base_model_version:
+                raise RuntimeError("The requested learning-cycle base is not active")
+            now = _now()
+            connection.execute(
+                """
+                INSERT INTO learning_cycles (
+                    id, created_at, updated_at, state, base_model_version,
+                    shadow_target_boards, metrics_json
+                ) VALUES (?, ?, ?, 'training', ?, ?, '{}')
+                """,
+                (cycle_id, now, now, base_model_version, shadow_target_boards),
+            )
+            for role, feedback_ids in (
+                ("replay", accepted_feedback_ids),
+                ("batch", batch_feedback_ids),
+            ):
+                for feedback_id in feedback_ids:
+                    feedback = connection.execute(
+                        "SELECT consent_training FROM feedback_events WHERE id = ?",
+                        (feedback_id,),
+                    ).fetchone()
+                    if feedback is None or not bool(feedback["consent_training"]):
+                        raise ValueError(f"Feedback is not eligible for training: {feedback_id}")
+                    connection.execute(
+                        """
+                        INSERT INTO learning_cycle_feedback (cycle_id, feedback_id, role)
+                        VALUES (?, ?, ?)
+                        """,
+                        (cycle_id, feedback_id, role),
+                    )
+            connection.commit()
+        return self.get_learning_cycle(cycle_id)
+
+    def get_learning_cycle(self, cycle_id: str) -> dict[str, Any]:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT * FROM learning_cycles WHERE id = ?",
+                (cycle_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Unknown learning cycle: {cycle_id}")
+        return dict(row)
+
+    def active_learning_cycle(self) -> dict[str, Any] | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM learning_cycles
+                WHERE state IN ('training', 'benchmarking', 'shadowing')
+                ORDER BY created_at
+                LIMIT 1
+                """
+            ).fetchone()
+        return None if row is None else dict(row)
+
+    def learning_cycle_feedback_ids(self, cycle_id: str) -> list[str]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT feedback_id FROM learning_cycle_feedback
+                WHERE cycle_id = ?
+                ORDER BY role, feedback_id
+                """,
+                (cycle_id,),
+            ).fetchall()
+        return [str(row["feedback_id"]) for row in rows]
+
+    def set_learning_candidate(self, cycle_id: str, candidate_version: str) -> None:
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """
+                UPDATE learning_cycles
+                SET state = 'benchmarking', candidate_model_version = ?, updated_at = ?
+                WHERE id = ? AND state = 'training'
+                """,
+                (candidate_version, _now(), cycle_id),
+            )
+            if cursor.rowcount != 1:
+                raise RuntimeError(f"Learning cycle is not training: {cycle_id}")
+            connection.commit()
+
+    def start_shadowing(self, cycle_id: str, metrics: dict[str, Any]) -> None:
+        now = _now()
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """
+                UPDATE learning_cycles
+                SET state = 'shadowing', shadow_started_at = ?, updated_at = ?, metrics_json = ?
+                WHERE id = ? AND state = 'benchmarking'
+                """,
+                (now, now, json.dumps(metrics), cycle_id),
+            )
+            if cursor.rowcount != 1:
+                raise RuntimeError(f"Learning cycle is not benchmarking: {cycle_id}")
+            connection.commit()
+
+    def reject_learning_cycle(
+        self,
+        cycle_id: str,
+        *,
+        reason: str,
+        metrics: dict[str, Any],
+    ) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            cursor = connection.execute(
+                """
+                UPDATE learning_cycles
+                SET state = 'rejected', updated_at = ?, decision_reason = ?, metrics_json = ?
+                WHERE id = ? AND state IN ('training', 'benchmarking', 'shadowing')
+                """,
+                (_now(), reason, json.dumps(metrics), cycle_id),
+            )
+            if cursor.rowcount != 1:
+                raise RuntimeError(f"Learning cycle cannot be rejected: {cycle_id}")
+            self._set_cycle_batch_state(connection, cycle_id, "quarantined")
+            connection.commit()
+
+    def promote_learning_cycle(
+        self,
+        cycle_id: str,
+        *,
+        reason: str,
+        metrics: dict[str, Any],
+    ) -> str:
+        cycle = self.get_learning_cycle(cycle_id)
+        candidate_version = str(cycle["candidate_model_version"] or "")
+        if not candidate_version:
+            raise RuntimeError(f"Learning cycle has no candidate: {cycle_id}")
+        model = self.get_model(candidate_version)
+        verify_model_artifact(Path(model["artifact_path"]), str(model["metadata_json"]))
+
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current = connection.execute(
+                "SELECT version FROM model_versions WHERE is_active = 1 LIMIT 1"
+            ).fetchone()
+            if current is None or current["version"] != cycle["base_model_version"]:
+                raise RuntimeError("The active model changed during shadow evaluation")
+            now = _now()
+            connection.execute("UPDATE model_versions SET is_active = 0 WHERE is_active = 1")
+            connection.execute(
+                "UPDATE model_versions SET is_active = 1, activated_at = ? WHERE version = ?",
+                (now, candidate_version),
+            )
+            connection.execute(
+                "UPDATE training_runs SET promoted = 1 WHERE candidate_model_version = ?",
+                (candidate_version,),
+            )
+            cursor = connection.execute(
+                """
+                UPDATE learning_cycles
+                SET state = 'promoted', updated_at = ?, decision_reason = ?, metrics_json = ?
+                WHERE id = ? AND state = 'shadowing'
+                """,
+                (now, reason, json.dumps(metrics), cycle_id),
+            )
+            if cursor.rowcount != 1:
+                raise RuntimeError(f"Learning cycle is not shadowing: {cycle_id}")
+            self._set_cycle_batch_state(connection, cycle_id, "accepted")
+            connection.commit()
+        return candidate_version
+
+    def shadow_examples(self, cycle_id: str) -> list[dict[str, Any]]:
+        cycle = self.get_learning_cycle(cycle_id)
+        if cycle["state"] != "shadowing":
+            return []
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    f.id AS feedback_id, f.created_at, f.final_labels_json,
+                    f.client_session_id, s.image_sha256, s.rectified_image_path,
+                    s.model_version, s.predicted_labels_json
+                FROM feedback_events f
+                JOIN scans s ON s.id = f.scan_id
+                LEFT JOIN shadow_evaluations e
+                    ON e.cycle_id = ? AND e.feedback_id = f.id
+                WHERE f.consent_training = 1
+                  AND f.created_at > ?
+                  AND s.model_version = ?
+                  AND e.feedback_id IS NULL
+                ORDER BY f.created_at
+                """,
+                (cycle_id, cycle["shadow_started_at"], cycle["base_model_version"]),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def record_shadow_evaluation(
+        self,
+        *,
+        cycle_id: str,
+        feedback_id: str,
+        perceptual_hash: str,
+        candidate_labels: list[int],
+        active_square_errors: int,
+        candidate_square_errors: int,
+        active_non_empty_errors: int,
+        candidate_non_empty_errors: int,
+        active_board_exact: bool,
+        candidate_board_exact: bool,
+    ) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO shadow_evaluations (
+                    cycle_id, feedback_id, evaluated_at, perceptual_hash,
+                    candidate_labels_json, active_square_errors, candidate_square_errors,
+                    active_non_empty_errors, candidate_non_empty_errors,
+                    active_board_exact, candidate_board_exact
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    cycle_id,
+                    feedback_id,
+                    _now(),
+                    perceptual_hash,
+                    json.dumps(candidate_labels),
+                    active_square_errors,
+                    candidate_square_errors,
+                    active_non_empty_errors,
+                    candidate_non_empty_errors,
+                    int(active_board_exact),
+                    int(candidate_board_exact),
+                ),
+            )
+            connection.commit()
+
+    def shadow_evaluations(self, cycle_id: str) -> list[dict[str, Any]]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    e.*, f.client_session_id, s.image_sha256
+                FROM shadow_evaluations e
+                JOIN feedback_events f ON f.id = e.feedback_id
+                JOIN scans s ON s.id = f.scan_id
+                WHERE e.cycle_id = ?
+                ORDER BY e.evaluated_at, e.feedback_id
+                """,
+                (cycle_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    @staticmethod
+    def _set_cycle_batch_state(
+        connection: sqlite3.Connection,
+        cycle_id: str,
+        state: str,
+    ) -> None:
+        now = _now()
+        connection.execute(
+            """
+            INSERT INTO feedback_learning_pool (feedback_id, state, cycle_id, updated_at)
+            SELECT feedback_id, ?, ?, ?
+            FROM learning_cycle_feedback
+            WHERE cycle_id = ? AND role = 'batch'
+            ON CONFLICT(feedback_id) DO UPDATE SET
+                state = excluded.state,
+                cycle_id = excluded.cycle_id,
+                updated_at = excluded.updated_at
+            """,
+            (state, cycle_id, now, cycle_id),
+        )
 
     def latest_candidate(self) -> dict[str, Any] | None:
         with closing(self._connect()) as connection:
@@ -432,15 +755,69 @@ class Database:
             active = connection.execute(
                 "SELECT version FROM model_versions WHERE is_active = 1 LIMIT 1"
             ).fetchone()
+            cycle = connection.execute(
+                """
+                SELECT * FROM learning_cycles
+                WHERE state IN ('training', 'benchmarking', 'shadowing')
+                ORDER BY created_at
+                LIMIT 1
+                """
+            ).fetchone()
+            accepted = connection.execute(
+                "SELECT COUNT(*) AS count FROM feedback_learning_pool WHERE state = 'accepted'"
+            ).fetchone()
+            pending = connection.execute(
+                """
+                SELECT f.id, f.client_session_id, s.image_sha256
+                FROM feedback_events f
+                JOIN scans s ON s.id = f.scan_id
+                LEFT JOIN feedback_learning_pool p ON p.feedback_id = f.id
+                WHERE f.consent_training = 1 AND p.feedback_id IS NULL
+                ORDER BY f.created_at
+                """
+            ).fetchall()
+            shadow_count = 0
+            if cycle is not None and cycle["state"] == "shadowing":
+                shadow_rows = connection.execute(
+                    """
+                    SELECT e.*, f.client_session_id, s.image_sha256
+                    FROM shadow_evaluations e
+                    JOIN feedback_events f ON f.id = e.feedback_id
+                    JOIN scans s ON s.id = f.scan_id
+                    WHERE e.cycle_id = ?
+                    ORDER BY e.evaluated_at, e.feedback_id
+                    """,
+                    (cycle["id"],),
+                ).fetchall()
+                shadow_count = len(diverse_shadow_rows([dict(row) for row in shadow_rows]))
+        accepted_count = int(accepted["count"])
+        learning_state = "collecting" if cycle is None else str(cycle["state"])
+        learning_progress = len(
+            _limited_feedback_ids(pending, max_boards_per_client=MAX_BOARDS_PER_CLIENT)
+        )
+        learning_target = NEW_TRAINING_BOARDS if accepted_count else INITIAL_TRAINING_BOARDS
+        candidate = None
+        if cycle is not None:
+            candidate = cycle["candidate_model_version"]
+            if cycle["state"] == "shadowing":
+                learning_progress = shadow_count
+                learning_target = int(cycle["shadow_target_boards"])
         return {
             "confirmed_boards": int(counts["confirmed_boards"]),
             "corrected_boards": int(counts["corrected_boards"]),
             "training_boards": int(counts["training_boards"]),
             "active_model": str(active["version"]),
+            "learning_state": learning_state,
+            "learning_progress": learning_progress,
+            "learning_target": learning_target,
+            "candidate_model": None if candidate is None else str(candidate),
         }
 
-    def training_examples(self) -> list[dict[str, Any]]:
-        return list(self.iter_training_examples())
+    def training_examples(self, feedback_ids: set[str] | None = None) -> list[dict[str, Any]]:
+        rows = list(self.iter_training_examples())
+        if feedback_ids is None:
+            return rows
+        return [row for row in rows if str(row["feedback_id"]) in feedback_ids]
 
     def iter_training_examples(self) -> Iterator[dict[str, Any]]:
         yield from self._iter_rows(
@@ -618,6 +995,26 @@ class Database:
         return connection
 
 
+def _limited_feedback_ids(
+    rows: list[sqlite3.Row],
+    *,
+    max_boards_per_client: int,
+) -> list[str]:
+    feedback_ids: list[str] = []
+    client_counts: Counter[str] = Counter()
+    image_hashes: set[str] = set()
+    for row in rows:
+        feedback_id = str(row["id"])
+        client = str(row["client_session_id"] or "anonymous")
+        image_hash = str(row["image_sha256"])
+        if client_counts[client] >= max_boards_per_client or image_hash in image_hashes:
+            continue
+        feedback_ids.append(feedback_id)
+        client_counts[client] += 1
+        image_hashes.add(image_hash)
+    return feedback_ids
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -729,6 +1126,52 @@ CREATE TABLE IF NOT EXISTS training_runs (
     promoted INTEGER NOT NULL DEFAULT 0 CHECK (promoted IN (0, 1))
 );
 
+CREATE TABLE IF NOT EXISTS learning_cycles (
+    id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    state TEXT NOT NULL
+        CHECK (state IN ('training', 'benchmarking', 'shadowing', 'promoted', 'rejected')),
+    base_model_version TEXT NOT NULL REFERENCES model_versions(version),
+    candidate_model_version TEXT REFERENCES model_versions(version),
+    shadow_started_at TEXT,
+    shadow_target_boards INTEGER NOT NULL,
+    decision_reason TEXT,
+    metrics_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS learning_cycle_feedback (
+    cycle_id TEXT NOT NULL REFERENCES learning_cycles(id),
+    feedback_id TEXT NOT NULL REFERENCES feedback_events(id),
+    role TEXT NOT NULL CHECK (role IN ('replay', 'batch')),
+    PRIMARY KEY (cycle_id, feedback_id)
+);
+
+CREATE TABLE IF NOT EXISTS feedback_learning_pool (
+    feedback_id TEXT PRIMARY KEY REFERENCES feedback_events(id),
+    state TEXT NOT NULL CHECK (state IN ('accepted', 'quarantined')),
+    cycle_id TEXT NOT NULL REFERENCES learning_cycles(id),
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS shadow_evaluations (
+    cycle_id TEXT NOT NULL REFERENCES learning_cycles(id),
+    feedback_id TEXT NOT NULL REFERENCES feedback_events(id),
+    evaluated_at TEXT NOT NULL,
+    perceptual_hash TEXT NOT NULL,
+    candidate_labels_json TEXT NOT NULL,
+    active_square_errors INTEGER NOT NULL,
+    candidate_square_errors INTEGER NOT NULL,
+    active_non_empty_errors INTEGER NOT NULL,
+    candidate_non_empty_errors INTEGER NOT NULL,
+    active_board_exact INTEGER NOT NULL CHECK (active_board_exact IN (0, 1)),
+    candidate_board_exact INTEGER NOT NULL CHECK (candidate_board_exact IN (0, 1)),
+    PRIMARY KEY (cycle_id, feedback_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_feedback_training
 ON feedback_events(consent_training, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_learning_cycles_active
+ON learning_cycles(state, created_at);
 """

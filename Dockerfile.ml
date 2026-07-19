@@ -14,4 +14,4 @@ COPY scripts/ ./scripts/
 COPY benchmarks/ ./benchmarks/
 COPY models/ ./models/
 RUN mkdir -p /app/data/model-registry
-CMD ["python", "scripts/train_candidate.py"]
+CMD ["python", "scripts/automatic_learner.py"]

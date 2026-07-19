@@ -16,5 +16,15 @@ services:
       - chess-scan-data:/app/data
     command: ["python", "scripts/train_candidate.py"]
 
+  learner:
+    profiles: ["learning"]
+    build:
+      context: .
+      dockerfile: Dockerfile.ml
+    volumes:
+      - chess-scan-data:/app/data
+    command: ["python", "scripts/automatic_learner.py"]
+    restart: unless-stopped
+
 volumes:
   chess-scan-data:

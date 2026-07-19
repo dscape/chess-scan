@@ -79,6 +79,17 @@ def main() -> None:
     parser.add_argument("--selection-fraction", type=float, default=0.15)
     parser.add_argument("--gate-fraction", type=float, default=0.15)
     parser.add_argument("--min-boards", type=int, default=100)
+    parser.add_argument(
+        "--feedback-ids-file",
+        type=Path,
+        help="JSON array selecting the immutable feedback snapshot for this run",
+    )
+    parser.add_argument(
+        "--corrected-square-weight",
+        type=float,
+        default=4.0,
+        help="Supervised loss multiplier for squares explicitly corrected by a user",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", choices=("auto", "cpu", "mps", "cuda"), default="auto")
     parser.add_argument(
@@ -86,6 +97,11 @@ def main() -> None:
         type=float,
         default=0.0,
         help="Experimental chosen-vs-rejected pairwise loss weight; production default is SFT only",
+    )
+    parser.add_argument(
+        "--allow-gate-tie",
+        action="store_true",
+        help="Allow a non-regressing candidate to proceed to a fresh shadow promotion gate",
     )
     parser.add_argument(
         "--output-dir",
@@ -107,7 +123,14 @@ def main() -> None:
     active_path = Path(active["artifact_path"])
     verify_model_artifact(active_path, str(active["metadata_json"]))
 
-    rows = database.training_examples()
+    feedback_ids = load_feedback_ids(args.feedback_ids_file)
+    rows = database.training_examples(feedback_ids)
+    if feedback_ids is not None and len(rows) != len(feedback_ids):
+        found = {str(row["feedback_id"]) for row in rows}
+        missing = sorted(feedback_ids - found)
+        raise SystemExit(f"Feedback snapshot contains unavailable records: {missing}")
+    if args.corrected_square_weight < 1:
+        raise SystemExit("--corrected-square-weight must be at least 1")
     if len(rows) < args.min_boards:
         raise SystemExit(
             f"Need at least {args.min_boards} consented confirmed boards; found {len(rows)}"
@@ -170,10 +193,19 @@ def main() -> None:
             logits = logits.reshape(batch_size, 64, NUM_CLASSES)
             labels = labels.to(device)
             rejected = rejected.to(device)
-            supervised_loss = functional.cross_entropy(
+            supervised_losses = functional.cross_entropy(
                 logits.reshape(-1, NUM_CLASSES),
                 labels.reshape(-1),
                 weight=class_weights,
+                reduction="none",
+            ).reshape(batch_size, 64)
+            correction_weights = torch.where(
+                labels != rejected,
+                args.corrected_square_weight,
+                1.0,
+            )
+            supervised_loss = (supervised_losses * correction_weights).sum() / (
+                correction_weights.sum()
             )
             loss = supervised_loss
             if args.preference_weight > 0:
@@ -232,7 +264,11 @@ def main() -> None:
     )
     if sha256_file(onnx_path) != artifact_sha256:
         raise RuntimeError("Candidate artifact changed during ONNX Runtime evaluation")
-    eligible = passes_gates(candidate_metrics, active_metrics)
+    eligible = passes_gates(
+        candidate_metrics,
+        active_metrics,
+        allow_board_exact_tie=args.allow_gate_tie,
+    )
     metadata = {
         "version": version,
         "created_at": datetime.now(UTC).isoformat(),
@@ -243,12 +279,20 @@ def main() -> None:
         "quarantined_boards": quarantined_boards,
         "seed": args.seed,
         "preference_weight": args.preference_weight,
+        "corrected_square_weight": args.corrected_square_weight,
+        "feedback_snapshot_sha256": feedback_snapshot_sha256(rows),
         "artifact_sha256": artifact_sha256,
         "active_baseline": active["version"],
         "active_metrics": active_metrics,
         "candidate_metrics": candidate_metrics,
         "eligible_for_promotion": eligible,
-        "promotion_gates": "board_exact improves; square/non-empty/macro-F1 do not regress",
+        "allow_gate_tie": args.allow_gate_tie,
+        "promotion_gates": (
+            "board_exact does not regress before fresh shadow evaluation; "
+            "square/non-empty/macro-F1 do not regress"
+            if args.allow_gate_tie
+            else "board_exact improves; square/non-empty/macro-F1 do not regress"
+        ),
     }
     metadata_path.write_text(json.dumps(metadata, indent=2))
     database.register_candidate(version=version, artifact_path=onnx_path, metadata=metadata)
@@ -267,6 +311,23 @@ def main() -> None:
         )
     else:
         print("Not eligible for promotion; the active model remains unchanged")
+
+
+def load_feedback_ids(path: Path | None) -> set[str] | None:
+    if path is None:
+        return None
+    payload = json.loads(path.read_text())
+    if not isinstance(payload, list) or any(not isinstance(value, str) for value in payload):
+        raise SystemExit("Feedback snapshot must be a JSON array of feedback ids")
+    feedback_ids = set(payload)
+    if len(feedback_ids) != len(payload):
+        raise SystemExit("Feedback snapshot contains duplicate ids")
+    return feedback_ids
+
+
+def feedback_snapshot_sha256(rows: list[dict[str, Any]]) -> str:
+    payload = "\n".join(sorted(str(row["feedback_id"]) for row in rows))
+    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def preference_loss(
@@ -690,9 +751,19 @@ def augment_board(board: np.ndarray, rng: random.Random) -> np.ndarray:
     return augmented
 
 
-def passes_gates(candidate: dict[str, float], active: dict[str, float]) -> bool:
+def passes_gates(
+    candidate: dict[str, float],
+    active: dict[str, float],
+    *,
+    allow_board_exact_tie: bool = False,
+) -> bool:
+    board_exact_passes = (
+        candidate["board_exact"] >= active["board_exact"]
+        if allow_board_exact_tie
+        else candidate["board_exact"] > active["board_exact"]
+    )
     return (
-        candidate["board_exact"] > active["board_exact"]
+        board_exact_passes
         and candidate["square_accuracy"] >= active["square_accuracy"]
         and candidate["non_empty_accuracy"] >= active["non_empty_accuracy"]
         and candidate["macro_f1"] >= active["macro_f1"]

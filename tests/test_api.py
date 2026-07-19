@@ -95,6 +95,10 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert status["confirmed_boards"] == 1
         assert status["training_boards"] == 1
         assert status["active_model"] == "chess-steps-v2"
+        assert status["learning_state"] == "collecting"
+        assert status["learning_progress"] == 1
+        assert status["learning_target"] == 100
+        assert status["candidate_model"] is None
 
 
 def test_request_limit_and_api_fallback(tmp_path: Path) -> None:
