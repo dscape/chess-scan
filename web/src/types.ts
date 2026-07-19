@@ -23,6 +23,7 @@ export interface ScanResult {
   confidences: number[];
   board_fen: string;
   model_version: string;
+  source_image_url: string;
   rectified_image_url: string;
 }
 

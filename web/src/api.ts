@@ -20,6 +20,10 @@ export async function scanImage(image: File): Promise<ScanResult> {
   return request<ScanResult>("/api/scans", { method: "POST", body: form });
 }
 
+export async function getScan(scanId: string, signal?: AbortSignal): Promise<ScanResult> {
+  return request<ScanResult>(`/api/scans/${scanId}`, { signal });
+}
+
 export async function reprocessScan(scanId: string, corners: Point[]): Promise<ScanResult> {
   return request<ScanResult>(`/api/scans/${scanId}/reprocess`, {
     method: "POST",

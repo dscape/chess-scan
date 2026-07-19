@@ -20,6 +20,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from chess_scan.bootstrap import initialize_database
 from chess_scan.classifier import ModelManager
 from chess_scan.config import Settings
+from chess_scan.errors import ScanExpiredError
 from chess_scan.schemas import (
     BoardDetectionResponse,
     ConfirmRequest,
@@ -137,6 +138,15 @@ def _register_api_routes(application: FastAPI) -> None:
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
+    @application.get("/api/scans/{scan_id}", response_model=ScanResponse)
+    def get_scan(scan_id: str, request: Request) -> ScanResponse:
+        try:
+            return request.app.state.service.get_scan(scan_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except ScanExpiredError as exc:
+            raise HTTPException(410, str(exc)) from exc
+
     @application.post("/api/scans/{scan_id}/reprocess", response_model=ScanResponse)
     async def reprocess_scan(
         scan_id: str,
@@ -153,22 +163,21 @@ def _register_api_routes(application: FastAPI) -> None:
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
+    @application.get("/api/scans/{scan_id}/source", response_class=FileResponse)
+    def source_image(scan_id: str, request: Request) -> FileResponse:
+        try:
+            path = request.app.state.service.source_path(scan_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return _scan_file(path, "Source image not found")
+
     @application.get("/api/scans/{scan_id}/rectified", response_class=FileResponse)
     def rectified_image(scan_id: str, request: Request) -> FileResponse:
         try:
             path = request.app.state.service.rectified_path(scan_id)
         except KeyError as exc:
             raise HTTPException(404, str(exc)) from exc
-        try:
-            stat_result = path.stat()
-        except FileNotFoundError as exc:
-            raise HTTPException(404, "Rectified image not found") from exc
-        return FileResponse(
-            path,
-            media_type="image/jpeg",
-            headers={"Cache-Control": "no-store", "Content-Encoding": "identity"},
-            stat_result=stat_result,
-        )
+        return _scan_file(path, "Rectified image not found")
 
     @application.post("/api/scans/{scan_id}/confirm", response_model=ConfirmResponse)
     def confirm_scan(
@@ -186,6 +195,19 @@ def _register_api_routes(application: FastAPI) -> None:
     @application.get("/api/learning/status", response_model=LearningStatusResponse)
     def learning_status(request: Request) -> LearningStatusResponse:
         return request.app.state.service.learning_status()
+
+
+def _scan_file(path: Path, missing_message: str) -> FileResponse:
+    try:
+        stat_result = path.stat()
+    except FileNotFoundError as exc:
+        raise HTTPException(404, missing_message) from exc
+    return FileResponse(
+        path,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-store", "Content-Encoding": "identity"},
+        stat_result=stat_result,
+    )
 
 
 def _register_web_routes(application: FastAPI, web_dist: Path) -> None:

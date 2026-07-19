@@ -49,6 +49,14 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert len(scan["labels"]) == 64
         assert len(scan["probabilities"]) == 64
 
+        restored_response = client.get(f"/api/scans/{scan['scan_id']}")
+        assert restored_response.status_code == 200, restored_response.text
+        restored = restored_response.json()
+        assert restored["labels"] == scan["labels"]
+        assert restored["corners"] == scan["corners"]
+        assert client.get(restored["source_image_url"]).status_code == 200
+        assert client.get(restored["rectified_image_url"]).status_code == 200
+
         labels = scan["labels"]
         invalid_confirm = client.post(
             f"/api/scans/{scan['scan_id']}/confirm",
@@ -76,6 +84,8 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert confirm_response.json()["changed_squares"] == 0
         assert not (settings.data_dir / "source-temp" / f"{scan['scan_id']}.jpg").exists()
         assert (settings.data_dir / "rectified" / f"{scan['scan_id']}.jpg").exists()
+        assert client.get(f"/api/scans/{scan['scan_id']}").status_code == 200
+        assert client.get(restored["source_image_url"]).status_code == 404
 
         status = client.get("/api/learning/status").json()
         assert status["confirmed_boards"] == 1

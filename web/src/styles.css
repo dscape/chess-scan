@@ -139,6 +139,17 @@ button:disabled {
   gap: 34px;
 }
 
+.route-loading {
+  min-height: 60vh;
+  display: grid;
+  place-items: center;
+  color: var(--ink-soft);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .capture-intro {
   max-width: 760px;
 }

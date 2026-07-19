@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import time
 import uuid
@@ -126,6 +127,28 @@ class ScannerService:
             model_version=classifier.version,
         )
 
+    def get_scan(self, scan_id: str) -> ScanResponse:
+        scan = self.database.scan_for_display(scan_id)
+        probabilities = [
+            [float(value) for value in square]
+            for square in json.loads(scan["predicted_probabilities_json"])
+        ]
+        prediction = BoardPrediction(
+            labels=[int(value) for value in json.loads(scan["predicted_labels_json"])],
+            probabilities=probabilities,
+            confidences=[max(square) for square in probabilities],
+            board_fen=str(scan["predicted_board_fen"]),
+        )
+        return _scan_response(
+            scan_id=scan_id,
+            source_width=int(scan["source_width"]),
+            source_height=int(scan["source_height"]),
+            corners=json.loads(scan["corners_json"]),
+            detection_method=str(scan["detection_method"]),
+            prediction=prediction,
+            model_version=str(scan["model_version"]),
+        )
+
     def reprocess(self, scan_id: str, corners: list[list[float]]) -> ScanResponse:
         scan = self.database.scan_for_reprocessing(scan_id)
         source_path = Path(scan["source_image_path"])
@@ -209,6 +232,9 @@ class ScannerService:
             changed_squares=int(confirmed["changed_squares"]),
             warnings=fen_warnings(full_fen),
         )
+
+    def source_path(self, scan_id: str) -> Path:
+        return self.database.source_image_path(scan_id)
 
     def rectified_path(self, scan_id: str) -> Path:
         return self.database.rectified_image_path(scan_id)
@@ -308,6 +334,7 @@ def _scan_response(
         confidences=prediction.confidences,
         board_fen=prediction.board_fen,
         model_version=model_version,
+        source_image_url=f"/api/scans/{scan_id}/source?v={cache_key}",
         rectified_image_url=f"/api/scans/{scan_id}/rectified?v={cache_key}",
     )
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { confirmScan, getLearningStatus, reprocessScan, scanImage } from "./api";
+import { confirmScan, getLearningStatus, getScan, reprocessScan, scanImage } from "./api";
 import { countKings, fullFen, predictionNeedsReview } from "./board";
 import AppHeader from "./components/AppHeader";
 import BoardEditor from "./components/BoardEditor";
@@ -16,8 +16,23 @@ import type {
 } from "./types";
 
 type BusyAction = "scan" | "reprocess" | "confirm" | null;
+type AppRoute =
+  | { page: "home"; error?: string }
+  | { page: "scan"; scanId: string };
+
+interface ScanDraft {
+  labels: number[];
+  corners: Point[];
+  orientation: Orientation;
+  sideToMove: SideToMove;
+  castlingRights: string[];
+  consentTraining: boolean;
+  geometryOpen: boolean;
+  confirmation: ConfirmResult | null;
+}
 
 export default function App() {
+  const [route, navigate] = useAppRoute();
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [scan, setScan] = useState<ScanResult | null>(null);
@@ -34,12 +49,54 @@ export default function App() {
   const [reviewReady, setReviewReady] = useState(false);
   const [geometryOpen, setGeometryOpen] = useState(false);
   const [learningStatus, setLearningStatus] = useState<LearningStatus | null>(null);
+  const [routeLoading, setRouteLoading] = useState(route.page === "scan");
   const [clientSessionId] = useState(getClientSessionId);
   const requestGeneration = useRef(0);
 
   useEffect(() => {
     void getLearningStatus().then(setLearningStatus).catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    const generation = ++requestGeneration.current;
+    if (route.page === "home") {
+      clearBoard();
+      setError(route.error ?? null);
+      setRouteLoading(false);
+      return;
+    }
+
+    setError(null);
+    if (scan?.scan_id === route.scanId) {
+      setRouteLoading(false);
+      return;
+    }
+
+    clearBoard();
+    setRouteLoading(true);
+    const controller = new AbortController();
+    void getScan(route.scanId, controller.signal)
+      .then((result) => {
+        if (generation !== requestGeneration.current) return;
+        restoreScan(result);
+        setReviewReady(true);
+        setRouteLoading(false);
+      })
+      .catch((cause: unknown) => {
+        if (
+          generation !== requestGeneration.current
+          || (cause instanceof DOMException && cause.name === "AbortError")
+        ) return;
+        navigate(
+          {
+            page: "home",
+            error: `${messageFrom(cause)}. This board may no longer be available.`,
+          },
+          true,
+        );
+      });
+    return () => controller.abort();
+  }, [route]);
 
   useEffect(() => {
     if (!sourceFile) {
@@ -88,6 +145,31 @@ export default function App() {
     };
   }, [rectifiedSourceUrl]);
 
+  useEffect(() => {
+    if (!scan) return;
+    saveScanDraft(scan.scan_id, {
+      labels,
+      corners,
+      orientation,
+      sideToMove,
+      castlingRights,
+      consentTraining,
+      geometryOpen,
+      confirmation,
+    });
+  }, [
+    castlingRights,
+    confirmation,
+    consentTraining,
+    corners,
+    geometryOpen,
+    labels,
+    orientation,
+    scan,
+    sideToMove,
+  ]);
+
+  const sourceImageUrl = sourceUrl ?? scan?.source_image_url ?? null;
   const castling = castlingRights.length > 0 ? "KQkq".split("").filter((right) => castlingRights.includes(right)).join("") : "-";
   const fen = scan ? fullFen(labels, orientation, sideToMove, castling) : "";
   const changedSquares = labels.filter((label, index) => label !== scan?.labels[index]).length;
@@ -118,6 +200,7 @@ export default function App() {
       const needsManualFrame = result.detection_method === "manual_adjustment_needed";
       setReviewReady(needsManualFrame);
       setGeometryOpen(needsManualFrame);
+      navigate({ page: "scan", scanId: result.scan_id });
     } catch (cause) {
       if (generation !== requestGeneration.current) return;
       setError(messageFrom(cause));
@@ -131,6 +214,20 @@ export default function App() {
     setScan(result);
     setCorners(result.corners);
     setLabels(result.labels);
+  }
+
+  function restoreScan(result: ScanResult) {
+    const draft = loadScanDraft(result.scan_id);
+    setSourceFile(null);
+    setScan(result);
+    setCorners(draft?.corners ?? result.corners);
+    setLabels(draft?.labels ?? result.labels);
+    setOrientation(draft?.orientation ?? "white");
+    setSideToMove(draft?.sideToMove ?? "w");
+    setCastlingRights(draft?.castlingRights ?? []);
+    setConsentTraining(draft?.consentTraining ?? true);
+    setGeometryOpen(draft?.geometryOpen ?? false);
+    setConfirmation(draft?.confirmation ?? null);
   }
 
   async function handleReprocess() {
@@ -191,6 +288,11 @@ export default function App() {
 
   function reset() {
     requestGeneration.current += 1;
+    setError(null);
+    navigate({ page: "home" });
+  }
+
+  function clearBoard() {
     setSourceFile(null);
     setScan(null);
     setCorners([]);
@@ -199,10 +301,10 @@ export default function App() {
     setOrientation("white");
     setSideToMove("w");
     setCastlingRights([]);
+    setConsentTraining(true);
     setConfirmation(null);
     setReviewReady(false);
     setGeometryOpen(false);
-    setError(null);
     setBusy(null);
   }
 
@@ -235,7 +337,7 @@ export default function App() {
 
   return (
     <div className="app-frame">
-      <AppHeader onReset={scan && busy === null ? reset : undefined} />
+      <AppHeader onReset={route.page === "scan" && scan && busy === null ? reset : undefined} />
       {error && (
         <div className="error-banner" role="alert">
           <span>!</span>
@@ -244,7 +346,9 @@ export default function App() {
         </div>
       )}
 
-      {!scan ? (
+      {routeLoading ? (
+        <main className="route-loading" aria-live="polite">Loading board…</main>
+      ) : route.page === "home" || !scan ? (
         <CapturePanel busy={busy === "scan"} status={learningStatus} onImage={handleImage} />
       ) : !reviewReady ? (
         <RecognitionSuccess
@@ -305,10 +409,10 @@ export default function App() {
               </span>
               <span className="summary-action">Adjust corners</span>
             </summary>
-            {sourceUrl && (
+            {sourceImageUrl && (
               <div className="geometry-panel__body">
                 <CornerEditor
-                  imageUrl={sourceUrl}
+                  imageUrl={sourceImageUrl}
                   width={scan.source_width}
                   height={scan.source_height}
                   corners={corners}
@@ -430,6 +534,101 @@ export default function App() {
   );
 }
 
+function useAppRoute(): [AppRoute, (route: AppRoute, replace?: boolean) => void] {
+  const [route, setRoute] = useState<AppRoute>(() => routeFromPath(window.location.pathname));
+
+  useEffect(() => {
+    const handlePopState = () => setRoute(routeFromPath(window.location.pathname));
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  function navigate(nextRoute: AppRoute, replace = false) {
+    const path = nextRoute.page === "home"
+      ? "/"
+      : `/scans/${encodeURIComponent(nextRoute.scanId)}`;
+    window.history[replace ? "replaceState" : "pushState"](null, "", path);
+    setRoute(nextRoute);
+  }
+
+  return [route, navigate];
+}
+
+function routeFromPath(pathname: string): AppRoute {
+  const match = pathname.match(/^\/scans\/([^/]+)\/?$/);
+  if (match?.[1]) {
+    try {
+      return { page: "scan", scanId: decodeURIComponent(match[1]) };
+    } catch {
+      // Replace malformed routes with the capture screen below.
+    }
+  }
+  if (pathname !== "/") window.history.replaceState(null, "", "/");
+  return { page: "home" };
+}
+
+function saveScanDraft(scanId: string, draft: ScanDraft) {
+  try {
+    window.sessionStorage.setItem(`chess-scan:draft:${scanId}`, JSON.stringify(draft));
+  } catch {
+    // A scan can still be used when browser storage is unavailable.
+  }
+}
+
+function loadScanDraft(scanId: string): ScanDraft | null {
+  try {
+    const value: unknown = JSON.parse(
+      window.sessionStorage.getItem(`chess-scan:draft:${scanId}`) ?? "null",
+    );
+    return isScanDraft(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function isScanDraft(value: unknown): value is ScanDraft {
+  if (!value || typeof value !== "object") return false;
+  const draft = value as Record<string, unknown>;
+  return isLabels(draft.labels)
+    && isCorners(draft.corners)
+    && (draft.orientation === "white" || draft.orientation === "black")
+    && (draft.sideToMove === "w" || draft.sideToMove === "b")
+    && Array.isArray(draft.castlingRights)
+    && draft.castlingRights.every((right) =>
+      typeof right === "string" && "KQkq".includes(right)
+    )
+    && typeof draft.consentTraining === "boolean"
+    && typeof draft.geometryOpen === "boolean"
+    && (draft.confirmation === null || isConfirmation(draft.confirmation));
+}
+
+function isLabels(value: unknown): value is number[] {
+  return Array.isArray(value)
+    && value.length === 64
+    && value.every((label) => Number.isInteger(label) && label >= 0 && label <= 12);
+}
+
+function isCorners(value: unknown): value is Point[] {
+  return Array.isArray(value)
+    && value.length === 4
+    && value.every((point) =>
+      Array.isArray(point)
+      && point.length === 2
+      && point.every((coordinate) => typeof coordinate === "number" && Number.isFinite(coordinate))
+    );
+}
+
+function isConfirmation(value: unknown): value is ConfirmResult {
+  if (!value || typeof value !== "object") return false;
+  const confirmation = value as Record<string, unknown>;
+  return typeof confirmation.feedback_id === "string"
+    && typeof confirmation.full_fen === "string"
+    && typeof confirmation.lichess_url === "string"
+    && typeof confirmation.changed_squares === "number"
+    && Array.isArray(confirmation.warnings)
+    && confirmation.warnings.every((warning) => typeof warning === "string");
+}
+
 function minimumBoardEdge(corners: Point[]): number {
   if (corners.length !== 4) return 0;
   return Math.min(
@@ -441,10 +640,25 @@ function minimumBoardEdge(corners: Point[]): number {
 }
 
 function getClientSessionId(): string {
-  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
-  return Array.from(crypto.getRandomValues(new Uint32Array(4)), (value) =>
-    value.toString(16).padStart(8, "0"),
-  ).join("");
+  const storageKey = "chess-scan:client-session-id";
+  try {
+    const existing = window.sessionStorage.getItem(storageKey);
+    if (existing) return existing;
+  } catch {
+    // Fall through to an in-memory session ID.
+  }
+
+  const id = typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : Array.from(crypto.getRandomValues(new Uint32Array(4)), (value) =>
+        value.toString(16).padStart(8, "0"),
+      ).join("");
+  try {
+    window.sessionStorage.setItem(storageKey, id);
+  } catch {
+    // The component state keeps the ID stable until this page unloads.
+  }
+  return id;
 }
 
 function geometryMessage(method: string): string {

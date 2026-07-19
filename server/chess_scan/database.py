@@ -165,11 +165,28 @@ class Database:
             connection.commit()
         return Path(scan["rectified_image_path"])
 
+    def scan_for_display(self, scan_id: str) -> dict[str, Any]:
+        scan = self._scan_projection(
+            scan_id,
+            """
+            state, source_width, source_height, corners_json, detection_method,
+            model_version, predicted_labels_json, predicted_probabilities_json,
+            predicted_board_fen
+            """,
+        )
+        if scan["state"] == "expired":
+            raise ScanExpiredError("This scan has expired")
+        return scan
+
     def scan_for_reprocessing(self, scan_id: str) -> dict[str, Any]:
         return self._scan_projection(
             scan_id,
             "source_image_path, rectified_image_path, source_width, source_height",
         )
+
+    def source_image_path(self, scan_id: str) -> Path:
+        row = self._scan_projection(scan_id, "source_image_path")
+        return Path(row["source_image_path"])
 
     def rectified_image_path(self, scan_id: str) -> Path:
         row = self._scan_projection(scan_id, "rectified_image_path")
