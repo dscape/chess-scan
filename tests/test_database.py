@@ -153,6 +153,10 @@ def test_confirmed_feedback_is_immutable_and_counted(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ScanAlreadyConfirmedError):
+        database.scan_for_display("scan")
+    with pytest.raises(ScanAlreadyConfirmedError):
+        database.source_image_path("scan")
+    with pytest.raises(ScanAlreadyConfirmedError):
         database.update_scan_prediction(
             scan_id="scan",
             rectified_image_path=tmp_path / "replacement.jpg",

@@ -334,9 +334,36 @@ def _scan_response(
         confidences=prediction.confidences,
         board_fen=prediction.board_fen,
         model_version=model_version,
+        prediction_revision=_prediction_revision(
+            corners=corners,
+            detection_method=detection_method,
+            prediction=prediction,
+            model_version=model_version,
+        ),
         source_image_url=f"/api/scans/{scan_id}/source?v={cache_key}",
         rectified_image_url=f"/api/scans/{scan_id}/rectified?v={cache_key}",
     )
+
+
+def _prediction_revision(
+    *,
+    corners: list[list[float]],
+    detection_method: str,
+    prediction: BoardPrediction,
+    model_version: str,
+) -> str:
+    payload = json.dumps(
+        {
+            "corners": corners,
+            "detection_method": detection_method,
+            "labels": prediction.labels,
+            "model_version": model_version,
+            "probabilities": prediction.probabilities,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def _corners_array(corners: list[list[float]]) -> np.ndarray:

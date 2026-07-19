@@ -20,7 +20,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from chess_scan.bootstrap import initialize_database
 from chess_scan.classifier import ModelManager
 from chess_scan.config import Settings
-from chess_scan.errors import ScanExpiredError
+from chess_scan.errors import ScanStateError
 from chess_scan.schemas import (
     BoardDetectionResponse,
     ConfirmRequest,
@@ -144,7 +144,7 @@ def _register_api_routes(application: FastAPI) -> None:
             return request.app.state.service.get_scan(scan_id)
         except KeyError as exc:
             raise HTTPException(404, str(exc)) from exc
-        except ScanExpiredError as exc:
+        except ScanStateError as exc:
             raise HTTPException(410, str(exc)) from exc
 
     @application.post("/api/scans/{scan_id}/reprocess", response_model=ScanResponse)
@@ -167,8 +167,8 @@ def _register_api_routes(application: FastAPI) -> None:
     def source_image(scan_id: str, request: Request) -> FileResponse:
         try:
             path = request.app.state.service.source_path(scan_id)
-        except KeyError as exc:
-            raise HTTPException(404, str(exc)) from exc
+        except (KeyError, ScanStateError) as exc:
+            raise HTTPException(404, "Source image not found") from exc
         return _scan_file(path, "Source image not found")
 
     @application.get("/api/scans/{scan_id}/rectified", response_class=FileResponse)

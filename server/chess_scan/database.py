@@ -174,6 +174,8 @@ class Database:
             predicted_board_fen
             """,
         )
+        if scan["state"] == "confirmed":
+            raise ScanAlreadyConfirmedError("This scan has already been confirmed")
         if scan["state"] == "expired":
             raise ScanExpiredError("This scan has expired")
         return scan
@@ -185,8 +187,12 @@ class Database:
         )
 
     def source_image_path(self, scan_id: str) -> Path:
-        row = self._scan_projection(scan_id, "source_image_path")
-        return Path(row["source_image_path"])
+        scan = self._scan_projection(scan_id, "state, source_image_path")
+        if scan["state"] == "confirmed":
+            raise ScanAlreadyConfirmedError("This scan has already been confirmed")
+        if scan["state"] == "expired":
+            raise ScanExpiredError("This scan has expired")
+        return Path(scan["source_image_path"])
 
     def rectified_image_path(self, scan_id: str) -> Path:
         row = self._scan_projection(scan_id, "rectified_image_path")

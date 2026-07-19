@@ -67,6 +67,7 @@ class ScanResponse(BaseModel):
     confidences: list[float]
     board_fen: str
     model_version: str
+    prediction_revision: str
     source_image_url: str
     rectified_image_url: str
 

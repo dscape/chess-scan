@@ -150,6 +150,23 @@ button:disabled {
   text-transform: uppercase;
 }
 
+.route-loading__error {
+  width: min(100% - 32px, 460px);
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  text-align: center;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.route-loading__error p {
+  margin: 0;
+  font-weight: 500;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
 .capture-intro {
   max-width: 760px;
 }

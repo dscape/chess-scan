@@ -93,6 +93,10 @@ def test_cleanup_drains_more_than_one_batch_and_uses_state_indexes(tmp_path: Pat
     assert result.backlog is False
     assert all(not source.exists() and not rectified.exists() for source, rectified in paths)
     with pytest.raises(ScanExpiredError):
+        database.scan_for_display("scan-0")
+    with pytest.raises(ScanExpiredError):
+        database.source_image_path("scan-0")
+    with pytest.raises(ScanExpiredError):
         database.confirm_scan(
             feedback_id="expired-feedback",
             scan_id="scan-0",

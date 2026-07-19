@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { confirmScan, getLearningStatus, getScan, reprocessScan, scanImage } from "./api";
+import {
+  ApiError,
+  confirmScan,
+  getLearningStatus,
+  getScan,
+  isScanId,
+  reprocessScan,
+  scanImage,
+} from "./api";
 import { countKings, fullFen, predictionNeedsReview } from "./board";
 import AppHeader from "./components/AppHeader";
 import BoardEditor from "./components/BoardEditor";
@@ -21,6 +29,7 @@ type AppRoute =
   | { page: "scan"; scanId: string };
 
 interface ScanDraft {
+  predictionRevision: string;
   labels: number[];
   corners: Point[];
   orientation: Orientation;
@@ -29,6 +38,11 @@ interface ScanDraft {
   consentTraining: boolean;
   geometryOpen: boolean;
   confirmation: ConfirmResult | null;
+}
+
+interface PendingScanDraft {
+  scanId: string;
+  draft: ScanDraft;
 }
 
 export default function App() {
@@ -48,10 +62,14 @@ export default function App() {
   const [confirmation, setConfirmation] = useState<ConfirmResult | null>(null);
   const [reviewReady, setReviewReady] = useState(false);
   const [geometryOpen, setGeometryOpen] = useState(false);
+  const [geometryMounted, setGeometryMounted] = useState(false);
   const [learningStatus, setLearningStatus] = useState<LearningStatus | null>(null);
-  const [routeLoading, setRouteLoading] = useState(route.page === "scan");
+  const [routeLoadError, setRouteLoadError] = useState<string | null>(null);
+  const [routeLoadAttempt, setRouteLoadAttempt] = useState(0);
   const [clientSessionId] = useState(getClientSessionId);
   const requestGeneration = useRef(0);
+  const pendingDraftRef = useRef<PendingScanDraft | null>(null);
+  const routeLoading = route.page === "scan" && scan?.scan_id !== route.scanId;
 
   useEffect(() => {
     void getLearningStatus().then(setLearningStatus).catch(() => undefined);
@@ -62,41 +80,41 @@ export default function App() {
     if (route.page === "home") {
       clearBoard();
       setError(route.error ?? null);
-      setRouteLoading(false);
+      setRouteLoadError(null);
       return;
     }
 
     setError(null);
-    if (scan?.scan_id === route.scanId) {
-      setRouteLoading(false);
-      return;
-    }
+    setRouteLoadError(null);
+    if (scan?.scan_id === route.scanId) return;
 
     clearBoard();
-    setRouteLoading(true);
     const controller = new AbortController();
     void getScan(route.scanId, controller.signal)
       .then((result) => {
         if (generation !== requestGeneration.current) return;
         restoreScan(result);
         setReviewReady(true);
-        setRouteLoading(false);
       })
       .catch((cause: unknown) => {
         if (
           generation !== requestGeneration.current
           || (cause instanceof DOMException && cause.name === "AbortError")
         ) return;
-        navigate(
-          {
-            page: "home",
-            error: `${messageFrom(cause)}. This board may no longer be available.`,
-          },
-          true,
-        );
+        if (cause instanceof ApiError && (cause.status === 404 || cause.status === 410)) {
+          navigate(
+            {
+              page: "home",
+              error: `${messageFrom(cause)}. This board is no longer available.`,
+            },
+            true,
+          );
+          return;
+        }
+        setRouteLoadError(`${messageFrom(cause)}. Check your connection and try again.`);
       });
     return () => controller.abort();
-  }, [route]);
+  }, [route, routeLoadAttempt]);
 
   useEffect(() => {
     if (!sourceFile) {
@@ -146,17 +164,32 @@ export default function App() {
   }, [rectifiedSourceUrl]);
 
   useEffect(() => {
+    const flushDraft = () => flushPendingDraft();
+    window.addEventListener("pagehide", flushDraft);
+    return () => {
+      window.removeEventListener("pagehide", flushDraft);
+      flushDraft();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!scan) return;
-    saveScanDraft(scan.scan_id, {
-      labels,
-      corners,
-      orientation,
-      sideToMove,
-      castlingRights,
-      consentTraining,
-      geometryOpen,
-      confirmation,
-    });
+    pendingDraftRef.current = {
+      scanId: scan.scan_id,
+      draft: {
+        predictionRevision: scan.prediction_revision,
+        labels,
+        corners,
+        orientation,
+        sideToMove,
+        castlingRights,
+        consentTraining,
+        geometryOpen,
+        confirmation,
+      },
+    };
+    const timer = window.setTimeout(flushPendingDraft, 250);
+    return () => window.clearTimeout(timer);
   }, [
     castlingRights,
     confirmation,
@@ -200,6 +233,7 @@ export default function App() {
       const needsManualFrame = result.detection_method === "manual_adjustment_needed";
       setReviewReady(needsManualFrame);
       setGeometryOpen(needsManualFrame);
+      setGeometryMounted(needsManualFrame);
       navigate({ page: "scan", scanId: result.scan_id });
     } catch (cause) {
       if (generation !== requestGeneration.current) return;
@@ -218,16 +252,20 @@ export default function App() {
 
   function restoreScan(result: ScanResult) {
     const draft = loadScanDraft(result.scan_id);
+    const predictionDraft = draft?.predictionRevision === result.prediction_revision
+      ? draft
+      : null;
     setSourceFile(null);
     setScan(result);
-    setCorners(draft?.corners ?? result.corners);
-    setLabels(draft?.labels ?? result.labels);
+    setCorners(predictionDraft?.corners ?? result.corners);
+    setLabels(predictionDraft?.labels ?? result.labels);
     setOrientation(draft?.orientation ?? "white");
     setSideToMove(draft?.sideToMove ?? "w");
     setCastlingRights(draft?.castlingRights ?? []);
     setConsentTraining(draft?.consentTraining ?? true);
     setGeometryOpen(draft?.geometryOpen ?? false);
-    setConfirmation(draft?.confirmation ?? null);
+    setGeometryMounted(draft?.geometryOpen ?? false);
+    setConfirmation(predictionDraft?.confirmation ?? null);
   }
 
   async function handleReprocess() {
@@ -293,6 +331,7 @@ export default function App() {
   }
 
   function clearBoard() {
+    flushPendingDraft();
     setSourceFile(null);
     setScan(null);
     setCorners([]);
@@ -305,7 +344,15 @@ export default function App() {
     setConfirmation(null);
     setReviewReady(false);
     setGeometryOpen(false);
+    setGeometryMounted(false);
     setBusy(null);
+  }
+
+  function flushPendingDraft() {
+    const pending = pendingDraftRef.current;
+    if (!pending) return;
+    saveScanDraft(pending.scanId, pending.draft);
+    if (pendingDraftRef.current === pending) pendingDraftRef.current = null;
   }
 
   const positionWarnings = useMemo(() => {
@@ -347,7 +394,20 @@ export default function App() {
       )}
 
       {routeLoading ? (
-        <main className="route-loading" aria-live="polite">Loading board…</main>
+        <main className="route-loading" aria-live="polite">
+          {routeLoadError ? (
+            <div className="route-loading__error">
+              <p>{routeLoadError}</p>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setRouteLoadAttempt((attempt) => attempt + 1)}
+              >
+                Retry
+              </button>
+            </div>
+          ) : "Loading board…"}
+        </main>
       ) : route.page === "home" || !scan ? (
         <CapturePanel busy={busy === "scan"} status={learningStatus} onImage={handleImage} />
       ) : !reviewReady ? (
@@ -400,7 +460,11 @@ export default function App() {
           <details
             className="geometry-panel"
             open={geometryOpen}
-            onToggle={(event) => setGeometryOpen(event.currentTarget.open)}
+            onToggle={(event) => {
+              const open = event.currentTarget.open;
+              setGeometryOpen(open);
+              if (open) setGeometryMounted(true);
+            }}
           >
             <summary>
               <span>
@@ -409,7 +473,7 @@ export default function App() {
               </span>
               <span className="summary-action">Adjust corners</span>
             </summary>
-            {sourceImageUrl && (
+            {geometryMounted && sourceImageUrl && (
               <div className="geometry-panel__body">
                 <CornerEditor
                   imageUrl={sourceImageUrl}
@@ -558,7 +622,8 @@ function routeFromPath(pathname: string): AppRoute {
   const match = pathname.match(/^\/scans\/([^/]+)\/?$/);
   if (match?.[1]) {
     try {
-      return { page: "scan", scanId: decodeURIComponent(match[1]) };
+      const scanId = decodeURIComponent(match[1]);
+      if (isScanId(scanId)) return { page: "scan", scanId };
     } catch {
       // Replace malformed routes with the capture screen below.
     }
@@ -589,7 +654,9 @@ function loadScanDraft(scanId: string): ScanDraft | null {
 function isScanDraft(value: unknown): value is ScanDraft {
   if (!value || typeof value !== "object") return false;
   const draft = value as Record<string, unknown>;
-  return isLabels(draft.labels)
+  return typeof draft.predictionRevision === "string"
+    && /^[0-9a-f]{64}$/.test(draft.predictionRevision)
+    && isLabels(draft.labels)
     && isCorners(draft.corners)
     && (draft.orientation === "white" || draft.orientation === "black")
     && (draft.sideToMove === "w" || draft.sideToMove === "b")

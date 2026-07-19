@@ -48,12 +48,14 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         scan = scan_response.json()
         assert len(scan["labels"]) == 64
         assert len(scan["probabilities"]) == 64
+        assert len(scan["prediction_revision"]) == 64
 
         restored_response = client.get(f"/api/scans/{scan['scan_id']}")
         assert restored_response.status_code == 200, restored_response.text
         restored = restored_response.json()
         assert restored["labels"] == scan["labels"]
         assert restored["corners"] == scan["corners"]
+        assert restored["prediction_revision"] == scan["prediction_revision"]
         assert client.get(restored["source_image_url"]).status_code == 200
         assert client.get(restored["rectified_image_url"]).status_code == 200
 
@@ -82,9 +84,11 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         )
         assert confirm_response.status_code == 200, confirm_response.text
         assert confirm_response.json()["changed_squares"] == 0
-        assert not (settings.data_dir / "source-temp" / f"{scan['scan_id']}.jpg").exists()
+        source_path = settings.data_dir / "source-temp" / f"{scan['scan_id']}.jpg"
+        assert not source_path.exists()
         assert (settings.data_dir / "rectified" / f"{scan['scan_id']}.jpg").exists()
-        assert client.get(f"/api/scans/{scan['scan_id']}").status_code == 200
+        assert client.get(f"/api/scans/{scan['scan_id']}").status_code == 410
+        source_path.write_bytes(b"deletion failed")
         assert client.get(restored["source_image_url"]).status_code == 404
 
         status = client.get("/api/learning/status").json()
