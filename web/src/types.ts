@@ -41,4 +41,8 @@ export interface LearningStatus {
   corrected_boards: number;
   training_boards: number;
   active_model: string;
+  learning_state: "collecting" | "training" | "benchmarking" | "shadowing";
+  learning_progress: number;
+  learning_target: number;
+  candidate_model: string | null;
 }

@@ -707,12 +707,12 @@ function minimumBoardEdge(corners: Point[]): number {
 }
 
 function getClientSessionId(): string {
-  const storageKey = "chess-scan:client-session-id";
+  const storageKey = "chess-scan:installation-id";
   try {
-    const existing = window.sessionStorage.getItem(storageKey);
+    const existing = window.localStorage.getItem(storageKey);
     if (existing) return existing;
   } catch {
-    // Fall through to an in-memory session ID.
+    // Fall through to an in-memory installation ID.
   }
 
   const id = typeof crypto.randomUUID === "function"
@@ -721,7 +721,7 @@ function getClientSessionId(): string {
         value.toString(16).padStart(8, "0"),
       ).join("");
   try {
-    window.sessionStorage.setItem(storageKey, id);
+    window.localStorage.setItem(storageKey, id);
   } catch {
     // The component state keeps the ID stable until this page unloads.
   }

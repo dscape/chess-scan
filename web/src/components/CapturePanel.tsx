@@ -110,11 +110,20 @@ export default function CapturePanel({
       <aside className="learning-note">
         <span className="learning-note__mark">↻</span>
         <p>
-          <strong>{status?.training_boards ?? 0} confirmed boards</strong> are
-          available to the learning loop. New models must beat a held-out
-          benchmark before they go live.
+          <strong>{learningProgress(status)}</strong> The learner trains,
+          tests, and activates a model only when it beats the current one.
         </p>
       </aside>
     </main>
   );
+}
+
+function learningProgress(status: LearningStatus | null): string {
+  if (!status) return "Automatic learning is starting.";
+  if (status.learning_state === "training") return "A new model is training.";
+  if (status.learning_state === "benchmarking") return "A new model is being tested.";
+  if (status.learning_state === "shadowing") {
+    return `A candidate has ${status.learning_progress}/${status.learning_target} fresh checks.`;
+  }
+  return `${status.learning_progress}/${status.learning_target} boards collected for the next model.`;
 }
