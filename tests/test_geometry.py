@@ -4,7 +4,9 @@ import cv2
 import numpy as np
 
 from chess_scan.geometry import (
+    _checkerboard_score,
     _extrapolate_outer_corners,
+    board_grid_fits,
     detect_board_corners,
     order_corners,
     project_board_grid,
@@ -56,6 +58,22 @@ def test_outer_corner_fit_uses_all_detected_intersections() -> None:
     for reordered_grid in (detected_grid, np.rot90(detected_grid, 2), np.fliplr(detected_grid)):
         fitted_outer = _extrapolate_outer_corners(reordered_grid)
         assert np.max(np.linalg.norm(fitted_outer - expected_outer, axis=1)) < 1.6
+
+
+def test_pattern_score_uses_background_around_piece_centers() -> None:
+    board = _checkerboard(256, light=210, dark=160)
+    for row in range(8):
+        for col in range(8):
+            cv2.circle(board, (col * 32 + 16, row * 32 + 16), 12, (40, 40, 40), -1)
+
+    assert _checkerboard_score(board) == 50.0
+
+
+def test_grid_fit_rejects_corners_that_cut_through_squares() -> None:
+    board = _checkerboard(256)
+
+    assert board_grid_fits(board, [[0, 0], [255, 0], [255, 255], [0, 255]])
+    assert not board_grid_fits(board, [[8, 0], [255, 0], [255, 255], [8, 255]])
 
 
 def test_orders_strongly_perspective_corners_clockwise() -> None:

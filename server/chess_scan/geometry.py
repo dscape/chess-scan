@@ -10,6 +10,10 @@ import numpy as np
 BOARD_SIZE = 512
 DETECTION_MAX_DIMENSION = 1400
 _PATTERN_SIZE = (7, 7)
+_PATTERN_PREVIEW_SIZE = 256
+_MIN_PATTERN_CONTRAST = 8.0
+_MIN_PATTERN_CONSISTENCY = 0.9
+_MAX_GRID_ALIGNMENT_ERROR = 0.1
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,9 +33,12 @@ def detect_board_corners(image_bgr: np.ndarray) -> CornerDetection:
 
     inner_corners = _find_checkerboard_corners(gray)
     if inner_corners is not None:
-        outer = _extrapolate_outer_corners(inner_corners) / scale
-        outer = _clamp_corners(outer, image_bgr.shape)
-        if _quad_is_usable(outer, image_bgr.shape):
+        scaled_outer = _clamp_corners(
+            _extrapolate_outer_corners(inner_corners),
+            scaled.shape,
+        )
+        if board_grid_fits(scaled, scaled_outer):
+            outer = _clamp_corners(scaled_outer / scale, image_bgr.shape)
             return CornerDetection(
                 corners=_corners_as_tuple(outer),
                 method="checkerboard",
@@ -46,7 +53,7 @@ def detect_board_corners(image_bgr: np.ndarray) -> CornerDetection:
             return CornerDetection(
                 corners=_corners_as_tuple(outer),
                 method="contour",
-                confidence=min(0.8, max(0.35, score / 80.0)),
+                confidence=min(0.8, max(0.35, score / 50.0)),
             )
 
     fallback = _centered_square_corners(image_bgr.shape)
@@ -73,6 +80,18 @@ def project_board_grid(
     transform = cv2.getPerspectiveTransform(canonical_corners, image_corners)
     projected = cv2.perspectiveTransform(canonical_grid, transform)[0]
     return [[float(point[0]), float(point[1])] for point in projected]
+
+
+def board_grid_fits(
+    image_bgr: np.ndarray,
+    corners: list[list[float]] | tuple[tuple[float, float], ...] | np.ndarray,
+) -> bool:
+    """Return whether the corners tightly frame a complete, aligned 8x8 grid."""
+    points = order_corners(np.asarray(corners, dtype=np.float32))
+    if not _quad_is_usable(points, image_bgr.shape):
+        return False
+    preview = rectify_board(image_bgr, points, output_size=_PATTERN_PREVIEW_SIZE)
+    return _checkerboard_score(preview) >= _MIN_PATTERN_CONTRAST
 
 
 def rectify_board(
@@ -231,33 +250,118 @@ def _find_contour_board(image_bgr: np.ndarray) -> tuple[np.ndarray, float] | Non
         corners = order_corners(approx.reshape(4, 2).astype(np.float32))
         if not _quad_is_usable(corners, image_bgr.shape):
             continue
-        preview = rectify_board(image_bgr, corners, output_size=256)
+        preview = rectify_board(image_bgr, corners, output_size=_PATTERN_PREVIEW_SIZE)
         score = _checkerboard_score(preview)
         candidates.append((score, corners))
 
     if not candidates:
         return None
     score, corners = max(candidates, key=lambda item: item[0])
-    if score < 8.0:
+    if score < _MIN_PATTERN_CONTRAST:
         return None
     return corners, score
 
 
 def _checkerboard_score(board_bgr: np.ndarray) -> float:
     gray = cv2.cvtColor(board_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
-    size = min(gray.shape)
-    square = size // 8
-    trimmed = gray[: square * 8, : square * 8]
-    cells = trimmed.reshape(8, square, 8, square).transpose(0, 2, 1, 3)
-    margin = max(1, square // 5)
-    inner = cells[:, :, margin:-margin, margin:-margin]
-    means = inner.mean(axis=(2, 3))
-    parity = np.indices((8, 8)).sum(axis=0) % 2 == 0
-    group_a = means[parity]
-    group_b = means[~parity]
-    contrast = abs(float(group_a.mean() - group_b.mean()))
-    inconsistency = float(group_a.std() + group_b.std())
-    return contrast - 0.25 * inconsistency
+    backgrounds = _cell_backgrounds(gray)
+    signed_differences = _alternating_neighbor_differences(backgrounds)
+    if np.median(signed_differences) < 0:
+        signed_differences *= -1
+
+    contrast = float(np.median(signed_differences))
+    minimum_difference = max(2.0, contrast * 0.2)
+    consistency = float(np.mean(signed_differences > minimum_difference))
+    alignment_error = _grid_alignment_error(gray)
+    if (
+        contrast < _MIN_PATTERN_CONTRAST
+        or consistency < _MIN_PATTERN_CONSISTENCY
+        or alignment_error > _MAX_GRID_ALIGNMENT_ERROR
+    ):
+        return 0.0
+    return contrast
+
+
+def _cell_backgrounds(gray: np.ndarray) -> np.ndarray:
+    height, width = gray.shape
+    row_boundaries = [int(round(index * height / 8)) for index in range(9)]
+    column_boundaries = [int(round(index * width / 8)) for index in range(9)]
+    backgrounds = np.empty((8, 8), dtype=np.float32)
+    for row in range(8):
+        for column in range(8):
+            cell = gray[
+                row_boundaries[row] : row_boundaries[row + 1],
+                column_boundaries[column] : column_boundaries[column + 1],
+            ]
+            backgrounds[row, column] = float(np.median(_corner_patch_pixels(cell)))
+    return backgrounds
+
+
+def _corner_patch_pixels(cell: np.ndarray) -> np.ndarray:
+    height, width = cell.shape
+    top, bottom = _patch_ranges(height)
+    left, right = _patch_ranges(width)
+    return np.concatenate(
+        (
+            cell[top, left].ravel(),
+            cell[top, right].ravel(),
+            cell[bottom, left].ravel(),
+            cell[bottom, right].ravel(),
+        )
+    )
+
+
+def _patch_ranges(length: int) -> tuple[slice, slice]:
+    near_start = max(1, int(round(length * 0.14)))
+    near_end = max(near_start + 1, int(round(length * 0.32)))
+    far_start = min(length - 2, int(round(length * 0.68)))
+    far_end = min(length - 1, max(far_start + 1, int(round(length * 0.86))))
+    return slice(near_start, near_end), slice(far_start, far_end)
+
+
+def _alternating_neighbor_differences(backgrounds: np.ndarray) -> np.ndarray:
+    parity_sign = np.where(np.indices((8, 8)).sum(axis=0) % 2 == 0, 1.0, -1.0)
+    horizontal = parity_sign[:, :-1] * (backgrounds[:, :-1] - backgrounds[:, 1:])
+    vertical = parity_sign[:-1, :] * (backgrounds[:-1, :] - backgrounds[1:, :])
+    return np.concatenate((horizontal.ravel(), vertical.ravel()))
+
+
+def _grid_alignment_error(gray: np.ndarray) -> float:
+    vertical = _alternating_profile(gray, axis=0)
+    horizontal = _alternating_profile(gray, axis=1)
+    return max(_profile_alignment_error(vertical), _profile_alignment_error(horizontal))
+
+
+def _alternating_profile(gray: np.ndarray, *, axis: int) -> np.ndarray:
+    length = gray.shape[axis]
+    boundaries = [int(round(index * length / 8)) for index in range(9)]
+    profiles = []
+    for index in range(8):
+        start, end = boundaries[index], boundaries[index + 1]
+        near, far = _patch_ranges(end - start)
+        selected = np.r_[
+            np.arange(start + near.start, start + near.stop),
+            np.arange(start + far.start, start + far.stop),
+        ]
+        profiles.append(np.median(np.take(gray, selected, axis=axis), axis=axis))
+    signs = np.where(np.arange(8) % 2 == 0, 1.0, -1.0)
+    return np.mean(np.stack(profiles) * signs[:, None], axis=0)
+
+
+def _profile_alignment_error(profile: np.ndarray) -> float:
+    length = len(profile)
+    square = length / 8.0
+    smoothed = cv2.GaussianBlur(profile.reshape(1, -1), (0, 0), 2.0)[0]
+    gradient = np.abs(np.gradient(smoothed))
+    search_radius = max(2, int(round(square * 0.25)))
+    errors = []
+    for index in range(1, 8):
+        expected = int(round(index * square))
+        start = max(0, expected - search_radius)
+        end = min(length, expected + search_radius + 1)
+        peak = start + int(np.argmax(gradient[start:end]))
+        errors.append(abs(peak - expected) / square)
+    return max(errors)
 
 
 def _quad_is_usable(corners: np.ndarray, image_shape: tuple[int, ...]) -> bool:

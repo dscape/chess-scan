@@ -19,6 +19,7 @@ from chess_scan.config import Settings
 from chess_scan.database import Database
 from chess_scan.geometry import (
     DETECTION_MAX_DIMENSION,
+    board_grid_fits,
     detect_board_corners,
     order_corners,
     project_board_grid,
@@ -81,6 +82,11 @@ class ScannerService:
         )
         source_height, source_width = source.shape[:2]
         detection = detect_board_corners(source)
+        if detection.method == "manual_adjustment_needed":
+            raise ValueError(
+                "No complete, aligned 8x8 chess board was found. "
+                "Retake the photo with all four board corners visible."
+            )
         corners = [[float(x), float(y)] for x, y in detection.corners]
         rectified = rectify_board(source, corners)
         classifier = self.models.active()
@@ -128,6 +134,10 @@ class ScannerService:
             raise ValueError("The original photograph is no longer available for adjustment")
 
         ordered = order_corners(_corners_array(corners))
+        if not board_grid_fits(source, ordered):
+            raise ValueError(
+                "The selected corners do not tightly align with a complete 8x8 chess board"
+            )
         ordered_corners = [[float(x), float(y)] for x, y in ordered]
         rectified = rectify_board(source, ordered)
         classifier = self.models.active()

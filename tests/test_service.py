@@ -5,6 +5,8 @@ import sqlite3
 import time
 from pathlib import Path
 
+import cv2
+import numpy as np
 import pytest
 
 from chess_scan.classifier import ModelManager
@@ -12,6 +14,19 @@ from chess_scan.config import Settings
 from chess_scan.database import Database
 from chess_scan.errors import ScanExpiredError
 from chess_scan.service import ScannerService
+
+
+def test_scan_rejects_an_image_without_a_complete_aligned_grid(tmp_path: Path) -> None:
+    service, _, settings = _service(tmp_path)
+    blank = np.full((640, 640, 3), 230, dtype=np.uint8)
+    encoded, payload = cv2.imencode(".png", blank)
+    assert encoded
+
+    with pytest.raises(ValueError, match="No complete, aligned 8x8 chess board"):
+        service.scan(payload.tobytes())
+
+    assert not list((settings.data_dir / "source-temp").iterdir())
+    assert not list((settings.data_dir / "rectified").iterdir())
 
 
 def test_cleanup_reconciles_confirmed_and_orphaned_files(tmp_path: Path) -> None:
