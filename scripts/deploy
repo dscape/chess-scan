@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+infra_repo="${S46_INFRA_REPO:-$HOME/dev/s46-infra}"
+infra_dir="$infra_repo/hetzner"
+deploy_script="$infra_dir/scripts/deploy-chess-host.sh"
+smoke_script="$infra_dir/scripts/smoke-chess-host.sh"
+
+if [[ ! -x "$deploy_script" || ! -x "$smoke_script" ]]; then
+  echo "error: Chess Scan deployment tooling was not found under $infra_dir" >&2
+  echo "set S46_INFRA_REPO to the s46-infra checkout" >&2
+  exit 1
+fi
+
+export S46_CHESS_REPO="${S46_CHESS_REPO:-$repo_root}"
+
+"$deploy_script"
+"$smoke_script"
