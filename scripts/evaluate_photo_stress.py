@@ -21,6 +21,7 @@ from qa_common import download_verified, labels_from_fen, write_json
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_BENCHMARK = PROJECT_ROOT / "benchmarks" / "chess-steps-step2.json"
 DEFAULT_MODEL = PROJECT_ROOT / "models" / "chess-steps-v2.onnx"
+_PRINTED_CORNERS = np.float32([[170, 116], [890, 19], [953, 812], [81, 817]])
 
 
 def main() -> None:
@@ -119,19 +120,34 @@ def evaluate(
     items: list[tuple[np.ndarray, list[int]]],
     classifier: DiagramClassifier,
 ) -> dict[str, Any]:
+    halftone_screen = make_halftone_screen(1024)
     classifier_variants: dict[str, Callable[[np.ndarray], np.ndarray]] = {
         "clean": lambda board: board,
         "clean_256px": lambda board: resize_round_trip(board, 256),
         "clean_128px": lambda board: resize_round_trip(board, 128),
         "faded_256px": lambda board: resize_round_trip(board, 256, contrast=0.35),
+        "printed_halftone": lambda board: rectify_printed_photo(board, halftone_screen),
     }
     classifier_results = {
         name: evaluate_classifier(items, classifier, transform)
         for name, transform in classifier_variants.items()
     }
     pipeline_results = {
-        "moderate_perspective": evaluate_pipeline(items, classifier, severe=False),
-        "severe_perspective_blur": evaluate_pipeline(items, classifier, severe=True),
+        "moderate_perspective": evaluate_pipeline(
+            items,
+            classifier,
+            lambda board, index: make_photo(board, seed=index, severe=False),
+        ),
+        "severe_perspective_blur": evaluate_pipeline(
+            items,
+            classifier,
+            lambda board, index: make_photo(board, seed=index, severe=True),
+        ),
+        "printed_halftone": evaluate_pipeline(
+            items,
+            classifier,
+            lambda board, _index: make_printed_photo(board, halftone_screen),
+        ),
     }
     return {
         "boards": len(items),
@@ -166,8 +182,7 @@ def evaluate_classifier(
 def evaluate_pipeline(
     items: list[tuple[np.ndarray, list[int]]],
     classifier: DiagramClassifier,
-    *,
-    severe: bool,
+    transform: Callable[[np.ndarray, int], np.ndarray],
 ) -> dict[str, Any]:
     detected_boards = 0
     exact_boards = 0
@@ -175,7 +190,7 @@ def evaluate_pipeline(
     methods: dict[str, int] = {}
     failures = []
     for index, (board, expected) in enumerate(items):
-        photo = make_photo(board, seed=index, severe=severe)
+        photo = transform(board, index)
         detection = detect_board_corners(photo)
         methods[detection.method] = methods.get(detection.method, 0) + 1
         if detection.method == "manual_adjustment_needed":
@@ -223,6 +238,36 @@ def resize_round_trip(board: np.ndarray, size: int, *, contrast: float = 1.0) ->
     return np.clip(220 + (resized.astype(np.float32) - 220) * contrast, 0, 255).astype(np.uint8)
 
 
+def make_halftone_screen(size: int) -> np.ndarray:
+    positions = np.arange(size, dtype=np.float32)
+    wave = np.sin(2 * np.pi * positions / 5.0)
+    return (wave[:, None] + wave[None, :] + 2.0) / 4.0
+
+
+def make_printed_photo(board: np.ndarray, screen: np.ndarray) -> np.ndarray:
+    height, width = screen.shape
+    high_resolution = cv2.resize(board, (width, height), interpolation=cv2.INTER_CUBIC)
+    gray = cv2.cvtColor(high_resolution, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
+    halftone = ((gray > screen) * 255).astype(np.uint8)
+    halftone = cv2.GaussianBlur(halftone, (0, 0), 1.0)
+    printed = cv2.cvtColor(halftone, cv2.COLOR_GRAY2BGR)
+
+    source = np.float32([[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]])
+    transform = cv2.getPerspectiveTransform(source, _PRINTED_CORNERS)
+    photo = cv2.warpPerspective(
+        printed,
+        transform,
+        (1095, 900),
+        flags=cv2.INTER_CUBIC,
+        borderValue=(235, 235, 235),
+    )
+    return photo
+
+
+def rectify_printed_photo(board: np.ndarray, screen: np.ndarray) -> np.ndarray:
+    return rectify_board(make_printed_photo(board, screen), _PRINTED_CORNERS)
+
+
 def make_photo(board: np.ndarray, *, seed: int, severe: bool) -> np.ndarray:
     random = np.random.RandomState(seed)
     canvas = np.full((760, 760, 3), random.randint(205, 245), dtype=np.uint8)
@@ -249,10 +294,12 @@ def enforce_gates(payload: dict[str, Any]) -> None:
         and classifier["clean"]["exact_boards"] == 12
         and classifier["clean_256px"]["exact_boards"] == 12
         and classifier["faded_256px"]["exact_boards"] == 12
+        and classifier["printed_halftone"]["exact_boards"] == 12
         and pipeline["moderate_perspective"]["detected_boards"] == 12
         and pipeline["moderate_perspective"]["exact_boards"] == 12
         and pipeline["severe_perspective_blur"]["detected_boards"] == 12
         and pipeline["severe_perspective_blur"]["exact_boards"] == 12
+        and pipeline["printed_halftone"]["detected_boards"] == 12
     )
     if not passed:
         raise SystemExit("Photo stress gate failed")

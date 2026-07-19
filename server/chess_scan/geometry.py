@@ -14,6 +14,7 @@ _PATTERN_PREVIEW_SIZE = 256
 _MIN_PATTERN_CONTRAST = 8.0
 _MIN_PATTERN_CONSISTENCY = 0.9
 _MAX_GRID_ALIGNMENT_ERROR = 0.1
+_RECTIFICATION_SUPERSAMPLING = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,22 +107,28 @@ def rectify_board(
     if not _quad_is_usable(points, image_bgr.shape):
         raise ValueError("The selected corners do not form a usable board area")
 
+    sampling_size = output_size * _RECTIFICATION_SUPERSAMPLING
     destination = np.array(
         [
             [0.0, 0.0],
-            [output_size - 1.0, 0.0],
-            [output_size - 1.0, output_size - 1.0],
-            [0.0, output_size - 1.0],
+            [sampling_size - 1.0, 0.0],
+            [sampling_size - 1.0, sampling_size - 1.0],
+            [0.0, sampling_size - 1.0],
         ],
         dtype=np.float32,
     )
     transform = cv2.getPerspectiveTransform(points, destination)
-    return cv2.warpPerspective(
+    sampled = cv2.warpPerspective(
         image_bgr,
         transform,
-        (output_size, output_size),
+        (sampling_size, sampling_size),
         flags=cv2.INTER_CUBIC,
         borderMode=cv2.BORDER_REPLICATE,
+    )
+    return cv2.resize(
+        sampled,
+        (output_size, output_size),
+        interpolation=cv2.INTER_AREA,
     )
 
 
@@ -238,7 +245,6 @@ def _find_contour_board(image_bgr: np.ndarray) -> tuple[np.ndarray, float] | Non
     contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     image_area = float(gray.shape[0] * gray.shape[1])
 
-    candidates: list[tuple[float, np.ndarray]] = []
     for contour in sorted(contours, key=cv2.contourArea, reverse=True)[:80]:
         area = float(cv2.contourArea(contour))
         if area < image_area * 0.06 or area > image_area * 0.98:
@@ -252,14 +258,10 @@ def _find_contour_board(image_bgr: np.ndarray) -> tuple[np.ndarray, float] | Non
             continue
         preview = rectify_board(image_bgr, corners, output_size=_PATTERN_PREVIEW_SIZE)
         score = _checkerboard_score(preview)
-        candidates.append((score, corners))
+        if score >= _MIN_PATTERN_CONTRAST:
+            return corners, score
 
-    if not candidates:
-        return None
-    score, corners = max(candidates, key=lambda item: item[0])
-    if score < _MIN_PATTERN_CONTRAST:
-        return None
-    return corners, score
+    return None
 
 
 def _checkerboard_score(board_bgr: np.ndarray) -> float:

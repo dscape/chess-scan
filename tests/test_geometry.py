@@ -33,6 +33,19 @@ def test_detects_and_rectifies_perspective_checkerboard() -> None:
     assert abs(float(light - dark)) > 80
 
 
+def test_rectification_antialiases_print_screen_patterns() -> None:
+    rows, columns = np.indices((1024, 1024))
+    screen = ((rows + columns) % 2 * 255).astype(np.uint8)
+    source = np.repeat(screen[:, :, None], 3, axis=2)
+    corners = [[0, 0], [1023, 0], [1023, 1023], [0, 1023]]
+    expected = cv2.resize(source, (512, 512), interpolation=cv2.INTER_AREA)
+
+    rectified = rectify_board(source, corners, output_size=512)
+
+    difference = np.abs(rectified.astype(np.int16) - expected.astype(np.int16))
+    assert difference.mean() < 1.0
+
+
 def test_detects_low_contrast_blurred_checkerboard() -> None:
     board = _checkerboard(640, light=232, dark=202)
     source = np.float32([[0, 0], [639, 0], [639, 639], [0, 639]])
