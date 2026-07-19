@@ -15,7 +15,7 @@ SideToMove = Literal["w", "b"]
 
 def labels_to_board_fen(labels: list[int], *, orientation: Orientation = "white") -> str:
     """Convert image-order labels into canonical piece-placement FEN."""
-    _validate_labels(labels)
+    validate_labels(labels)
     canonical = labels if orientation == "white" else list(reversed(labels))
 
     ranks: list[str] = []
@@ -70,9 +70,18 @@ def lichess_analysis_url(fen: str, *, orientation: Orientation) -> str:
     return f"https://lichess.org/analysis/{path_fen}?color={orientation}"
 
 
-def _validate_labels(labels: list[int]) -> None:
+def validate_full_fen(fen: str) -> None:
+    try:
+        chess.Board(fen)
+    except ValueError as exc:
+        raise ValueError(f"Invalid FEN: {exc}") from exc
+
+
+def validate_labels(labels: list[int]) -> None:
     if len(labels) != SQUARE_COUNT:
         raise ValueError(f"Expected {SQUARE_COUNT} square labels, got {len(labels)}")
     invalid = [label for label in labels if label < 0 or label >= len(CLASS_NAMES)]
     if invalid:
-        raise ValueError(f"Square labels must be between 0 and 12, got {invalid[0]}")
+        raise ValueError(
+            f"Square labels must be between 0 and {len(CLASS_NAMES) - 1}, got {invalid[0]}"
+        )

@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 
 from chess_scan.classifier import (
+    DiagramClassifier,
     ModelManager,
     normalize_board_contrast,
     preprocess_square_crops,
@@ -31,6 +32,19 @@ def test_split_and_preprocess_board() -> None:
     assert batch.dtype == np.float32
     assert np.isclose(batch[0, 0, 0, 0], 30 / 255)
     assert np.isclose(batch[0, 2, 0, 0], 10 / 255)
+
+
+def test_classifier_accepts_batched_preprocessed_boards() -> None:
+    classifier = DiagramClassifier(
+        PROJECT_ROOT / "models" / "chess-steps-v2.onnx",
+        version="test",
+    )
+    inputs = np.zeros((128, 3, 64, 64), dtype=np.float32)
+
+    predictions = classifier.predict_preprocessed(inputs)
+
+    assert len(predictions) == 2
+    assert all(len(prediction.labels) == 64 for prediction in predictions)
 
 
 def test_normalizes_faded_board_luminance_only_when_needed() -> None:
@@ -75,7 +89,10 @@ def test_model_manager_reloads_promoted_model(tmp_path: Path) -> None:
     database.initialize(
         base_model_version="base",
         base_model_path=base_path,
-        base_model_metadata={"version": "base"},
+        base_model_metadata={
+            "version": "base",
+            "artifact_sha256": hashlib.sha256(base_path.read_bytes()).hexdigest(),
+        },
     )
     manager = ModelManager(database)
 
@@ -83,7 +100,10 @@ def test_model_manager_reloads_promoted_model(tmp_path: Path) -> None:
     database.register_candidate(
         version="candidate",
         artifact_path=candidate_path,
-        metadata={"version": "candidate"},
+        metadata={
+            "version": "candidate",
+            "artifact_sha256": hashlib.sha256(candidate_path.read_bytes()).hexdigest(),
+        },
     )
     database.promote_model("candidate")
 

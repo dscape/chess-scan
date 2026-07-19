@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterator
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from chess_scan.errors import ScanAlreadyConfirmedError, ScanExpiredError
+from chess_scan.model_artifact import verify_model_artifact
 
 
 class Database:
@@ -24,6 +28,7 @@ class Database:
     ) -> None:
         with closing(self._connect()) as connection:
             connection.executescript(_SCHEMA)
+            _migrate_scans_table(connection)
             existing = connection.execute(
                 "SELECT version FROM model_versions WHERE version = ?",
                 (base_model_version,),
@@ -42,6 +47,19 @@ class Database:
                         json.dumps(base_model_metadata),
                         now,
                         now,
+                    ),
+                )
+            else:
+                connection.execute(
+                    """
+                    UPDATE model_versions
+                    SET artifact_path = ?, metadata_json = ?
+                    WHERE version = ?
+                    """,
+                    (
+                        str(base_model_path.resolve()),
+                        json.dumps(base_model_metadata),
+                        base_model_version,
                     ),
                 )
             if (
@@ -109,15 +127,27 @@ class Database:
         labels: list[int],
         probabilities: list[list[float]],
         board_fen: str,
-    ) -> None:
+    ) -> Path:
         with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            scan = connection.execute(
+                "SELECT state, rectified_image_path FROM scans WHERE id = ?",
+                (scan_id,),
+            ).fetchone()
+            if scan is None:
+                raise KeyError(f"Unknown scan: {scan_id}")
+            if scan["state"] == "confirmed":
+                raise ScanAlreadyConfirmedError("This scan has already been confirmed")
+            if scan["state"] == "expired":
+                raise ScanExpiredError("This scan has expired")
+
             cursor = connection.execute(
                 """
                 UPDATE scans
                 SET rectified_image_path = ?, corners_json = ?, detection_method = ?,
                     model_version = ?, predicted_labels_json = ?,
                     predicted_probabilities_json = ?, predicted_board_fen = ?
-                WHERE id = ?
+                WHERE id = ? AND state = 'open'
                 """,
                 (
                     str(rectified_image_path),
@@ -131,15 +161,19 @@ class Database:
                 ),
             )
             if cursor.rowcount != 1:
-                raise KeyError(f"Unknown scan: {scan_id}")
+                raise RuntimeError(f"Scan state changed while reprocessing: {scan_id}")
             connection.commit()
+        return Path(scan["rectified_image_path"])
 
-    def get_scan(self, scan_id: str) -> dict[str, Any]:
-        with closing(self._connect()) as connection:
-            row = connection.execute("SELECT * FROM scans WHERE id = ?", (scan_id,)).fetchone()
-        if row is None:
-            raise KeyError(f"Unknown scan: {scan_id}")
-        return dict(row)
+    def scan_for_reprocessing(self, scan_id: str) -> dict[str, Any]:
+        return self._scan_projection(
+            scan_id,
+            "source_image_path, rectified_image_path, source_width, source_height",
+        )
+
+    def rectified_image_path(self, scan_id: str) -> Path:
+        row = self._scan_projection(scan_id, "rectified_image_path")
+        return Path(row["rectified_image_path"])
 
     def confirm_scan(
         self,
@@ -152,11 +186,33 @@ class Database:
         castling: str,
         en_passant: str,
         full_fen: str,
-        changed_squares: int,
         consent_training: bool,
         client_session_id: str | None,
-    ) -> None:
+    ) -> dict[str, Any]:
         with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            scan = connection.execute(
+                """
+                SELECT predicted_labels_json, source_image_path, rectified_image_path, state
+                FROM scans
+                WHERE id = ?
+                """,
+                (scan_id,),
+            ).fetchone()
+            if scan is None:
+                raise KeyError(f"Unknown scan: {scan_id}")
+            if scan["state"] == "confirmed":
+                raise ScanAlreadyConfirmedError("This scan has already been confirmed")
+            if scan["state"] == "expired":
+                raise ScanExpiredError("This scan has expired")
+            if consent_training and not Path(scan["rectified_image_path"]).is_file():
+                raise ValueError("The rectified board is no longer available for training")
+
+            predicted_labels = [int(value) for value in json.loads(scan["predicted_labels_json"])]
+            changed_squares = sum(
+                predicted != final
+                for predicted, final in zip(predicted_labels, labels, strict=True)
+            )
             try:
                 connection.execute(
                     """
@@ -182,8 +238,23 @@ class Database:
                     ),
                 )
             except sqlite3.IntegrityError as exc:
-                raise ValueError("This scan has already been confirmed") from exc
+                duplicate = connection.execute(
+                    "SELECT 1 FROM feedback_events WHERE scan_id = ?", (scan_id,)
+                ).fetchone()
+                if duplicate is not None:
+                    raise ScanAlreadyConfirmedError("This scan has already been confirmed") from exc
+                raise
+            connection.execute(
+                "UPDATE scans SET state = 'confirmed', cleanup_completed_at = NULL WHERE id = ?",
+                (scan_id,),
+            )
             connection.commit()
+        return {
+            "scan_id": scan_id,
+            "changed_squares": changed_squares,
+            "source_image_path": str(scan["source_image_path"]),
+            "rectified_image_path": str(scan["rectified_image_path"]),
+        }
 
     def get_active_model(self) -> dict[str, Any]:
         with closing(self._connect()) as connection:
@@ -255,6 +326,8 @@ class Database:
         artifact_path: Path,
         metadata: dict[str, Any],
     ) -> None:
+        artifact_path = artifact_path.resolve()
+        verify_model_artifact(artifact_path, metadata)
         with closing(self._connect()) as connection:
             connection.execute(
                 """
@@ -262,19 +335,22 @@ class Database:
                     version, artifact_path, metadata_json, created_at, is_active
                 ) VALUES (?, ?, ?, ?, 0)
                 """,
-                (version, str(artifact_path.resolve()), json.dumps(metadata), _now()),
+                (version, str(artifact_path), json.dumps(metadata), _now()),
             )
             connection.commit()
 
     def promote_model(self, version: str) -> None:
         with closing(self._connect()) as connection:
-            if (
-                connection.execute(
-                    "SELECT 1 FROM model_versions WHERE version = ?", (version,)
-                ).fetchone()
-                is None
-            ):
+            model = connection.execute(
+                "SELECT artifact_path, metadata_json FROM model_versions WHERE version = ?",
+                (version,),
+            ).fetchone()
+            if model is None:
                 raise KeyError(f"Unknown model version: {version}")
+            verify_model_artifact(
+                Path(model["artifact_path"]),
+                str(model["metadata_json"]),
+            )
             connection.execute("UPDATE model_versions SET is_active = 0 WHERE is_active = 1")
             connection.execute(
                 "UPDATE model_versions SET is_active = 1, activated_at = ? WHERE version = ?",
@@ -341,22 +417,175 @@ class Database:
         }
 
     def training_examples(self) -> list[dict[str, Any]]:
+        return list(self.iter_training_examples())
+
+    def iter_training_examples(self) -> Iterator[dict[str, Any]]:
+        yield from self._iter_rows(
+            """
+            SELECT
+                f.id AS feedback_id, f.scan_id, f.created_at, f.final_labels_json,
+                f.orientation, f.side_to_move, f.final_fen, f.changed_squares,
+                f.client_session_id, s.rectified_image_path, s.model_version,
+                s.predicted_labels_json, s.image_sha256
+            FROM feedback_events f
+            JOIN scans s ON s.id = f.scan_id
+            WHERE f.consent_training = 1
+            ORDER BY f.created_at
+            """
+        )
+
+    def iter_preference_examples(self) -> Iterator[dict[str, Any]]:
+        yield from self._iter_rows(
+            """
+            SELECT
+                f.id AS feedback_id, f.changed_squares, f.final_labels_json,
+                s.rectified_image_path, s.model_version, s.predicted_labels_json,
+                s.predicted_probabilities_json
+            FROM feedback_events f
+            JOIN scans s ON s.id = f.scan_id
+            WHERE f.consent_training = 1 AND f.changed_squares > 0
+            ORDER BY f.created_at
+            """
+        )
+
+    def feedback_split_assignments(self) -> dict[str, str]:
         with closing(self._connect()) as connection:
+            rows = connection.execute(
+                "SELECT feedback_id, split FROM feedback_split_assignments"
+            ).fetchall()
+        return {str(row["feedback_id"]): str(row["split"]) for row in rows}
+
+    def save_feedback_split_assignments(self, assignments: dict[str, str]) -> None:
+        if not assignments:
+            return
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            for feedback_id, split in assignments.items():
+                existing = connection.execute(
+                    "SELECT split FROM feedback_split_assignments WHERE feedback_id = ?",
+                    (feedback_id,),
+                ).fetchone()
+                if existing is not None and existing["split"] != split:
+                    raise ValueError(f"Feedback split assignment is immutable: {feedback_id}")
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO feedback_split_assignments (
+                        feedback_id, split, assigned_at
+                    ) VALUES (?, ?, ?)
+                    """,
+                    (feedback_id, split, _now()),
+                )
+            connection.commit()
+
+    def scan_files_for_cleanup(
+        self,
+        *,
+        created_before: str,
+        retry_before: str,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """
+                UPDATE scans
+                SET state = 'expired', expired_at = ?, cleanup_completed_at = NULL
+                WHERE id IN (
+                    SELECT id
+                    FROM scans
+                    WHERE state = 'open' AND created_at < ?
+                    ORDER BY created_at
+                    LIMIT ?
+                )
+                """,
+                (_now(), created_before, limit),
+            )
             rows = connection.execute(
                 """
                 SELECT
-                    f.id AS feedback_id, f.scan_id, f.created_at, f.final_labels_json,
-                    f.orientation, f.side_to_move, f.final_fen, f.changed_squares,
-                    f.client_session_id, s.rectified_image_path, s.model_version,
-                    s.predicted_labels_json, s.predicted_probabilities_json,
-                    s.image_sha256
-                FROM feedback_events f
-                JOIN scans s ON s.id = f.scan_id
-                WHERE f.consent_training = 1
-                ORDER BY f.created_at
+                    s.id, s.source_image_path, s.rectified_image_path,
+                    CASE
+                        WHEN s.state = 'expired' OR COALESCE(f.consent_training, 0) = 0 THEN 1
+                        ELSE 0
+                    END AS delete_rectified
+                FROM scans s
+                LEFT JOIN feedback_events f ON f.scan_id = s.id
+                WHERE s.state != 'open'
+                  AND s.cleanup_completed_at IS NULL
+                  AND (s.cleanup_attempted_at IS NULL OR s.cleanup_attempted_at < ?)
+                ORDER BY s.cleanup_attempted_at IS NOT NULL, s.cleanup_attempted_at, s.created_at
+                LIMIT ?
+                """,
+                (retry_before, limit),
+            ).fetchall()
+            if rows:
+                placeholders = ", ".join("?" for _ in rows)
+                connection.execute(
+                    f"UPDATE scans SET cleanup_attempted_at = ? WHERE id IN ({placeholders})",
+                    (_now(), *(str(row["id"]) for row in rows)),
+                )
+            connection.commit()
+        return [dict(row) for row in rows]
+
+    def has_cleanup_work(self, *, created_before: str, retry_before: str) -> bool:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT 1
+                FROM scans
+                WHERE (state = 'open' AND created_at < ?)
+                   OR (
+                       state != 'open' AND cleanup_completed_at IS NULL
+                       AND (cleanup_attempted_at IS NULL OR cleanup_attempted_at < ?)
+                   )
+                LIMIT 1
+                """,
+                (created_before, retry_before),
+            ).fetchone()
+        return row is not None
+
+    def referenced_file_paths(self) -> set[Path]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT source_image_path AS path FROM scans WHERE state = 'open'
+                UNION ALL
+                SELECT rectified_image_path AS path FROM scans WHERE state = 'open'
+                UNION ALL
+                SELECT s.rectified_image_path AS path
+                FROM scans s
+                JOIN feedback_events f ON f.scan_id = s.id
+                WHERE s.state = 'confirmed' AND f.consent_training = 1
                 """
             ).fetchall()
-        return [dict(row) for row in rows]
+        return {Path(row["path"]).resolve() for row in rows}
+
+    def complete_scan_cleanup(self, scan_ids: list[str]) -> None:
+        if not scan_ids:
+            return
+        placeholders = ", ".join("?" for _ in scan_ids)
+        with closing(self._connect()) as connection:
+            connection.execute(
+                f"UPDATE scans SET cleanup_completed_at = ? WHERE id IN ({placeholders})",
+                (_now(), *scan_ids),
+            )
+            connection.commit()
+
+    def _scan_projection(self, scan_id: str, columns: str) -> dict[str, Any]:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                f"SELECT {columns} FROM scans WHERE id = ?",
+                (scan_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Unknown scan: {scan_id}")
+        return dict(row)
+
+    def _iter_rows(self, query: str) -> Iterator[dict[str, Any]]:
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(query)
+            while rows := cursor.fetchmany(100):
+                yield from (dict(row) for row in rows)
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=30)
@@ -368,6 +597,49 @@ class Database:
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _migrate_scans_table(connection: sqlite3.Connection) -> None:
+    columns = {
+        str(row["name"]) for row in connection.execute("PRAGMA table_info(scans)").fetchall()
+    }
+    state_added = "state" not in columns
+    if state_added:
+        connection.execute(
+            """
+            ALTER TABLE scans
+            ADD COLUMN state TEXT NOT NULL DEFAULT 'open'
+                CHECK (state IN ('open', 'confirmed', 'expired'))
+            """
+        )
+    if "expired_at" not in columns:
+        connection.execute("ALTER TABLE scans ADD COLUMN expired_at TEXT")
+    if "cleanup_attempted_at" not in columns:
+        connection.execute("ALTER TABLE scans ADD COLUMN cleanup_attempted_at TEXT")
+    if "cleanup_completed_at" not in columns:
+        connection.execute("ALTER TABLE scans ADD COLUMN cleanup_completed_at TEXT")
+    if state_added:
+        connection.execute(
+            """
+            UPDATE scans
+            SET state = CASE
+                WHEN expired_at IS NOT NULL THEN 'expired'
+                WHEN EXISTS(SELECT 1 FROM feedback_events f WHERE f.scan_id = scans.id)
+                    THEN 'confirmed'
+                ELSE 'open'
+            END
+            """
+        )
+    connection.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS idx_scans_open_cleanup
+        ON scans(created_at) WHERE state = 'open';
+
+        CREATE INDEX IF NOT EXISTS idx_scans_pending_cleanup
+        ON scans(cleanup_attempted_at, created_at)
+        WHERE state != 'open' AND cleanup_completed_at IS NULL;
+        """
+    )
 
 
 _SCHEMA = """
@@ -393,7 +665,11 @@ CREATE TABLE IF NOT EXISTS scans (
     model_version TEXT NOT NULL REFERENCES model_versions(version),
     predicted_labels_json TEXT NOT NULL,
     predicted_probabilities_json TEXT NOT NULL,
-    predicted_board_fen TEXT NOT NULL
+    predicted_board_fen TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'confirmed', 'expired')),
+    expired_at TEXT,
+    cleanup_attempted_at TEXT,
+    cleanup_completed_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS feedback_events (
@@ -410,6 +686,12 @@ CREATE TABLE IF NOT EXISTS feedback_events (
     changed_squares INTEGER NOT NULL,
     consent_training INTEGER NOT NULL CHECK (consent_training IN (0, 1)),
     client_session_id TEXT
+);
+
+CREATE TABLE IF NOT EXISTS feedback_split_assignments (
+    feedback_id TEXT PRIMARY KEY REFERENCES feedback_events(id),
+    split TEXT NOT NULL CHECK (split IN ('train', 'selection', 'gate', 'quarantine')),
+    assigned_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS training_runs (

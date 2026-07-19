@@ -3,19 +3,22 @@
 from __future__ import annotations
 
 import hashlib
-import json
+import logging
 import time
 import uuid
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-from chess_scan.board import build_full_fen, fen_warnings, lichess_analysis_url
+from chess_scan.board import build_full_fen, fen_warnings, lichess_analysis_url, validate_full_fen
 from chess_scan.classifier import BoardPrediction, ModelManager
 from chess_scan.config import Settings
 from chess_scan.database import Database
 from chess_scan.geometry import (
+    DETECTION_MAX_DIMENSION,
     detect_board_corners,
     order_corners,
     project_board_grid,
@@ -29,6 +32,15 @@ from chess_scan.schemas import (
     LearningStatusResponse,
     ScanResponse,
 )
+
+logger = logging.getLogger(__name__)
+_CLEANUP_RETRY_SECONDS = 60 * 60
+
+
+@dataclass(frozen=True, slots=True)
+class CleanupResult:
+    removed: int
+    backlog: bool
 
 
 class ScannerService:
@@ -46,7 +58,7 @@ class ScannerService:
     def detect(self, file_bytes: bytes) -> BoardDetectionResponse:
         source = decode_uploaded_image(
             file_bytes,
-            max_dimension=min(self.settings.max_image_dimension, 1400),
+            max_dimension=min(self.settings.max_image_dimension, DETECTION_MAX_DIMENSION),
         )
         source_height, source_width = source.shape[:2]
         detection = detect_board_corners(source)
@@ -79,20 +91,25 @@ class ScannerService:
         rectified_path = self.settings.data_dir / "rectified" / f"{scan_id}.jpg"
         write_jpeg(source_path, source)
         write_jpeg(rectified_path, rectified)
-        self.database.create_scan(
-            scan_id=scan_id,
-            image_sha256=hashlib.sha256(file_bytes).hexdigest(),
-            source_width=source_width,
-            source_height=source_height,
-            source_image_path=source_path,
-            rectified_image_path=rectified_path,
-            corners=corners,
-            detection_method=detection.method,
-            model_version=classifier.version,
-            labels=prediction.labels,
-            probabilities=prediction.probabilities,
-            board_fen=prediction.board_fen,
-        )
+        try:
+            self.database.create_scan(
+                scan_id=scan_id,
+                image_sha256=hashlib.sha256(file_bytes).hexdigest(),
+                source_width=source_width,
+                source_height=source_height,
+                source_image_path=source_path,
+                rectified_image_path=rectified_path,
+                corners=corners,
+                detection_method=detection.method,
+                model_version=classifier.version,
+                labels=prediction.labels,
+                probabilities=prediction.probabilities,
+                board_fen=prediction.board_fen,
+            )
+        except Exception:
+            source_path.unlink(missing_ok=True)
+            rectified_path.unlink(missing_ok=True)
+            raise
         return _scan_response(
             scan_id=scan_id,
             source_width=source_width,
@@ -104,7 +121,7 @@ class ScannerService:
         )
 
     def reprocess(self, scan_id: str, corners: list[list[float]]) -> ScanResponse:
-        scan = self.database.get_scan(scan_id)
+        scan = self.database.scan_for_reprocessing(scan_id)
         source_path = Path(scan["source_image_path"])
         source = cv2.imread(str(source_path), cv2.IMREAD_COLOR)
         if source is None:
@@ -115,18 +132,25 @@ class ScannerService:
         rectified = rectify_board(source, ordered)
         classifier = self.models.active()
         prediction = classifier.predict(rectified)
-        rectified_path = Path(scan["rectified_image_path"])
-        write_jpeg(rectified_path, rectified)
-        self.database.update_scan_prediction(
-            scan_id=scan_id,
-            rectified_image_path=rectified_path,
-            corners=ordered_corners,
-            detection_method="manual",
-            model_version=classifier.version,
-            labels=prediction.labels,
-            probabilities=prediction.probabilities,
-            board_fen=prediction.board_fen,
+        rectified_path = Path(scan["rectified_image_path"]).with_name(
+            f"{scan_id}-{uuid.uuid4().hex[:8]}.jpg"
         )
+        write_jpeg(rectified_path, rectified)
+        try:
+            displaced_path = self.database.update_scan_prediction(
+                scan_id=scan_id,
+                rectified_image_path=rectified_path,
+                corners=ordered_corners,
+                detection_method="manual",
+                model_version=classifier.version,
+                labels=prediction.labels,
+                probabilities=prediction.probabilities,
+                board_fen=prediction.board_fen,
+            )
+        except Exception:
+            rectified_path.unlink(missing_ok=True)
+            raise
+        displaced_path.unlink(missing_ok=True)
         return _scan_response(
             scan_id=scan_id,
             source_width=int(scan["source_width"]),
@@ -138,7 +162,6 @@ class ScannerService:
         )
 
     def confirm(self, scan_id: str, request: ConfirmRequest) -> ConfirmResponse:
-        scan = self.database.get_scan(scan_id)
         full_fen = build_full_fen(
             request.labels,
             orientation=request.orientation,
@@ -146,13 +169,9 @@ class ScannerService:
             castling=request.castling,
             en_passant=request.en_passant,
         )
-        predicted_labels = [int(value) for value in json.loads(scan["predicted_labels_json"])]
-        changed_squares = sum(
-            predicted != final
-            for predicted, final in zip(predicted_labels, request.labels, strict=True)
-        )
+        validate_full_fen(full_fen)
         feedback_id = uuid.uuid4().hex
-        self.database.confirm_scan(
+        confirmed = self.database.confirm_scan(
             feedback_id=feedback_id,
             scan_id=scan_id,
             labels=request.labels,
@@ -161,38 +180,100 @@ class ScannerService:
             castling=request.castling,
             en_passant=request.en_passant,
             full_fen=full_fen,
-            changed_squares=changed_squares,
             consent_training=request.consent_training,
             client_session_id=request.client_session_id,
         )
 
-        source_path = Path(scan["source_image_path"])
-        source_path.unlink(missing_ok=True)
-        if not request.consent_training:
-            Path(scan["rectified_image_path"]).unlink(missing_ok=True)
+        try:
+            Path(confirmed["source_image_path"]).unlink(missing_ok=True)
+            if not request.consent_training:
+                Path(confirmed["rectified_image_path"]).unlink(missing_ok=True)
+        except OSError:
+            logger.exception("Failed to remove confirmed files for scan %s", scan_id)
+        else:
+            self.database.complete_scan_cleanup([scan_id])
         return ConfirmResponse(
             feedback_id=feedback_id,
             full_fen=full_fen,
             lichess_url=lichess_analysis_url(full_fen, orientation=request.orientation),
-            changed_squares=changed_squares,
+            changed_squares=int(confirmed["changed_squares"]),
             warnings=fen_warnings(full_fen),
         )
 
     def rectified_path(self, scan_id: str) -> Path:
-        return Path(self.database.get_scan(scan_id)["rectified_image_path"])
+        return self.database.rectified_image_path(scan_id)
 
     def learning_status(self) -> LearningStatusResponse:
         return LearningStatusResponse(**self.database.learning_status())
 
-    def remove_stale_sources(self, *, older_than_seconds: int = 24 * 60 * 60) -> int:
-        cutoff = time.time() - older_than_seconds
+    def remove_stale_sources(
+        self,
+        *,
+        older_than_seconds: int = 24 * 60 * 60,
+        max_seconds: float = 5.0,
+        batch_size: int = 200,
+    ) -> CleanupResult:
+        now = datetime.now(UTC)
+        cutoff = now - timedelta(seconds=older_than_seconds)
+        retry_before = now - timedelta(seconds=_CLEANUP_RETRY_SECONDS)
+        deadline = time.monotonic() + max_seconds
         removed = 0
-        for path in (self.settings.data_dir / "source-temp").glob("*.jpg"):
-            if path.stat().st_mtime < cutoff:
-                path.unlink(missing_ok=True)
-                (self.settings.data_dir / "rectified" / path.name).unlink(missing_ok=True)
+
+        while time.monotonic() < deadline:
+            rows = self.database.scan_files_for_cleanup(
+                created_before=cutoff.isoformat(),
+                retry_before=retry_before.isoformat(),
+                limit=batch_size,
+            )
+            if not rows:
+                break
+            completed: list[str] = []
+            for row in rows:
+                try:
+                    Path(row["source_image_path"]).unlink(missing_ok=True)
+                    if row["delete_rectified"]:
+                        Path(row["rectified_image_path"]).unlink(missing_ok=True)
+                except OSError:
+                    logger.exception("Failed to remove retained files for scan %s", row["id"])
+                    continue
+                completed.append(str(row["id"]))
+            self.database.complete_scan_cleanup(completed)
+            removed += len(completed)
+
+        orphan_count, orphan_backlog = self._remove_orphaned_files(
+            cutoff=cutoff.timestamp(),
+            deadline=deadline,
+        )
+        removed += orphan_count
+        database_backlog = self.database.has_cleanup_work(
+            created_before=cutoff.isoformat(),
+            retry_before=retry_before.isoformat(),
+        )
+        return CleanupResult(removed=removed, backlog=database_backlog or orphan_backlog)
+
+    def _remove_orphaned_files(self, *, cutoff: float, deadline: float) -> tuple[int, bool]:
+        referenced = self.database.referenced_file_paths()
+        removed = 0
+        for directory in (
+            self.settings.data_dir / "source-temp",
+            self.settings.data_dir / "rectified",
+        ):
+            for path in directory.glob("*.jpg"):
+                if time.monotonic() >= deadline:
+                    return removed, True
+                if path.resolve() in referenced:
+                    continue
+                try:
+                    if path.stat().st_mtime >= cutoff:
+                        continue
+                    path.unlink(missing_ok=True)
+                except FileNotFoundError:
+                    continue
+                except OSError:
+                    logger.exception("Failed to remove orphaned scan file %s", path)
+                    continue
                 removed += 1
-        return removed
+        return removed, False
 
 
 def _scan_response(

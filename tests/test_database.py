@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -7,6 +9,11 @@ import pytest
 from chess_scan.bootstrap import initialize_database
 from chess_scan.config import PROJECT_ROOT, Settings
 from chess_scan.database import Database
+from chess_scan.errors import (
+    ArtifactHashMismatchError,
+    MissingArtifactHashError,
+    ScanAlreadyConfirmedError,
+)
 
 
 @pytest.mark.parametrize(
@@ -35,14 +42,45 @@ def test_bootstrap_replaces_old_base_but_preserves_newer_candidate(
     database = initialize_database(settings)
     assert database.get_active_model()["version"] == "chess-steps-v2"
 
+    candidate_path = settings.model_dir / "chess-steps-v2.onnx"
     database.register_candidate(
         version="feedback-candidate",
-        artifact_path=settings.model_dir / "chess-steps-v2.onnx",
-        metadata={},
+        artifact_path=candidate_path,
+        metadata={"artifact_sha256": _sha256(candidate_path)},
     )
     database.promote_model("feedback-candidate")
 
     assert initialize_database(settings).get_active_model()["version"] == "feedback-candidate"
+
+
+def test_bootstrap_falls_back_from_legacy_candidate_without_artifact_hash(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        model_dir=PROJECT_ROOT / "models",
+        web_dist=tmp_path / "web",
+        max_upload_bytes=1024,
+        max_image_dimension=1024,
+        cors_origins=(),
+    )
+    database = initialize_database(settings)
+    candidate_path = settings.model_dir / "chess-steps-v2.onnx"
+    database.register_candidate(
+        version="legacy-candidate",
+        artifact_path=candidate_path,
+        metadata={"artifact_sha256": _sha256(candidate_path)},
+    )
+    database.promote_model("legacy-candidate")
+    with sqlite3.connect(database.path) as connection:
+        connection.execute(
+            "UPDATE model_versions SET metadata_json = '{}' WHERE version = ?",
+            ("legacy-candidate",),
+        )
+
+    database = initialize_database(settings)
+
+    assert database.get_active_model()["version"] == "chess-steps-v2"
 
 
 def test_registering_new_base_does_not_replace_promoted_candidate(tmp_path: Path) -> None:
@@ -61,7 +99,7 @@ def test_registering_new_base_does_not_replace_promoted_candidate(tmp_path: Path
     database.register_candidate(
         version="candidate",
         artifact_path=candidate_path,
-        metadata={},
+        metadata={"artifact_sha256": _sha256(candidate_path)},
     )
     database.promote_model("candidate")
     database.initialize(
@@ -84,6 +122,7 @@ def test_confirmed_feedback_is_immutable_and_counted(tmp_path: Path) -> None:
     )
     source = tmp_path / "source.jpg"
     rectified = tmp_path / "rectified.jpg"
+    rectified.write_bytes(b"rectified")
     database.create_scan(
         scan_id="scan",
         image_sha256="hash",
@@ -109,10 +148,21 @@ def test_confirmed_feedback_is_immutable_and_counted(tmp_path: Path) -> None:
         castling="-",
         en_passant="-",
         full_fen="k7/8/8/8/8/8/8/8 w - - 0 1",
-        changed_squares=1,
         consent_training=True,
         client_session_id="client",
     )
+
+    with pytest.raises(ScanAlreadyConfirmedError):
+        database.update_scan_prediction(
+            scan_id="scan",
+            rectified_image_path=tmp_path / "replacement.jpg",
+            corners=[[0, 0], [99, 0], [99, 99], [0, 99]],
+            detection_method="manual",
+            model_version="base",
+            labels=[1] * 64,
+            probabilities=[[1.0] + [0.0] * 12 for _ in range(64)],
+            board_fen="8/8/8/8/8/8/8/8",
+        )
 
     status = database.learning_status()
     examples = database.training_examples()
@@ -127,6 +177,10 @@ def test_confirmed_feedback_is_immutable_and_counted(tmp_path: Path) -> None:
         "boards_in_last_completed_run": 0,
         "new_training_boards": 1,
     }
+    database.save_feedback_split_assignments({"feedback": "gate"})
+    assert database.feedback_split_assignments() == {"feedback": "gate"}
+    with pytest.raises(ValueError):
+        database.save_feedback_split_assignments({"feedback": "train"})
 
     candidate_path = tmp_path / "candidate.onnx"
     candidate_path.write_bytes(b"candidate")
@@ -138,7 +192,10 @@ def test_confirmed_feedback_is_immutable_and_counted(tmp_path: Path) -> None:
     database.register_candidate(
         version="candidate",
         artifact_path=candidate_path,
-        metadata={"eligible_for_promotion": True},
+        metadata={
+            "eligible_for_promotion": True,
+            "artifact_sha256": _sha256(candidate_path),
+        },
     )
     database.complete_training_run(
         run_id="run",
@@ -149,3 +206,89 @@ def test_confirmed_feedback_is_immutable_and_counted(tmp_path: Path) -> None:
 
     assert database.learning_cycle_progress()["new_training_boards"] == 0
     assert database.get_active_model()["version"] == "candidate"
+
+
+def test_reprocessing_returns_the_path_displaced_inside_the_transaction(tmp_path: Path) -> None:
+    model_path = tmp_path / "model.onnx"
+    model_path.write_bytes(b"model")
+    database = Database(tmp_path / "db.sqlite3")
+    database.initialize(
+        base_model_version="base",
+        base_model_path=model_path,
+        base_model_metadata={},
+    )
+    original = tmp_path / "original.jpg"
+    first = tmp_path / "first.jpg"
+    second = tmp_path / "second.jpg"
+    database.create_scan(
+        scan_id="scan",
+        image_sha256="hash",
+        source_width=100,
+        source_height=100,
+        source_image_path=tmp_path / "source.jpg",
+        rectified_image_path=original,
+        corners=[[0, 0], [99, 0], [99, 99], [0, 99]],
+        detection_method="test",
+        model_version="base",
+        labels=[0] * 64,
+        probabilities=[[1.0] + [0.0] * 12 for _ in range(64)],
+        board_fen="8/8/8/8/8/8/8/8",
+    )
+
+    displaced_first = database.update_scan_prediction(
+        scan_id="scan",
+        rectified_image_path=first,
+        corners=[[0, 0], [99, 0], [99, 99], [0, 99]],
+        detection_method="manual",
+        model_version="base",
+        labels=[0] * 64,
+        probabilities=[[1.0] + [0.0] * 12 for _ in range(64)],
+        board_fen="8/8/8/8/8/8/8/8",
+    )
+    displaced_second = database.update_scan_prediction(
+        scan_id="scan",
+        rectified_image_path=second,
+        corners=[[0, 0], [99, 0], [99, 99], [0, 99]],
+        detection_method="manual",
+        model_version="base",
+        labels=[0] * 64,
+        probabilities=[[1.0] + [0.0] * 12 for _ in range(64)],
+        board_fen="8/8/8/8/8/8/8/8",
+    )
+
+    assert displaced_first == original
+    assert displaced_second == first
+
+
+def test_candidate_artifact_is_verified_before_registration_and_promotion(tmp_path: Path) -> None:
+    base_path = tmp_path / "base.onnx"
+    base_path.write_bytes(b"base")
+    database = Database(tmp_path / "db.sqlite3")
+    database.initialize(
+        base_model_version="base",
+        base_model_path=base_path,
+        base_model_metadata={"artifact_sha256": _sha256(base_path)},
+    )
+    candidate_path = tmp_path / "candidate.onnx"
+    candidate_path.write_bytes(b"candidate")
+
+    with pytest.raises(MissingArtifactHashError):
+        database.register_candidate(
+            version="missing-hash",
+            artifact_path=candidate_path,
+            metadata={},
+        )
+
+    database.register_candidate(
+        version="candidate",
+        artifact_path=candidate_path,
+        metadata={"artifact_sha256": _sha256(candidate_path)},
+    )
+    candidate_path.write_bytes(b"corrupted")
+
+    with pytest.raises(ArtifactHashMismatchError):
+        database.promote_model("candidate")
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()

@@ -12,7 +12,8 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
-from chess_scan.board import CLASS_NAMES, labels_to_board_fen
+from chess_scan.board import CLASS_NAMES, SQUARE_COUNT, labels_to_board_fen
+from chess_scan.model_artifact import verify_model_artifact
 
 INPUT_SIZE = 64
 NUM_CLASSES = len(CLASS_NAMES)
@@ -47,22 +48,39 @@ class DiagramClassifier:
         self._input_name = self._session.get_inputs()[0].name
 
     def predict(self, rectified_board_bgr: np.ndarray) -> BoardPrediction:
-        normalized_board = normalize_board_contrast(rectified_board_bgr)
-        crops = split_board_squares(normalized_board)
-        inputs = preprocess_square_crops(crops)
-        logits = np.asarray(self._session.run(None, {self._input_name: inputs})[0])
-        if logits.shape != (64, NUM_CLASSES):
-            raise RuntimeError(f"Expected model output (64, {NUM_CLASSES}), got {logits.shape}")
+        predictions = self.predict_preprocessed(preprocess_board(rectified_board_bgr))
+        return predictions[0]
 
-        probabilities = _softmax(logits)
-        labels = probabilities.argmax(axis=1).astype(np.int64).tolist()
-        confidences = probabilities.max(axis=1).astype(float).tolist()
-        return BoardPrediction(
-            labels=labels,
-            probabilities=probabilities.astype(float).tolist(),
-            confidences=confidences,
-            board_fen=labels_to_board_fen(labels),
-        )
+    def predict_preprocessed(self, inputs: np.ndarray) -> list[BoardPrediction]:
+        """Classify one or more boards represented as consecutive batches of 64 squares."""
+        if inputs.ndim != 4 or inputs.shape[1:] != (3, INPUT_SIZE, INPUT_SIZE):
+            raise ValueError(
+                f"Expected square inputs shaped (n, 3, {INPUT_SIZE}, {INPUT_SIZE}), "
+                f"got {inputs.shape}"
+            )
+        if len(inputs) == 0 or len(inputs) % SQUARE_COUNT != 0:
+            raise ValueError(
+                f"Preprocessed inputs must contain a positive multiple of {SQUARE_COUNT} squares"
+            )
+
+        logits = np.asarray(self._session.run(None, {self._input_name: inputs})[0])
+        expected_shape = (len(inputs), NUM_CLASSES)
+        if logits.shape != expected_shape:
+            raise RuntimeError(f"Expected model output {expected_shape}, got {logits.shape}")
+
+        probabilities = _softmax(logits).reshape(-1, SQUARE_COUNT, NUM_CLASSES)
+        predictions: list[BoardPrediction] = []
+        for board_probabilities in probabilities:
+            labels = board_probabilities.argmax(axis=1).astype(np.int64).tolist()
+            predictions.append(
+                BoardPrediction(
+                    labels=labels,
+                    probabilities=board_probabilities.astype(float).tolist(),
+                    confidences=board_probabilities.max(axis=1).astype(float).tolist(),
+                    board_fen=labels_to_board_fen(labels),
+                )
+            )
+        return predictions
 
 
 def normalize_board_contrast(board_bgr: np.ndarray) -> np.ndarray:
@@ -100,10 +118,18 @@ def split_board_squares(board_bgr: np.ndarray) -> list[np.ndarray]:
     ]
 
 
+def preprocess_board(rectified_board_bgr: np.ndarray) -> np.ndarray:
+    normalized_board = normalize_board_contrast(rectified_board_bgr)
+    return preprocess_square_crops(split_board_squares(normalized_board))
+
+
 def preprocess_square_crops(crops: list[np.ndarray]) -> np.ndarray:
     resized: list[np.ndarray] = []
     for crop in crops:
         rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+        if rgb.shape[:2] == (INPUT_SIZE, INPUT_SIZE):
+            resized.append(rgb)
+            continue
         interpolation = cv2.INTER_AREA if min(rgb.shape[:2]) >= INPUT_SIZE else cv2.INTER_LINEAR
         resized.append(cv2.resize(rgb, (INPUT_SIZE, INPUT_SIZE), interpolation=interpolation))
     batch = np.stack(resized).astype(np.float32) / 255.0
@@ -139,6 +165,11 @@ class ModelManager:
 
         with self._lock:
             if self._classifier is None or self._version != version:
-                self._classifier = DiagramClassifier(Path(model["artifact_path"]), version=version)
+                artifact_path = Path(model["artifact_path"])
+                verify_model_artifact(
+                    artifact_path,
+                    str(model["metadata_json"]),
+                )
+                self._classifier = DiagramClassifier(artifact_path, version=version)
                 self._version = version
         return self._classifier

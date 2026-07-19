@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+import logging
+import tempfile
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, TypeVar
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from chess_scan.bootstrap import initialize_database
 from chess_scan.classifier import ModelManager
@@ -26,6 +30,9 @@ from chess_scan.schemas import (
 )
 from chess_scan.service import ScannerService
 
+logger = logging.getLogger(__name__)
+_Result = TypeVar("_Result")
+
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved_settings = settings or Settings.load()
@@ -33,16 +40,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         database = initialize_database(resolved_settings)
+        models = ModelManager(database)
+        models.active()
         service = ScannerService(
             settings=resolved_settings,
             database=database,
-            models=ModelManager(database),
+            models=models,
         )
-        service.remove_stale_sources()
-        cleanup_task = asyncio.create_task(_cleanup_sources_periodically(service))
         application.state.settings = resolved_settings
         application.state.database = database
         application.state.service = service
+        application.state.processing_slots = _processing_slots(2)
+        cleanup_task = asyncio.create_task(_cleanup_sources_periodically(service))
         try:
             yield
         finally:
@@ -58,6 +67,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     application.add_middleware(
+        GZipMiddleware,
+        minimum_size=1000,
+        compresslevel=5,
+    )
+    application.add_middleware(
+        RequestBodyLimitMiddleware,
+        max_body_bytes=resolved_settings.max_upload_bytes + 256 * 1024,
+    )
+    application.add_middleware(
         CORSMiddleware,
         allow_origins=list(resolved_settings.cors_origins),
         allow_credentials=False,
@@ -71,15 +89,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 async def _cleanup_sources_periodically(service: ScannerService) -> None:
     while True:
-        await asyncio.sleep(60 * 60)
-        service.remove_stale_sources()
+        delay = 60 * 60
+        try:
+            result = await asyncio.to_thread(service.remove_stale_sources)
+            if result.backlog:
+                delay = 1
+        except Exception:
+            logger.exception("Unexpected failure while removing stale scan files")
+        await asyncio.sleep(delay)
 
 
 def _register_api_routes(application: FastAPI) -> None:
     @application.get("/api/health")
     def health(request: Request) -> dict[str, str]:
-        status = request.app.state.database.learning_status()
-        return {"status": "ok", "model": str(status["active_model"])}
+        version = request.app.state.service.models.active().version
+        return {"status": "ok", "model": version}
 
     @application.post("/api/detect-board", response_model=BoardDetectionResponse)
     async def detect_board(
@@ -93,7 +117,7 @@ def _register_api_routes(application: FastAPI) -> None:
         if not payload:
             raise HTTPException(400, "Camera frame is empty")
         try:
-            return request.app.state.service.detect(payload)
+            return await _run_processing(request, lambda: request.app.state.service.detect(payload))
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
@@ -109,18 +133,21 @@ def _register_api_routes(application: FastAPI) -> None:
         if not payload:
             raise HTTPException(400, "Image is empty")
         try:
-            return request.app.state.service.scan(payload)
+            return await _run_processing(request, lambda: request.app.state.service.scan(payload))
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
     @application.post("/api/scans/{scan_id}/reprocess", response_model=ScanResponse)
-    def reprocess_scan(
+    async def reprocess_scan(
         scan_id: str,
         body: ReprocessRequest,
         request: Request,
     ) -> ScanResponse:
         try:
-            return request.app.state.service.reprocess(scan_id, body.corners)
+            return await _run_processing(
+                request,
+                lambda: request.app.state.service.reprocess(scan_id, body.corners),
+            )
         except KeyError as exc:
             raise HTTPException(404, str(exc)) from exc
         except ValueError as exc:
@@ -132,12 +159,15 @@ def _register_api_routes(application: FastAPI) -> None:
             path = request.app.state.service.rectified_path(scan_id)
         except KeyError as exc:
             raise HTTPException(404, str(exc)) from exc
-        if not path.exists():
-            raise HTTPException(404, "Rectified image not found")
+        try:
+            stat_result = path.stat()
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "Rectified image not found") from exc
         return FileResponse(
             path,
             media_type="image/jpeg",
-            headers={"Cache-Control": "no-store"},
+            headers={"Cache-Control": "no-store", "Content-Encoding": "identity"},
+            stat_result=stat_result,
         )
 
     @application.post("/api/scans/{scan_id}/confirm", response_model=ConfirmResponse)
@@ -169,10 +199,126 @@ def _register_web_routes(application: FastAPI, web_dist: Path) -> None:
 
     @application.get("/{path:path}", include_in_schema=False)
     def web_app(path: str) -> FileResponse:
+        if path == "api" or path.startswith("api/"):
+            raise HTTPException(404, "API route not found")
         candidate = (web_dist / path).resolve()
         if path and candidate.is_relative_to(web_dist) and candidate.is_file():
             return FileResponse(candidate)
         return FileResponse(index)
+
+
+def _processing_slots(capacity: int) -> asyncio.Queue[None]:
+    slots: asyncio.Queue[None] = asyncio.Queue(maxsize=capacity)
+    for _ in range(capacity):
+        slots.put_nowait(None)
+    return slots
+
+
+async def _run_processing(request: Request, operation: Callable[[], _Result]) -> _Result:
+    if request.scope.get("state", {}).get("processing_admitted"):
+        return await asyncio.to_thread(operation)
+
+    slots: asyncio.Queue[None] = request.app.state.processing_slots
+    try:
+        slots.get_nowait()
+    except asyncio.QueueEmpty as exc:
+        raise HTTPException(503, "Scanner is busy; try again shortly") from exc
+    try:
+        return await asyncio.to_thread(operation)
+    finally:
+        slots.put_nowait(None)
+
+
+class RequestBodyLimitMiddleware:
+    """Reject oversized bodies and admit uploads before multipart parsing."""
+
+    _UPLOAD_PATHS = {"/api/detect-board", "/api/scans"}
+
+    def __init__(self, app: ASGIApp, *, max_body_bytes: int) -> None:
+        self.app = app
+        self.max_body_bytes = max_body_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope.get("method") not in {"POST", "PUT", "PATCH"}:
+            await self.app(scope, receive, send)
+            return
+
+        content_length = _content_length(scope)
+        if content_length is not None and content_length > self.max_body_bytes:
+            await _request_too_large(scope, receive, send)
+            return
+
+        slots: asyncio.Queue[None] | None = None
+        if scope.get("path") in self._UPLOAD_PATHS:
+            slots = scope["app"].state.processing_slots
+            try:
+                slots.get_nowait()
+            except asyncio.QueueEmpty:
+                await _request_busy(scope, receive, send)
+                return
+            scope.setdefault("state", {})["processing_admitted"] = True
+
+        try:
+            if content_length is not None:
+                await self.app(scope, receive, send)
+            else:
+                await self._spool_unknown_length_body(scope, receive, send)
+        finally:
+            if slots is not None:
+                slots.put_nowait(None)
+
+    async def _spool_unknown_length_body(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        with tempfile.SpooledTemporaryFile(max_size=256 * 1024) as body:
+            received = 0
+            while True:
+                message = await receive()
+                if message["type"] == "http.disconnect":
+                    return
+                chunk = message.get("body", b"")
+                received += len(chunk)
+                if received > self.max_body_bytes:
+                    await _request_too_large(scope, receive, send)
+                    return
+                body.write(chunk)
+                if not message.get("more_body", False):
+                    break
+            body.seek(0)
+
+            async def replay() -> Message:
+                chunk = body.read(64 * 1024)
+                return {
+                    "type": "http.request",
+                    "body": chunk,
+                    "more_body": bool(chunk),
+                }
+
+            await self.app(scope, replay, send)
+
+
+def _content_length(scope: Scope) -> int | None:
+    for name, value in scope.get("headers", []):
+        if name.lower() == b"content-length":
+            try:
+                length = int(value)
+            except ValueError:
+                return None
+            return length if length >= 0 else None
+    return None
+
+
+async def _request_too_large(scope: Scope, receive: Receive, send: Send) -> None:
+    response = JSONResponse({"detail": "Request body is larger than the configured limit"}, 413)
+    await response(scope, receive, send)
+
+
+async def _request_busy(scope: Scope, receive: Receive, send: Send) -> None:
+    response = JSONResponse({"detail": "Scanner is busy; try again shortly"}, 503)
+    await response(scope, receive, send)
 
 
 app = create_app()

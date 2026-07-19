@@ -8,8 +8,8 @@ import cv2
 import numpy as np
 
 BOARD_SIZE = 512
+DETECTION_MAX_DIMENSION = 1400
 _PATTERN_SIZE = (7, 7)
-_DETECTION_MAX_DIMENSION = 1400
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,7 +121,7 @@ def order_corners(points: np.ndarray) -> np.ndarray:
 
 def _resize_for_detection(image_bgr: np.ndarray) -> tuple[np.ndarray, float]:
     height, width = image_bgr.shape[:2]
-    scale = min(1.0, _DETECTION_MAX_DIMENSION / max(height, width))
+    scale = min(1.0, DETECTION_MAX_DIMENSION / max(height, width))
     if scale == 1.0:
         return image_bgr, scale
     resized = cv2.resize(
