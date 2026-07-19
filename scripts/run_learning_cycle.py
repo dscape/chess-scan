@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -57,7 +58,7 @@ def main() -> None:
         str(args.min_total_boards),
         *forwarded,
     ]
-    print("Running:", " ".join(command))
+    print("Running:", shlex.join(command))
     subprocess.run(command, check=True)
 
     candidate = database.latest_candidate()

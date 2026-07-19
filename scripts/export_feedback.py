@@ -18,11 +18,11 @@ def main() -> None:
 
     settings = Settings.load()
     database = initialize_database(settings)
-    examples = database.training_examples()
     args.output.parent.mkdir(parents=True, exist_ok=True)
+    exported = 0
 
     with args.output.open("w") as handle:
-        for row in examples:
+        for row in database.iter_training_examples():
             record = {
                 "feedback_id": row["feedback_id"],
                 "scan_id": row["scan_id"],
@@ -38,8 +38,9 @@ def main() -> None:
                 "client_session_id": row["client_session_id"],
             }
             handle.write(json.dumps(record, separators=(",", ":")) + "\n")
+            exported += 1
 
-    print(f"Exported {len(examples)} confirmed boards to {args.output}")
+    print(f"Exported {exported} confirmed boards to {args.output}")
 
 
 if __name__ == "__main__":

@@ -4,13 +4,13 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import random
 import shutil
 import tarfile
 import urllib.request
 from collections import OrderedDict
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -24,9 +24,17 @@ import torch.nn.functional as functional
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
 from chess_scan.board import CLASS_NAMES
-from square_model import INPUT_SIZE, export_onnx, load_fused_onnx
+from chess_scan.classifier import (
+    INPUT_SIZE,
+    NUM_CLASSES,
+    preprocess_square_crops,
+    split_board_squares,
+)
+from chess_scan.config import PROJECT_ROOT
+from chess_scan.model_artifact import sha256_file
+from square_model import export_onnx, load_fused_onnx
+from training_utils import resolve_device
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
 BASE_MODEL_PATH = PROJECT_ROOT / "models" / "argus-v2r5.onnx"
 REFERENCE_BENCHMARK_PATH = PROJECT_ROOT / "benchmarks" / "chess-steps-step2.json"
 KING_GATE_BENCHMARK_PATH = PROJECT_ROOT / "benchmarks" / "chess-steps-kings.json"
@@ -62,7 +70,12 @@ REPLAY_ARCHIVE_MEMBERS = {
     "data/piece_classifier_dataset/labels.npy": "labels.npy",
     "data/piece_classifier_dataset/metadata.json": "metadata.json",
 }
-NUM_CLASSES = len(CLASS_NAMES)
+
+
+@dataclass(frozen=True, slots=True)
+class TemplateReferences:
+    features: tuple[tuple[np.ndarray, ...], ...]
+    squared_norms: tuple[tuple[np.ndarray, ...], ...]
 
 
 class MixedSquareDataset(Dataset[tuple[torch.Tensor, int]]):
@@ -105,7 +118,7 @@ class MixedSquareDataset(Dataset[tuple[torch.Tensor, int]]):
             board = cv2.imread(path, cv2.IMREAD_COLOR)
             if board is None:
                 raise ValueError(f"Cannot read official board crop: {path}")
-            cached = split_board(board)
+            cached = split_board_squares(board)
         self._board_cache[path] = cached
         if len(self._board_cache) > 64:
             self._board_cache.popitem(last=False)
@@ -310,27 +323,59 @@ def render_official_boards(pdf_dir: Path, output_dir: Path) -> None:
     for pdf_path in sorted(pdf_dir.glob("*.pdf")):
         pdf_output = output_dir / pdf_path.stem
         marker = pdf_output / ".complete"
-        if marker.exists():
+        if _render_is_complete(pdf_output, marker):
             continue
         pdf_output.mkdir(parents=True, exist_ok=True)
-        document = fitz.open(pdf_path)
+        marker.unlink(missing_ok=True)
+        for stale_image in pdf_output.glob("*.jpg"):
+            stale_image.unlink()
+
         written = 0
-        for page_index, page in enumerate(document):
-            pixmap = page.get_pixmap(matrix=fitz.Matrix(3, 3), colorspace=fitz.csRGB, alpha=False)
-            rgb = np.frombuffer(pixmap.samples, np.uint8).reshape(
-                pixmap.height,
-                pixmap.width,
-                pixmap.n,
-            )
-            bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-            for board_index, (x, y, width, height) in enumerate(find_board_boxes(bgr)):
-                board = bgr[y : y + height, x : x + width]
-                board = cv2.resize(board, (512, 512), interpolation=cv2.INTER_AREA)
-                destination = pdf_output / f"p{page_index:02d}-b{board_index:02d}.jpg"
-                cv2.imwrite(str(destination), board, [cv2.IMWRITE_JPEG_QUALITY, 98])
-                written += 1
+        with fitz.open(pdf_path) as document:
+            for page_index, page in enumerate(document):
+                pixmap = page.get_pixmap(
+                    matrix=fitz.Matrix(3, 3),
+                    colorspace=fitz.csRGB,
+                    alpha=False,
+                )
+                rgb = np.frombuffer(pixmap.samples, np.uint8).reshape(
+                    pixmap.height,
+                    pixmap.width,
+                    pixmap.n,
+                )
+                bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+                for board_index, (x, y, width, height) in enumerate(find_board_boxes(bgr)):
+                    board = bgr[y : y + height, x : x + width]
+                    board = cv2.resize(board, (512, 512), interpolation=cv2.INTER_AREA)
+                    destination = pdf_output / f"p{page_index:02d}-b{board_index:02d}.jpg"
+                    if not cv2.imwrite(
+                        str(destination),
+                        board,
+                        [cv2.IMWRITE_JPEG_QUALITY, 98],
+                    ):
+                        raise OSError(f"Failed to write rendered board: {destination}")
+                    written += 1
+
+        rendered = sorted(pdf_output.glob("*.jpg"))
+        if written == 0 or len(rendered) != written:
+            raise RuntimeError(f"Incomplete board rendering for {pdf_path.name}")
+        if any(path.stat().st_size == 0 for path in rendered):
+            raise RuntimeError(f"Rendered board is empty for {pdf_path.name}")
         marker.write_text(f"{written}\n")
         print(f"Rendered {written} candidate diagrams from {pdf_path.name}")
+
+
+def _render_is_complete(output_dir: Path, marker: Path) -> bool:
+    if not marker.exists():
+        return False
+    try:
+        expected = int(marker.read_text().strip())
+    except ValueError:
+        return False
+    images = sorted(output_dir.glob("*.jpg"))
+    return (
+        expected > 0 and len(images) == expected and all(path.stat().st_size > 0 for path in images)
+    )
 
 
 def find_board_boxes(page_bgr: np.ndarray) -> list[tuple[int, int, int, int]]:
@@ -370,24 +415,16 @@ def load_or_label_official_boards(
     manifest_path = work_dir / "official-labels.json"
     if manifest_path.exists():
         rows: list[dict[str, Any]] = json.loads(manifest_path.read_text())
-        if rows and all(Path(row["path"]).exists() for row in rows):
+        if rows and all(cv2.imread(str(row["path"]), cv2.IMREAD_COLOR) is not None for row in rows):
             return rows
 
-    references, reference_labels, reference_parities = build_glyph_references(
-        board_dir,
-        benchmark,
-    )
+    references = build_glyph_references(board_dir, benchmark)
     rows = []
     for path in sorted(board_dir.glob("*/*.jpg")):
         board = cv2.imread(str(path), cv2.IMREAD_COLOR)
         if board is None:
-            continue
-        labels = classify_template_squares(
-            split_board(board),
-            references=references,
-            reference_labels=reference_labels,
-            reference_parities=reference_parities,
-        )
+            raise ValueError(f"Cannot read rendered board: {path}")
+        labels = classify_template_squares(split_board_squares(board), references=references)
         rows.append(
             {
                 "path": str(path.resolve()),
@@ -405,10 +442,8 @@ def load_or_label_official_boards(
 def build_glyph_references(
     board_dir: Path,
     benchmark: dict[str, Any],
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    features: list[np.ndarray] = []
-    labels: list[int] = []
-    parities: list[int] = []
+) -> TemplateReferences:
+    grouped: list[list[list[np.ndarray]]] = [[[] for _ in range(NUM_CLASSES)] for _ in range(2)]
     for position in benchmark["positions"]:
         board_index = int(position["board_index"])
         path = board_dir / "en_lp_2" / f"p01-b{board_index:02d}.jpg"
@@ -416,31 +451,43 @@ def build_glyph_references(
         if board is None:
             raise FileNotFoundError(f"Missing benchmark board crop: {path}")
         expected = labels_from_fen(str(position["fen"]))
-        for square_index, square in enumerate(split_board(board)):
-            features.append(template_feature(square))
-            labels.append(expected[square_index])
-            parities.append(square_parity(square_index))
-    return np.stack(features), np.asarray(labels), np.asarray(parities)
+        for square_index, square in enumerate(split_board_squares(board)):
+            grouped[square_parity(square_index)][expected[square_index]].append(
+                template_feature(square)
+            )
+
+    feature_groups: list[tuple[np.ndarray, ...]] = []
+    norm_groups: list[tuple[np.ndarray, ...]] = []
+    for parity_groups in grouped:
+        if any(not class_features for class_features in parity_groups):
+            raise ValueError("Template references do not cover every class and square parity")
+        arrays = tuple(np.stack(class_features) for class_features in parity_groups)
+        feature_groups.append(arrays)
+        norm_groups.append(tuple(np.einsum("ij,ij->i", array, array) for array in arrays))
+    return TemplateReferences(tuple(feature_groups), tuple(norm_groups))
 
 
 def classify_template_squares(
     squares: list[np.ndarray],
     *,
-    references: np.ndarray,
-    reference_labels: np.ndarray,
-    reference_parities: np.ndarray,
+    references: TemplateReferences,
 ) -> list[int]:
-    predictions: list[int] = []
-    for square_index, square in enumerate(squares):
-        allowed = reference_parities == square_parity(square_index)
-        candidate_features = references[allowed]
-        candidate_labels = reference_labels[allowed]
-        distances = np.mean((candidate_features - template_feature(square)) ** 2, axis=1)
-        nearest_by_class = [
-            float(distances[candidate_labels == class_id].min()) for class_id in range(NUM_CLASSES)
-        ]
-        predictions.append(int(np.argmin(nearest_by_class)))
-    return predictions
+    target_features = np.stack([template_feature(square) for square in squares])
+    scores = np.full((len(squares), NUM_CLASSES), np.inf, dtype=np.float32)
+    parities = np.asarray([square_parity(index) for index in range(len(squares))])
+    for parity in range(2):
+        indices = np.flatnonzero(parities == parity)
+        targets = target_features[indices]
+        target_norms = np.einsum("ij,ij->i", targets, targets)[:, None]
+        for class_id in range(NUM_CLASSES):
+            candidates = references.features[parity][class_id]
+            distances = (
+                target_norms
+                + references.squared_norms[parity][class_id][None, :]
+                - 2.0 * targets @ candidates.T
+            )
+            scores[indices, class_id] = distances.min(axis=1)
+    return scores.argmin(axis=1).astype(int).tolist()
 
 
 def template_feature(square_bgr: np.ndarray) -> np.ndarray:
@@ -545,13 +592,14 @@ def train(
         scheduler.step()
 
         replay_accuracy = evaluate_replay(model, replay_gate_loader, device=device)
+        evaluation_rows = _training_evaluation_rows(label_rows, benchmark)
+        predictions = predict_board_rows(model, evaluation_rows, device=device)
         selection = evaluate_king_positions(
-            model,
             label_rows,
+            predictions,
             source="en_lp_2e",
-            device=device,
         )
-        manual = evaluate_manual_benchmark(model, benchmark, label_rows, device=device)
+        manual = evaluate_manual_benchmark(benchmark, label_rows, predictions)
         print(
             f"epoch={epoch + 1:02d} loss={loss_sum / example_count:.4f} "
             f"replay={replay_accuracy:.4f} selection_kings={selection['king_accuracy']:.4f} "
@@ -586,31 +634,33 @@ def evaluate_model(
     king_gate_benchmark: dict[str, Any],
     device: torch.device,
 ) -> dict[str, Any]:
+    evaluation_rows = _model_evaluation_rows(
+        label_rows,
+        reference_benchmark=reference_benchmark,
+        king_gate_benchmark=king_gate_benchmark,
+    )
+    predictions = predict_board_rows(model, evaluation_rows, device=device)
     return {
         "replay_square_accuracy": evaluate_replay(model, replay_gate_loader, device=device),
         "selection_en_lp_2e": evaluate_king_positions(
-            model,
             label_rows,
+            predictions,
             source="en_lp_2e",
-            device=device,
         ),
         "independent_manual_king_gate": evaluate_manual_king_gate(
-            model,
             king_gate_benchmark,
             label_rows,
-            device=device,
+            predictions,
         ),
         "official_standard": evaluate_king_positions(
-            model,
             label_rows,
+            predictions,
             source=None,
-            device=device,
         ),
         "template_reference_step2_page": evaluate_manual_benchmark(
-            model,
             reference_benchmark,
             label_rows,
-            device=device,
+            predictions,
         ),
     }
 
@@ -633,13 +683,11 @@ def evaluate_replay(
 
 
 def evaluate_king_positions(
-    model: nn.Module,
     rows: list[dict[str, Any]],
+    predictions_by_path: dict[str, list[int]],
     *,
     source: str | None,
-    device: torch.device,
 ) -> dict[str, float]:
-    model.eval()
     correct = 0
     total = 0
     exact = 0
@@ -647,8 +695,7 @@ def evaluate_king_positions(
     for row in rows:
         if (source is not None and row["source"] != source) or not has_exactly_two_kings(row):
             continue
-        board = cv2.imread(row["path"], cv2.IMREAD_COLOR)
-        predictions = predict_board(model, board, device=device)
+        predictions = predictions_by_path[row["path"]]
         expected = {
             row["white_king_squares"][0]: 6,
             row["black_king_squares"][0]: 12,
@@ -670,11 +717,9 @@ def evaluate_king_positions(
 
 
 def evaluate_manual_benchmark(
-    model: nn.Module,
     benchmark: dict[str, Any],
     rows: list[dict[str, Any]],
-    *,
-    device: torch.device,
+    predictions_by_path: dict[str, list[int]],
 ) -> dict[str, float]:
     by_name = {Path(row["path"]).name: row for row in rows if row["source"] == "en_lp_2"}
     square_correct = 0
@@ -683,8 +728,7 @@ def evaluate_manual_benchmark(
     for position in benchmark["positions"]:
         name = f"p01-b{int(position['board_index']):02d}.jpg"
         row = by_name[name]
-        board = cv2.imread(row["path"], cv2.IMREAD_COLOR)
-        predicted = predict_board(model, board, device=device)
+        predicted = predictions_by_path[row["path"]]
         expected = labels_from_fen(str(position["fen"]))
         square_correct += sum(
             left == right for left, right in zip(predicted, expected, strict=True)
@@ -703,11 +747,9 @@ def evaluate_manual_benchmark(
 
 
 def evaluate_manual_king_gate(
-    model: nn.Module,
     benchmark: dict[str, Any],
     rows: list[dict[str, Any]],
-    *,
-    device: torch.device,
+    predictions_by_path: dict[str, list[int]],
 ) -> dict[str, float]:
     source = Path(str(benchmark["source_url"])).stem
     by_name = {Path(row["path"]).name: row for row in rows if row["source"] == source}
@@ -715,8 +757,8 @@ def evaluate_manual_king_gate(
     exact = 0
     for position in benchmark["positions"]:
         name = f"p01-b{int(position['board_index']):02d}.jpg"
-        board = cv2.imread(by_name[name]["path"], cv2.IMREAD_COLOR)
-        predicted = predict_board(model, board, device=device)
+        row = by_name[name]
+        predicted = predictions_by_path[row["path"]]
         expected = {
             int(position["white_king_square"]): 6,
             int(position["black_king_square"]): 12,
@@ -806,21 +848,9 @@ def build_metadata(
     }
 
 
-def split_board(board_bgr: np.ndarray) -> list[np.ndarray]:
-    board = cv2.resize(board_bgr, (512, 512), interpolation=cv2.INTER_AREA)
-    return [
-        board[row * 64 : (row + 1) * 64, col * 64 : (col + 1) * 64]
-        for row in range(8)
-        for col in range(8)
-    ]
-
-
 def square_tensor(image_bgr: np.ndarray, *, augment: bool = False) -> torch.Tensor:
     image = augment_square(image_bgr) if augment else image_bgr
-    interpolation = cv2.INTER_AREA if min(image.shape[:2]) >= INPUT_SIZE else cv2.INTER_LINEAR
-    image = cv2.resize(image, (INPUT_SIZE, INPUT_SIZE), interpolation=interpolation)
-    rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-    return torch.from_numpy(np.transpose(rgb, (2, 0, 1)).copy())
+    return torch.from_numpy(preprocess_square_crops([image])[0])
 
 
 def augment_square(image_bgr: np.ndarray) -> np.ndarray:
@@ -856,15 +886,68 @@ def augment_square(image_bgr: np.ndarray) -> np.ndarray:
     return image
 
 
-def predict_board(
+def predict_board_rows(
     model: nn.Module,
-    board_bgr: np.ndarray,
+    rows: list[dict[str, Any]],
     *,
     device: torch.device,
-) -> list[int]:
-    inputs = torch.stack([square_tensor(square) for square in split_board(board_bgr)]).to(device)
+    board_batch_size: int = 16,
+) -> dict[str, list[int]]:
+    unique_paths = list(dict.fromkeys(str(row["path"]) for row in rows))
+    predictions: dict[str, list[int]] = {}
+    model.eval()
     with torch.no_grad():
-        return model(inputs).argmax(dim=1).cpu().tolist()
+        for offset in range(0, len(unique_paths), board_batch_size):
+            paths = unique_paths[offset : offset + board_batch_size]
+            board_inputs: list[np.ndarray] = []
+            for path in paths:
+                board = cv2.imread(path, cv2.IMREAD_COLOR)
+                if board is None:
+                    raise ValueError(f"Cannot read official board crop: {path}")
+                board_inputs.append(preprocess_square_crops(split_board_squares(board)))
+            inputs = torch.from_numpy(np.concatenate(board_inputs)).to(device)
+            batch_predictions = model(inputs).argmax(dim=1).reshape(len(paths), 64).cpu().tolist()
+            predictions.update(zip(paths, batch_predictions, strict=True))
+    return predictions
+
+
+def _model_evaluation_rows(
+    rows: list[dict[str, Any]],
+    *,
+    reference_benchmark: dict[str, Any],
+    king_gate_benchmark: dict[str, Any],
+) -> list[dict[str, Any]]:
+    reference_names = {
+        f"p01-b{int(position['board_index']):02d}.jpg"
+        for position in reference_benchmark["positions"]
+    }
+    king_source = Path(str(king_gate_benchmark["source_url"])).stem
+    king_names = {
+        f"p01-b{int(position['board_index']):02d}.jpg"
+        for position in king_gate_benchmark["positions"]
+    }
+    return [
+        row
+        for row in rows
+        if has_exactly_two_kings(row)
+        or (row["source"] == "en_lp_2" and Path(row["path"]).name in reference_names)
+        or (row["source"] == king_source and Path(row["path"]).name in king_names)
+    ]
+
+
+def _training_evaluation_rows(
+    rows: list[dict[str, Any]],
+    benchmark: dict[str, Any],
+) -> list[dict[str, Any]]:
+    benchmark_names = {
+        f"p01-b{int(position['board_index']):02d}.jpg" for position in benchmark["positions"]
+    }
+    return [
+        row
+        for row in rows
+        if (row["source"] == "en_lp_2e" and has_exactly_two_kings(row))
+        or (row["source"] == "en_lp_2" and Path(row["path"]).name in benchmark_names)
+    ]
 
 
 def labels_from_fen(fen: str) -> list[int]:
@@ -899,24 +982,6 @@ def verify_reconstruction(model: nn.Module, onnx_path: Path) -> None:
     if maximum_delta >= 2e-4:
         raise ValueError(f"ONNX reconstruction changed logits by {maximum_delta}")
     print(f"ONNX reconstruction maximum logit delta: {maximum_delta:.8f}")
-
-
-def resolve_device(requested: str) -> torch.device:
-    if requested != "auto":
-        return torch.device(requested)
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
-    return torch.device("cpu")
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 if __name__ == "__main__":

@@ -19,7 +19,8 @@ from torch.utils.data import DataLoader, Dataset
 from evaluate_photo_stress import find_board_boxes
 from qa_common import download_verified, sha256_file
 from square_model import export_onnx, load_fused_onnx
-from train_chess_steps_model import extract_replay_dataset, resolve_device
+from train_chess_steps_model import extract_replay_dataset
+from training_utils import resolve_device
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_MANIFEST = PROJECT_ROOT / "benchmarks" / "chess-steps-queen-colors.json"

@@ -10,8 +10,7 @@ import torch.nn as nn
 from onnx import numpy_helper
 from torch.nn import functional
 
-INPUT_SIZE = 64
-NUM_CLASSES = 13
+from chess_scan.classifier import INPUT_SIZE, NUM_CLASSES
 
 _CONVOLUTION_SPECS = (
     (3, 24, 3, 2, 1),

@@ -8,7 +8,7 @@ import hashlib
 import json
 import random
 import uuid
-from collections import Counter
+from collections import Counter, OrderedDict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -21,9 +21,20 @@ import torch.nn.functional as functional
 from torch.utils.data import DataLoader, Dataset
 
 from chess_scan.bootstrap import initialize_database
-from chess_scan.classifier import DiagramClassifier, preprocess_square_crops, split_board_squares
+from chess_scan.classifier import (
+    INPUT_SIZE,
+    NUM_CLASSES,
+    DiagramClassifier,
+    preprocess_board,
+)
 from chess_scan.config import Settings
-from square_model import INPUT_SIZE, NUM_CLASSES, export_onnx, load_fused_onnx
+from chess_scan.model_artifact import sha256_file, verify_model_artifact
+from square_model import export_onnx, load_fused_onnx
+from training_utils import resolve_device
+
+_MIN_CLASS_EXAMPLES_PER_SPLIT = 5
+_PERCEPTUAL_HASH_MAX_DISTANCE = 5
+_SELECTION_CACHE_BOARDS = 128
 
 
 class FeedbackBoardDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]):
@@ -31,21 +42,31 @@ class FeedbackBoardDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tenso
         self.rows = rows
         self.augment = augment
         self.rng = random.Random(seed)
+        self.labels = [
+            np.asarray(json.loads(row["final_labels_json"]), dtype=np.int64) for row in rows
+        ]
+        self.rejected = [
+            np.asarray(json.loads(row["predicted_labels_json"]), dtype=np.int64) for row in rows
+        ]
+        self.cached_inputs: OrderedDict[int, np.ndarray] | None = None if augment else OrderedDict()
 
     def __len__(self) -> int:
         return len(self.rows)
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        row = self.rows[index]
-        board = cv2.imread(str(row["rectified_image_path"]), cv2.IMREAD_COLOR)
-        if board is None:
-            raise ValueError(f"Cannot read board crop: {row['rectified_image_path']}")
-        if self.augment:
-            board = augment_board(board, self.rng)
-        crops = split_board_squares(board)
-        images = torch.from_numpy(preprocess_square_crops(crops))
-        labels = torch.tensor(json.loads(row["final_labels_json"]), dtype=torch.long)
-        rejected = torch.tensor(json.loads(row["predicted_labels_json"]), dtype=torch.long)
+        if self.cached_inputs is None:
+            inputs = preprocess_board(augment_board(_read_board(self.rows[index]), self.rng))
+            images = torch.from_numpy(inputs)
+        else:
+            cached = self.cached_inputs.pop(index, None)
+            if cached is None:
+                cached = _preprocessed_uint8(_read_board(self.rows[index]))
+            self.cached_inputs[index] = cached
+            if len(self.cached_inputs) > _SELECTION_CACHE_BOARDS:
+                self.cached_inputs.popitem(last=False)
+            images = torch.from_numpy(cached).float().div_(255.0)
+        labels = torch.from_numpy(self.labels[index])
+        rejected = torch.from_numpy(self.rejected[index])
         return images, labels, rejected
 
 
@@ -82,16 +103,21 @@ def main() -> None:
     settings = Settings.load()
     output_dir = args.output_dir or settings.data_dir / "model-registry"
     database = initialize_database(settings)
+    active = database.get_active_model()
+    active_path = Path(active["artifact_path"])
+    verify_model_artifact(active_path, str(active["metadata_json"]))
+
     rows = database.training_examples()
     if len(rows) < args.min_boards:
         raise SystemExit(
             f"Need at least {args.min_boards} consented confirmed boards; found {len(rows)}"
         )
     ensure_class_coverage(rows)
-    train_rows, selection_rows, gate_rows = split_rows(
+    train_rows, selection_rows, gate_rows, assignments = split_rows(
         rows,
         selection_fraction=args.selection_fraction,
         gate_fraction=args.gate_fraction,
+        existing_assignments=database.feedback_split_assignments(),
     )
     if len(train_rows) < 20 or len(selection_rows) < 10 or len(gate_rows) < 10:
         raise SystemExit(
@@ -100,7 +126,9 @@ def main() -> None:
             "Collect feedback across more capture sessions; groups are never split to fill buckets."
         )
 
-    active = database.get_active_model()
+    database.save_feedback_split_assignments(assignments)
+    quarantined_boards = len(rows) - len(train_rows) - len(selection_rows) - len(gate_rows)
+
     run_id = uuid.uuid4().hex
     database.start_training_run(
         run_id=run_id,
@@ -125,7 +153,7 @@ def main() -> None:
         num_workers=0,
     )
 
-    model = load_fused_onnx(Path(active["artifact_path"])).to(device)
+    model = load_fused_onnx(active_path).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
     class_weights = class_weights_for_rows(train_rows).to(device)
@@ -176,19 +204,6 @@ def main() -> None:
     model.load_state_dict(best_state)
     model.to(device).eval()
 
-    active_classifier = DiagramClassifier(
-        Path(active["artifact_path"]), version=str(active["version"])
-    )
-    gate_loader = DataLoader(
-        FeedbackBoardDataset(gate_rows, augment=False, seed=args.seed + 2),
-        batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=0,
-    )
-    active_metrics = evaluate_onnx(active_classifier, gate_rows)
-    candidate_metrics = evaluate_torch(model, gate_loader, device=device)
-    eligible = passes_gates(candidate_metrics, active_metrics)
-
     version = datetime.now(UTC).strftime("steps-%Y%m%d%H%M%S")
     output_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_path = output_dir / f"{version}.pt"
@@ -205,6 +220,19 @@ def main() -> None:
         checkpoint_path,
     )
     export_onnx(model.cpu(), onnx_path)
+
+    artifact_sha256 = sha256_file(onnx_path)
+    active_classifier = DiagramClassifier(active_path, version=str(active["version"]))
+    candidate_classifier = DiagramClassifier(onnx_path, version=version)
+    active_metrics, candidate_metrics = evaluate_onnx_pair(
+        active_classifier,
+        candidate_classifier,
+        gate_rows,
+        board_batch_size=args.batch_size,
+    )
+    if sha256_file(onnx_path) != artifact_sha256:
+        raise RuntimeError("Candidate artifact changed during ONNX Runtime evaluation")
+    eligible = passes_gates(candidate_metrics, active_metrics)
     metadata = {
         "version": version,
         "created_at": datetime.now(UTC).isoformat(),
@@ -212,8 +240,10 @@ def main() -> None:
         "training_boards": len(train_rows),
         "selection_boards": len(selection_rows),
         "gate_boards": len(gate_rows),
+        "quarantined_boards": quarantined_boards,
         "seed": args.seed,
         "preference_weight": args.preference_weight,
+        "artifact_sha256": artifact_sha256,
         "active_baseline": active["version"],
         "active_metrics": active_metrics,
         "candidate_metrics": candidate_metrics,
@@ -276,19 +306,32 @@ def evaluate_torch(
     return classification_metrics(predictions, targets)
 
 
-def evaluate_onnx(
-    classifier: DiagramClassifier,
+def evaluate_onnx_pair(
+    active: DiagramClassifier,
+    candidate: DiagramClassifier,
     rows: list[dict[str, Any]],
-) -> dict[str, float]:
-    predictions: list[list[int]] = []
+    *,
+    board_batch_size: int,
+) -> tuple[dict[str, float], dict[str, float]]:
+    active_predictions: list[list[int]] = []
+    candidate_predictions: list[list[int]] = []
     targets: list[list[int]] = []
-    for row in rows:
-        image = cv2.imread(str(row["rectified_image_path"]), cv2.IMREAD_COLOR)
-        if image is None:
-            raise ValueError(f"Cannot read board crop: {row['rectified_image_path']}")
-        predictions.append(classifier.predict(image).labels)
-        targets.append(json.loads(row["final_labels_json"]))
-    return classification_metrics(predictions, targets)
+    for offset in range(0, len(rows), board_batch_size):
+        batch_rows = rows[offset : offset + board_batch_size]
+        board_inputs = np.stack([_preprocessed_uint8(_read_board(row)) for row in batch_rows])
+        normalized = board_inputs.reshape(-1, 3, INPUT_SIZE, INPUT_SIZE).astype(np.float32)
+        normalized /= 255.0
+        active_predictions.extend(
+            prediction.labels for prediction in active.predict_preprocessed(normalized)
+        )
+        candidate_predictions.extend(
+            prediction.labels for prediction in candidate.predict_preprocessed(normalized)
+        )
+        targets.extend(json.loads(row["final_labels_json"]) for row in batch_rows)
+    return (
+        classification_metrics(active_predictions, targets),
+        classification_metrics(candidate_predictions, targets),
+    )
 
 
 def classification_metrics(
@@ -319,43 +362,298 @@ def split_rows(
     *,
     selection_fraction: float,
     gate_fraction: float,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    existing_assignments: dict[str, str],
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    dict[str, str],
+]:
     if selection_fraction <= 0 or gate_fraction <= 0:
         raise ValueError("Selection and gate fractions must be positive")
     if selection_fraction + gate_fraction >= 1:
         raise ValueError("Selection and gate fractions must leave room for training data")
 
-    train: list[dict[str, Any]] = []
-    selection: list[dict[str, Any]] = []
-    gate: list[dict[str, Any]] = []
-    gate_threshold = int(gate_fraction * 10_000)
-    selection_threshold = gate_threshold + int(selection_fraction * 10_000)
-    for row in rows:
-        group = str(row["client_session_id"] or row["feedback_id"])
-        bucket = int(hashlib.sha256(group.encode()).hexdigest()[:8], 16) % 10_000
-        if bucket < gate_threshold:
-            gate.append(row)
-        elif bucket < selection_threshold:
-            selection.append(row)
-        else:
-            train.append(row)
+    groups = _connected_feedback_groups(rows)
+    has_existing = any(
+        str(row["feedback_id"]) in existing_assignments for group in groups for row in group
+    )
+    if has_existing:
+        buckets, assignments = _extend_persisted_splits(
+            groups,
+            existing_assignments=existing_assignments,
+            selection_fraction=selection_fraction,
+            gate_fraction=gate_fraction,
+        )
+        _ensure_split_class_coverage(buckets)
+    else:
+        buckets = _initial_grouped_split(
+            groups,
+            row_count=len(rows),
+            selection_fraction=selection_fraction,
+            gate_fraction=gate_fraction,
+        )
+        assignments = {
+            str(row["feedback_id"]): split
+            for split in ("train", "selection", "gate")
+            for row in buckets[split]
+        }
 
-    return train, selection, gate
+    return buckets["train"], buckets["selection"], buckets["gate"], assignments
+
+
+def _extend_persisted_splits(
+    groups: list[list[dict[str, Any]]],
+    *,
+    existing_assignments: dict[str, str],
+    selection_fraction: float,
+    gate_fraction: float,
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, str]]:
+    buckets: dict[str, list[dict[str, Any]]] = {
+        "train": [],
+        "selection": [],
+        "gate": [],
+        "quarantine": [],
+    }
+    assignments: dict[str, str] = {}
+    for group in groups:
+        persisted = {
+            existing_assignments[str(row["feedback_id"])]
+            for row in group
+            if str(row["feedback_id"]) in existing_assignments
+        }
+        if not persisted:
+            destination = _stable_split(
+                _group_key(group),
+                selection_fraction=selection_fraction,
+                gate_fraction=gate_fraction,
+            )
+        elif len(persisted) == 1 and "quarantine" not in persisted:
+            destination = persisted.pop()
+        else:
+            destination = "quarantine"
+
+        buckets[destination].extend(group)
+        for row in group:
+            feedback_id = str(row["feedback_id"])
+            if feedback_id not in existing_assignments:
+                assignments[feedback_id] = destination
+    return buckets, assignments
+
+
+def _initial_grouped_split(
+    groups: list[list[dict[str, Any]]],
+    *,
+    row_count: int,
+    selection_fraction: float,
+    gate_fraction: float,
+) -> dict[str, list[dict[str, Any]]]:
+    group_class_counts = [_class_counts(group) for group in groups]
+    class_group_support = Counter(
+        class_id for counts in group_class_counts for class_id in counts if counts[class_id] > 0
+    )
+    targets = {
+        "train": row_count * (1.0 - selection_fraction - gate_fraction),
+        "selection": row_count * selection_fraction,
+        "gate": row_count * gate_fraction,
+    }
+    best: dict[str, list[dict[str, Any]]] | None = None
+    best_error = float("inf")
+    for attempt in range(256):
+        buckets: dict[str, list[dict[str, Any]]] = {
+            "train": [],
+            "selection": [],
+            "gate": [],
+            "quarantine": [],
+        }
+        bucket_counts = {name: Counter() for name in ("train", "selection", "gate")}
+        ordered = sorted(
+            zip(groups, group_class_counts, strict=True),
+            key=lambda item: (
+                min(class_group_support[class_id] for class_id in item[1]),
+                _stable_hash(f"{attempt}:{_group_key(item[0])}"),
+            ),
+        )
+        for group, counts in ordered:
+            candidates: list[tuple[float, int, str]] = []
+            for name in ("train", "selection", "gate"):
+                coverage_gain = sum(
+                    min(
+                        counts[class_id],
+                        max(0, _MIN_CLASS_EXAMPLES_PER_SPLIT - bucket_counts[name][class_id]),
+                    )
+                    / (_MIN_CLASS_EXAMPLES_PER_SPLIT * class_group_support[class_id])
+                    for class_id in counts
+                )
+                remaining = targets[name] - len(buckets[name])
+                capacity_score = remaining / max(targets[name], 1.0)
+                overflow = max(0.0, len(group) - remaining) / max(targets[name], 1.0)
+                score = 100.0 * coverage_gain + capacity_score - 10.0 * overflow
+                tie_breaker = _stable_hash(f"{attempt}:{name}:{_group_key(group)}")
+                candidates.append((score, tie_breaker, name))
+            destination = max(candidates)[2]
+            buckets[destination].extend(group)
+            bucket_counts[destination].update(counts)
+
+        if not _split_has_class_coverage(buckets):
+            continue
+        error = sum(abs(len(buckets[name]) - targets[name]) for name in targets)
+        if error < best_error:
+            best = buckets
+            best_error = error
+
+    if best is None:
+        raise SystemExit(
+            "Could not make session- and image-grouped splits with at least "
+            f"{_MIN_CLASS_EXAMPLES_PER_SPLIT} examples of every class in each split. "
+            "Collect more diverse feedback across independent sessions."
+        )
+    return best
+
+
+def _stable_split(
+    group_key: str,
+    *,
+    selection_fraction: float,
+    gate_fraction: float,
+) -> str:
+    bucket = _stable_hash(group_key) / float(2**64)
+    if bucket < gate_fraction:
+        return "gate"
+    if bucket < gate_fraction + selection_fraction:
+        return "selection"
+    return "train"
+
+
+def _ensure_split_class_coverage(buckets: dict[str, list[dict[str, Any]]]) -> None:
+    insufficient = _split_class_gaps(buckets)
+    if any(insufficient.values()):
+        raise SystemExit(f"Persisted split has inadequate class support: {insufficient}")
+
+
+def _split_has_class_coverage(buckets: dict[str, list[dict[str, Any]]]) -> bool:
+    return not any(_split_class_gaps(buckets).values())
+
+
+def _split_class_gaps(
+    buckets: dict[str, list[dict[str, Any]]],
+) -> dict[str, list[int]]:
+    gaps: dict[str, list[int]] = {}
+    for name in ("train", "selection", "gate"):
+        counts = _class_counts(buckets[name])
+        gaps[name] = [
+            class_id
+            for class_id in range(NUM_CLASSES)
+            if counts[class_id] < _MIN_CLASS_EXAMPLES_PER_SPLIT
+        ]
+    return gaps
 
 
 def ensure_class_coverage(rows: list[dict[str, Any]]) -> None:
+    counts = _class_counts(rows)
+    required = _MIN_CLASS_EXAMPLES_PER_SPLIT * 3
+    insufficient = [class_id for class_id in range(NUM_CLASSES) if counts[class_id] < required]
+    if insufficient:
+        raise SystemExit(
+            f"Training feedback needs at least {required} examples of every square class; "
+            f"insufficient classes: {insufficient}"
+        )
+
+
+def _connected_feedback_groups(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    parents = list(range(len(rows)))
+
+    def find(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parents[right_root] = left_root
+
+    sessions: dict[str, int] = {}
+    source_hashes: dict[str, int] = {}
+    perceptual_hashes: list[int] = []
+    bands: list[dict[int, list[int]]] = [{} for _ in range(8)]
+    for index, row in enumerate(rows):
+        session = row.get("client_session_id")
+        if session:
+            previous = sessions.setdefault(str(session), index)
+            union(index, previous)
+        source_hash = str(row.get("image_sha256") or "")
+        if source_hash:
+            previous = source_hashes.setdefault(source_hash, index)
+            union(index, previous)
+
+        fingerprint = _perceptual_hash(Path(row["rectified_image_path"]))
+        candidates: set[int] = set()
+        for band_index, band in enumerate(bands):
+            band_value = (fingerprint >> (band_index * 8)) & 0xFF
+            candidates.update(band.get(band_value, []))
+        for candidate in candidates:
+            if (fingerprint ^ perceptual_hashes[candidate]).bit_count() <= (
+                _PERCEPTUAL_HASH_MAX_DISTANCE
+            ):
+                union(index, candidate)
+        for band_index, band in enumerate(bands):
+            band_value = (fingerprint >> (band_index * 8)) & 0xFF
+            band.setdefault(band_value, []).append(index)
+        perceptual_hashes.append(fingerprint)
+
+    connected: dict[int, list[dict[str, Any]]] = {}
+    for index, row in enumerate(rows):
+        connected.setdefault(find(index), []).append(row)
+    return list(connected.values())
+
+
+def _perceptual_hash(path: Path) -> int:
+    image = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+    if image is None:
+        raise ValueError(f"Cannot read board crop: {path}")
+    resized = cv2.resize(image, (32, 32), interpolation=cv2.INTER_AREA).astype(np.float32)
+    low_frequencies = cv2.dct(resized)[:8, :8].ravel()
+    median = float(np.median(low_frequencies[1:]))
+    fingerprint = 0
+    for index, value in enumerate(low_frequencies):
+        if value > median:
+            fingerprint |= 1 << index
+    return fingerprint
+
+
+def _class_counts(rows: list[dict[str, Any]]) -> Counter[int]:
     counts: Counter[int] = Counter()
     for row in rows:
         counts.update(json.loads(row["final_labels_json"]))
-    missing = [class_id for class_id in range(NUM_CLASSES) if counts[class_id] == 0]
-    if missing:
-        raise SystemExit(f"Training feedback is missing square classes: {missing}")
+    return counts
+
+
+def _group_key(rows: list[dict[str, Any]]) -> str:
+    return min(str(row["feedback_id"]) for row in rows)
+
+
+def _stable_hash(value: str) -> int:
+    return int(hashlib.sha256(value.encode()).hexdigest()[:16], 16)
+
+
+def _read_board(row: dict[str, Any]) -> np.ndarray:
+    path = Path(row["rectified_image_path"])
+    board = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if board is None:
+        raise ValueError(f"Cannot read board crop: {path}")
+    return board
+
+
+def _preprocessed_uint8(board: np.ndarray) -> np.ndarray:
+    inputs = preprocess_board(board)
+    return np.rint(inputs * 255.0).astype(np.uint8)
 
 
 def class_weights_for_rows(rows: list[dict[str, Any]]) -> torch.Tensor:
-    counts: Counter[int] = Counter()
-    for row in rows:
-        counts.update(json.loads(row["final_labels_json"]))
+    counts = _class_counts(rows)
     values = torch.tensor(
         [counts[class_id] for class_id in range(NUM_CLASSES)], dtype=torch.float32
     )
@@ -408,16 +706,6 @@ def metric_rank(metrics: dict[str, float]) -> tuple[float, float, float, float]:
         metrics["macro_f1"],
         metrics["square_accuracy"],
     )
-
-
-def resolve_device(requested: str) -> torch.device:
-    if requested != "auto":
-        return torch.device(requested)
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
-    return torch.device("cpu")
 
 
 if __name__ == "__main__":

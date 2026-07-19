@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import urllib.request
 from pathlib import Path
 from typing import Any
 
 from chess_scan.board import CLASS_NAMES
+from chess_scan.model_artifact import sha256_file
 
 
 def download_verified(url: str, expected_sha256: str, destination: Path) -> None:
@@ -45,14 +45,6 @@ def labels_from_fen(fen: str) -> list[int]:
     if len(labels) != 64:
         raise ValueError(f"Expected 64 squares in FEN, got {len(labels)}: {fen}")
     return labels
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        while chunk := source.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def write_json(path: Path | None, payload: dict[str, Any]) -> None:

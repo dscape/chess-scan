@@ -18,11 +18,11 @@ def main() -> None:
 
     settings = Settings.load()
     database = initialize_database(settings)
-    rows = [row for row in database.training_examples() if int(row["changed_squares"]) > 0]
     args.output.parent.mkdir(parents=True, exist_ok=True)
+    exported = 0
 
     with args.output.open("w") as handle:
-        for row in rows:
+        for row in database.iter_preference_examples():
             record = {
                 "preference_id": row["feedback_id"],
                 "image_path": row["rectified_image_path"],
@@ -33,8 +33,9 @@ def main() -> None:
                 "changed_squares": row["changed_squares"],
             }
             handle.write(json.dumps(record, separators=(",", ":")) + "\n")
+            exported += 1
 
-    print(f"Exported {len(rows)} preference pairs to {args.output}")
+    print(f"Exported {exported} preference pairs to {args.output}")
 
 
 if __name__ == "__main__":
