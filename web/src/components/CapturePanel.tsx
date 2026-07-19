@@ -8,7 +8,11 @@ interface CapturePanelProps {
   onImage: (file: File) => void;
 }
 
-export default function CapturePanel({ busy, status, onImage }: CapturePanelProps) {
+export default function CapturePanel({
+  busy,
+  status,
+  onImage,
+}: CapturePanelProps) {
   const libraryInputRef = useRef<HTMLInputElement>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
 
@@ -36,7 +40,9 @@ export default function CapturePanel({ busy, status, onImage }: CapturePanelProp
           className="visually-hidden"
           type="file"
           accept="image/jpeg,image/png,image/webp"
-          onChange={(event) => handleFile(event.target.files?.[0], event.currentTarget)}
+          onChange={(event) =>
+            handleFile(event.target.files?.[0], event.currentTarget)
+          }
         />
       </main>
     );
@@ -46,10 +52,16 @@ export default function CapturePanel({ busy, status, onImage }: CapturePanelProp
     <main className="capture-shell">
       <section className="capture-intro">
         <p className="eyebrow">Workbook position → Lichess</p>
-        <h1>Read the board.<br />Check the pieces.<br />Keep learning.</h1>
+        <h1>
+          Read the board.
+          <br />
+          Check the pieces.
+          <br />
+          Keep learning.
+        </h1>
         <p className="capture-intro__copy">
-          Frame one Chess Steps diagram as if it were a QR code. We turn it into a position;
-          you make the final call.
+          Frame one Chess Steps diagram as if it were a QR code. We turn it into
+          a position; you make the final call.
         </p>
       </section>
 
@@ -62,7 +74,10 @@ export default function CapturePanel({ busy, status, onImage }: CapturePanelProp
           <span className="step-number">01</span>
           <div>
             <h2>{busy ? "Reading the diagram…" : "Photograph one board"}</h2>
-            <p>Fill the frame, keep the page flat, and include the black turn dot if present.</p>
+            <p>
+              Fill the frame, keep the page flat, and include the black turn dot
+              if present.
+            </p>
           </div>
         </div>
         <button
@@ -72,7 +87,6 @@ export default function CapturePanel({ busy, status, onImage }: CapturePanelProp
           onClick={() => setCameraOpen(true)}
         >
           <span>{busy ? "Scanning" : "Open camera"}</span>
-          <span aria-hidden="true">↗</span>
         </button>
         <button
           type="button"
@@ -87,15 +101,18 @@ export default function CapturePanel({ busy, status, onImage }: CapturePanelProp
           className="visually-hidden"
           type="file"
           accept="image/jpeg,image/png,image/webp"
-          onChange={(event) => handleFile(event.target.files?.[0], event.currentTarget)}
+          onChange={(event) =>
+            handleFile(event.target.files?.[0], event.currentTarget)
+          }
         />
       </section>
 
       <aside className="learning-note">
         <span className="learning-note__mark">↻</span>
         <p>
-          <strong>{status?.training_boards ?? 0} confirmed boards</strong> are available to the
-          learning loop. New models must beat a held-out benchmark before they go live.
+          <strong>{status?.training_boards ?? 0} confirmed boards</strong> are
+          available to the learning loop. New models must beat a held-out
+          benchmark before they go live.
         </p>
       </aside>
     </main>
