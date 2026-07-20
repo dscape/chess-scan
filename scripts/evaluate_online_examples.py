@@ -16,6 +16,7 @@ import numpy as np
 
 from chess_scan.board import CLASS_NAMES
 from chess_scan.classifier import DiagramClassifier
+from chess_scan.model_artifact import model_version
 from evaluate_photo_stress import find_board_boxes
 from qa_common import download_verified, labels_from_fen, write_json
 
@@ -68,7 +69,7 @@ def main() -> None:
     with work_context as temporary:
         work_dir = Path(temporary)
         work_dir.mkdir(parents=True, exist_ok=True)
-        classifier = DiagramClassifier(args.model, version=args.model.stem)
+        classifier = DiagramClassifier(args.model, version=model_version(args.model))
         assets = download_assets(asset_sources, work_dir / "assets")
         interactive_results = [
             evaluate_interactive_source(source, work_dir, assets, classifier)
@@ -85,7 +86,7 @@ def main() -> None:
     manuals = summarize_results(manual_results)
     combined = summarize_results(interactive_results + manual_results)
     payload: dict[str, Any] = {
-        "runtime_version": args.model.stem,
+        "runtime_version": model_version(args.model),
         "interactive": interactive,
         "german_manuals": manuals,
         "combined": combined,

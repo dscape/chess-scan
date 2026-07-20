@@ -26,7 +26,9 @@ The corpus contains 3,984 generated FEN-labelled boards:
 
 The final 12 positions are globally held out for every style. Two Take Take Take app screenshots are separate real holdouts. Confirmed user crops enter only with training consent.
 
-`benchmarks/platform-training-corpus.json` records source and label-manifest hashes without redistributing any images. Run `scripts/prepare_platform_training_data.py` only after the external asset inventory has been prepared. The renderer supports both orientations, inside coordinates, and representative platform board colors.
+`benchmarks/platform-training-corpus.json` records source and label-manifest hashes without redistributing any images. Run `scripts/prepare_platform_training_data.py` only after the external asset inventory has been prepared. Preparation validates every curated inventory before rendering, rejects missing or incomplete piece styles, and publishes generated boards and manifests only after the complete render succeeds. Coordinate rendering requires the original hash-verified font rather than selecting a host-specific fallback. On systems without the macOS font path, set `CHESS_SCAN_PLATFORM_FONT` to an operator-managed copy with the expected SHA-256 printed by the preparation command.
+
+The committed manifest's style counts are authoritative. Use `--allow-inventory-change` only when deliberately creating and reviewing a new corpus revision, and pass an explicit new version such as `--corpus-version platforms-v2`. All platform commands respect `CHESS_SCAN_PLATFORM_DATA_DIR`.
 
 ### Source handling
 
@@ -46,7 +48,16 @@ make qa-online
 make qa-stress
 ```
 
-Training is domain-balanced across platform boards, Argus replay, synthetic replay, official print boards, and consented feedback. Whole-board photometric, compression, display, and perspective round trips are applied before the usual 64-square preprocessing.
+Training is domain-balanced across platform boards, Argus replay, synthetic replay, official print boards, and consented feedback. Replay squares remain memory-mapped and are preprocessed in batches by persistent data-loader workers. Whole-board photometric, compression, display, and perspective round trips are applied before the usual 64-square preprocessing.
+
+Pass `--variant` more than once to evaluate several platform variants in one verified corpus pass. Candidate and baseline inference share each decoded and transformed input:
+
+```bash
+python scripts/evaluate_platforms.py \
+  --baseline models/chess-steps-v3.onnx \
+  --variant clean \
+  --variant camera
+```
 
 MPS optimization is not byte deterministic. A reproduction must pass every gate independently rather than matching the promoted artifact hash.
 

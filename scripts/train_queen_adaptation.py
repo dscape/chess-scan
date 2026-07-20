@@ -16,8 +16,9 @@ import torch
 import torch.nn.functional as functional
 from torch.utils.data import DataLoader, Dataset
 
+from chess_scan.model_artifact import model_version, sha256_file
 from evaluate_photo_stress import find_board_boxes
-from qa_common import download_verified, sha256_file
+from qa_common import download_verified
 from square_model import export_onnx, load_fused_onnx
 from train_chess_steps_model import extract_replay_dataset
 from training_utils import resolve_device
@@ -139,7 +140,7 @@ def main() -> None:
             "state_dict": final_model.state_dict(),
             "version": args.version,
             "architecture": "fused_tiny_square_cnn",
-            "base_model": args.base_model.stem,
+            "base_model": model_version(args.base_model),
             "input_size": 64,
             "num_classes": 13,
         },
@@ -147,7 +148,7 @@ def main() -> None:
     )
     metadata = {
         "version": args.version,
-        "base_model": args.base_model.stem,
+        "base_model": model_version(args.base_model),
         "artifact_sha256": sha256_file(artifact_path),
         "manifest": str(args.manifest),
         "training_stages": manifest["training_stages"],

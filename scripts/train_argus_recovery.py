@@ -14,20 +14,20 @@ import cv2
 import numpy as np
 import torch
 import torch.nn.functional as functional
-from torch.utils.data import DataLoader, Dataset, TensorDataset
+from torch.utils.data import DataLoader, Dataset
 
 from chess_scan.argus_data import (
     default_data_dir,
     evaluate_argus_pair,
     labels_from_board_filename,
-    load_prepared_split,
-    load_synthetic_replay,
     sha256_file,
     validate_source_data,
     verify_data_manifest,
 )
 from chess_scan.classifier import preprocess_board
-from evaluate_photo_stress import make_halftone_screen, rectify_printed_photo, resize_round_trip
+from chess_scan.model_artifact import model_version
+from evaluate_photo_stress import make_halftone_screen, rectify_printed_photo
+from image_augmentation import resize_round_trip
 from square_model import export_onnx, load_fused_onnx
 from train_chess_steps_model import (
     download_official_samples,
@@ -36,7 +36,14 @@ from train_chess_steps_model import (
     render_official_boards,
     verify_benchmark_pdf,
 )
-from training_utils import resolve_device
+from training_utils import (
+    REPLAY_WORKERS,
+    ArgusReplayDataset,
+    collate_replay_batch,
+    distillation_loss,
+    repeat_loader,
+    resolve_device,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_BASE_MODEL = PROJECT_ROOT / "models" / "chess-steps-v2.onnx"
@@ -177,7 +184,7 @@ def main() -> None:
             "state_dict": model.state_dict(),
             "version": args.version,
             "architecture": "fused_tiny_square_cnn",
-            "base_model": args.base_model.stem,
+            "base_model": model_version(args.base_model),
             "input_size": 64,
             "num_classes": 13,
         },
@@ -189,8 +196,9 @@ def main() -> None:
         "trained_at": datetime.now(UTC).isoformat(),
         "runtime_format": "onnx",
         "architecture": "fused_tiny_square_cnn",
-        "base_model": args.base_model.stem,
+        "base_model": model_version(args.base_model),
         "artifact_sha256": sha256_file(artifact_path),
+        "checkpoint_sha256": sha256_file(checkpoint_path),
         "eligible_for_promotion": False,
         "requires_fixed_qa": True,
         "external_dataset_manifest": str(data_dir / "MANIFEST.json"),
@@ -247,15 +255,13 @@ def train_compact_stage(
     seed: int,
     device: torch.device,
 ) -> None:
-    train_split = load_prepared_split(data_dir, "train", mmap=False)
-    replay_images, replay_labels = load_synthetic_replay(data_dir)
-    images = np.concatenate([train_split.images, replay_images])
-    labels = np.concatenate([train_split.labels, replay_labels])
     loader = DataLoader(
-        TensorDataset(_image_tensor(images), torch.from_numpy(labels)),
+        ArgusReplayDataset(data_dir),
         batch_size=256,
         shuffle=True,
-        num_workers=0,
+        num_workers=REPLAY_WORKERS,
+        persistent_workers=True,
+        collate_fn=collate_replay_batch,
         generator=torch.Generator().manual_seed(seed),
     )
     retention_loader = _retention_loader(retention_rows, seed=seed + 2)
@@ -295,7 +301,7 @@ def train_full_corpus_stage(
     class_weights /= class_weights.mean()
     _configure_trainable_layers(model)
     optimizer = _optimizer(model, classifier_lr=7.5e-6, feature_lr=7.5e-7)
-    retention = _repeat_loader(retention_loader)
+    retention = repeat_loader(retention_loader)
     model.train()
     total_loss = 0.0
     for step, (images, labels) in enumerate(loader, start=1):
@@ -321,14 +327,7 @@ def retention_loss(
         teacher_logits = teacher(images)
         hard_targets = teacher_logits.argmax(dim=1)
     hard_loss = functional.cross_entropy(student_logits, hard_targets)
-    distillation = (
-        functional.kl_div(
-            functional.log_softmax(student_logits / 2, dim=1),
-            functional.softmax(teacher_logits / 2, dim=1),
-            reduction="batchmean",
-        )
-        * 4
-    )
+    distillation = distillation_loss(student_logits, teacher_logits)
     return hard_loss + distillation
 
 
@@ -342,7 +341,7 @@ def _train_epoch(
     device: torch.device,
 ) -> float:
     model.train()
-    retention = _repeat_loader(retention_loader)
+    retention = repeat_loader(retention_loader)
     total_loss = 0.0
     for images, labels in training_loader:
         images = images.to(device)
@@ -355,11 +354,6 @@ def _train_epoch(
         optimizer.step()
         total_loss += float(loss.detach())
     return total_loss / len(training_loader)
-
-
-def _repeat_loader(loader: DataLoader):
-    while True:
-        yield from loader
 
 
 def _retention_loader(rows: list[dict[str, Any]], *, seed: int) -> DataLoader:
@@ -398,11 +392,6 @@ def _optimizer(
         ],
         weight_decay=1e-5,
     )
-
-
-def _image_tensor(images_bgr: np.ndarray) -> torch.Tensor:
-    rgb = np.ascontiguousarray(images_bgr[:, :, :, ::-1])
-    return torch.from_numpy(rgb).permute(0, 3, 1, 2).float().div_(255.0)
 
 
 if __name__ == "__main__":

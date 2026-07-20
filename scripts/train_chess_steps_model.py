@@ -17,7 +17,6 @@ from typing import Any
 
 import cv2
 import numpy as np
-import onnxruntime as ort
 import torch
 import torch.nn as nn
 import torch.nn.functional as functional
@@ -32,7 +31,7 @@ from chess_scan.classifier import (
 )
 from chess_scan.config import PROJECT_ROOT
 from chess_scan.model_artifact import sha256_file
-from square_model import export_onnx, load_fused_onnx
+from square_model import export_onnx, load_fused_onnx, verify_model_matches_onnx
 from training_utils import resolve_device
 
 BASE_MODEL_PATH = PROJECT_ROOT / "models" / "argus-v2r5.onnx"
@@ -187,7 +186,7 @@ def main() -> None:
     replay_gate_loader = DataLoader(replay_gate, batch_size=512, shuffle=False, num_workers=0)
 
     model = load_fused_onnx(BASE_MODEL_PATH)
-    verify_reconstruction(model, BASE_MODEL_PATH)
+    verify_model_matches_onnx(model, BASE_MODEL_PATH)
     model.to(device)
     baseline_metrics = evaluate_model(
         model,
@@ -225,7 +224,7 @@ def main() -> None:
     checkpoint_path = args.output_dir / f"{args.version}.pt"
     metadata_path = args.output_dir / f"{args.version}.json"
     export_onnx(model, onnx_path)
-    verify_reconstruction(model, onnx_path)
+    verify_model_matches_onnx(model, onnx_path)
     torch.save(
         {
             "state_dict": best_state,
@@ -969,19 +968,6 @@ def square_parity(square_index: int) -> int:
 
 def has_exactly_two_kings(row: dict[str, Any]) -> bool:
     return len(row["white_king_squares"]) == 1 and len(row["black_king_squares"]) == 1
-
-
-def verify_reconstruction(model: nn.Module, onnx_path: Path) -> None:
-    inputs = np.random.RandomState(0).randn(8, 3, 64, 64).astype(np.float32)
-    session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
-    expected = session.run(None, {session.get_inputs()[0].name: inputs})[0]
-    model.eval()
-    with torch.no_grad():
-        actual = model(torch.from_numpy(inputs)).numpy()
-    maximum_delta = float(np.max(np.abs(expected - actual)))
-    if maximum_delta >= 2e-4:
-        raise ValueError(f"ONNX reconstruction changed logits by {maximum_delta}")
-    print(f"ONNX reconstruction maximum logit delta: {maximum_delta:.8f}")
 
 
 if __name__ == "__main__":

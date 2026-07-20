@@ -16,6 +16,11 @@ def sha256_file(path: Path) -> str:
         return hashlib.file_digest(handle, "sha256").hexdigest()
 
 
+def model_version(path: Path) -> str:
+    """Return the stable version identifier encoded by an artifact filename."""
+    return path.stem
+
+
 def verify_model_artifact(
     path: Path,
     metadata: Mapping[str, Any] | str,

@@ -361,19 +361,20 @@ def run_fixed_qa(
         raise BenchmarkUnavailableError(
             "CHESS_SCAN_PLATFORM_DATA_DIR and CHESS_SCAN_ARGUS_DATA_DIR are required"
         )
-    for variant in ("clean", "camera"):
-        commands[f"platform-{variant}"] = [
-            sys.executable,
-            str(scripts / "evaluate_platforms.py"),
-            "--model",
-            str(model_path),
-            "--baseline",
-            str(baseline_model_path),
-            "--data-dir",
-            platform_data_dir,
-            "--variant",
-            variant,
-        ]
+    commands["platform"] = [
+        sys.executable,
+        str(scripts / "evaluate_platforms.py"),
+        "--model",
+        str(model_path),
+        "--baseline",
+        str(baseline_model_path),
+        "--data-dir",
+        platform_data_dir,
+        "--variant",
+        "clean",
+        "--variant",
+        "camera",
+    ]
     commands["argus"] = [
         sys.executable,
         str(scripts / "evaluate_argus_replay.py"),
@@ -389,10 +390,18 @@ def run_fixed_qa(
         output_path = output_dir / f"{name}-qa.json"
         output_path.unlink(missing_ok=True)
         result = subprocess.run([*command, "--output", str(output_path)], check=False)
-        if not output_path.exists():
-            raise BenchmarkUnavailableError(f"{name} command exited {result.returncode}")
-        payload = json.loads(output_path.read_text())
-        metrics[name] = _qa_summary(name, payload)
+        try:
+            payload = json.loads(output_path.read_text())
+        except FileNotFoundError as exc:
+            raise BenchmarkUnavailableError(f"{name} command exited {result.returncode}") from exc
+        if name == "platform":
+            for variant, evaluation in payload["variants"].items():
+                metrics[f"platform-{variant}"] = _qa_summary(
+                    f"platform-{variant}",
+                    evaluation,
+                )
+        else:
+            metrics[name] = _qa_summary(name, payload)
         if result.returncode != 0:
             metrics["passed"] = False
     return metrics

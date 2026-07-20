@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import random
@@ -21,7 +22,7 @@ import torch.nn.functional as functional
 from torch.utils.data import DataLoader, Dataset
 
 from chess_scan.argus_data import default_data_dir as default_argus_data_dir
-from chess_scan.argus_data import evaluate_argus_pair, load_prepared_split, verify_data_manifest
+from chess_scan.argus_data import evaluate_argus_pair, verify_data_manifest
 from chess_scan.bootstrap import initialize_database
 from chess_scan.classifier import (
     INPUT_SIZE,
@@ -34,13 +35,21 @@ from chess_scan.model_artifact import sha256_file, verify_model_artifact
 from chess_scan.platform_data import default_data_dir as default_platform_data_dir
 from chess_scan.platform_data import load_records as load_platform_records
 from chess_scan.platform_data import verify_data_manifest as verify_platform_data_manifest
+from image_augmentation import contrast_brightness, jpeg_round_trip
 from square_model import (
-    FusedWideSquareClassifier,
     WideSquareClassifier,
     export_onnx,
     load_fused_onnx,
+    load_fused_wide_onnx,
+    verify_model_matches_onnx,
 )
-from training_utils import resolve_device
+from training_utils import (
+    REPLAY_WORKERS,
+    ArgusReplayDataset,
+    collate_replay_batch,
+    distillation_loss,
+    resolve_device,
+)
 
 _MIN_CLASS_EXAMPLES_PER_SPLIT = 5
 _PERCEPTUAL_HASH_MAX_DISTANCE = 5
@@ -96,33 +105,6 @@ class PlatformReplayDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
         images = torch.from_numpy(preprocess_board(board).copy())
         labels = torch.tensor(record["labels"], dtype=torch.long)
         return images, labels
-
-
-class ArgusReplayDataset(Dataset[tuple[torch.Tensor, int]]):
-    def __init__(self, data_dir: Path) -> None:
-        split = load_prepared_split(data_dir, "train")
-        self.position_images = split.images
-        self.position_labels = split.labels
-        replay_dir = data_dir / "data" / "piece_classifier_dataset"
-        self.synthetic_images = np.load(replay_dir / "images.npy", mmap_mode="r")
-        self.synthetic_labels = np.load(replay_dir / "labels.npy", mmap_mode="r")
-
-    def __len__(self) -> int:
-        return len(self.position_labels) + len(self.synthetic_labels)
-
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, int]:
-        if index < len(self.position_labels):
-            image = np.asarray(self.position_images[index])
-            label = int(self.position_labels[index])
-        else:
-            replay_index = index - len(self.position_labels)
-            image = np.asarray(self.synthetic_images[replay_index])
-            label = int(self.synthetic_labels[replay_index])
-        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        if rgb.shape[:2] != (INPUT_SIZE, INPUT_SIZE):
-            rgb = cv2.resize(rgb, (INPUT_SIZE, INPUT_SIZE), interpolation=cv2.INTER_AREA)
-        tensor = torch.from_numpy(np.ascontiguousarray(rgb.transpose(2, 0, 1))).float().div_(255.0)
-        return tensor, label
 
 
 def main() -> None:
@@ -298,7 +280,9 @@ def main() -> None:
             ArgusReplayDataset(args.argus_data_dir),
             batch_size=256,
             shuffle=True,
-            num_workers=0,
+            num_workers=REPLAY_WORKERS,
+            persistent_workers=True,
+            collate_fn=collate_replay_batch,
             generator=torch.Generator().manual_seed(args.seed),
         )
 
@@ -308,16 +292,9 @@ def main() -> None:
         active_path,
         architecture=architecture,
         checkpoint_sha256=checkpoint_sha256,
-    ).to(device)
-    teacher = (
-        load_active_model(
-            active_path,
-            architecture=architecture,
-            checkpoint_sha256=checkpoint_sha256,
-        )
-        .eval()
-        .to(device)
     )
+    teacher = copy.deepcopy(model).eval().to(device)
+    model.to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
     class_weights = class_weights_for_rows(train_rows).to(device)
@@ -365,14 +342,7 @@ def main() -> None:
                 with torch.no_grad():
                     teacher_logits = teacher(argus_images)
                 argus_loss = functional.cross_entropy(argus_logits, argus_labels)
-                argus_loss += (
-                    functional.kl_div(
-                        functional.log_softmax(argus_logits / 2, dim=1),
-                        functional.softmax(teacher_logits / 2, dim=1),
-                        reduction="batchmean",
-                    )
-                    * 4
-                )
+                argus_loss += distillation_loss(argus_logits, teacher_logits)
                 loss = loss + args.argus_replay_weight * argus_loss
             if platform_iterator is not None and args.platform_replay_weight > 0:
                 try:
@@ -386,14 +356,7 @@ def main() -> None:
                 with torch.no_grad():
                     teacher_logits = teacher(platform_images)
                 platform_loss = functional.cross_entropy(platform_logits, platform_labels)
-                platform_loss += (
-                    functional.kl_div(
-                        functional.log_softmax(platform_logits / 2, dim=1),
-                        functional.softmax(teacher_logits / 2, dim=1),
-                        reduction="batchmean",
-                    )
-                    * 4
-                )
+                platform_loss += distillation_loss(platform_logits, teacher_logits)
                 loss = loss + args.platform_replay_weight * platform_loss
 
             optimizer.zero_grad()
@@ -512,7 +475,9 @@ def load_active_model(
     architecture: str,
     checkpoint_sha256: object,
 ) -> nn.Module:
-    if architecture in {"fused_wide_square_cnn", "wide_square_cnn"}:
+    if architecture == "fused_wide_square_cnn":
+        return load_fused_wide_onnx(path)
+    if architecture == "wide_square_cnn":
         checkpoint_path = path.with_suffix(".pt")
         if not isinstance(checkpoint_sha256, str) or len(checkpoint_sha256) != 64:
             raise ValueError("Wide model metadata has no valid checkpoint hash")
@@ -521,13 +486,13 @@ def load_active_model(
         if sha256_file(checkpoint_path) != checkpoint_sha256:
             raise ValueError(f"Wide model checkpoint failed verification: {checkpoint_path}")
         checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
-        model_class = (
-            FusedWideSquareClassifier
-            if architecture == "fused_wide_square_cnn"
-            else WideSquareClassifier
-        )
-        model = model_class()
+        if checkpoint.get("architecture") != architecture:
+            raise ValueError(
+                f"Wide model checkpoint architecture does not match: {checkpoint_path}"
+            )
+        model = WideSquareClassifier()
         model.load_state_dict(checkpoint["state_dict"])
+        verify_model_matches_onnx(model, path)
         return model
     if architecture != "fused_tiny_square_cnn":
         raise ValueError(f"Unsupported trainable model architecture: {architecture}")
@@ -959,16 +924,15 @@ def augment_board(board: np.ndarray, rng: random.Random) -> np.ndarray:
     )
     contrast = rng.uniform(0.82, 1.18)
     brightness = rng.uniform(-18, 18)
-    augmented = np.clip(augmented.astype(np.float32) * contrast + brightness, 0, 255).astype(
-        np.uint8
+    augmented = contrast_brightness(
+        augmented,
+        contrast=contrast,
+        brightness=brightness,
     )
     if rng.random() < 0.35:
         augmented = cv2.GaussianBlur(augmented, (3, 3), rng.uniform(0.2, 1.0))
     if rng.random() < 0.35:
-        quality = rng.randint(55, 92)
-        ok, encoded = cv2.imencode(".jpg", augmented, [cv2.IMWRITE_JPEG_QUALITY, quality])
-        if ok:
-            augmented = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+        augmented = jpeg_round_trip(augmented, rng.randint(55, 92))
     return augmented
 
 

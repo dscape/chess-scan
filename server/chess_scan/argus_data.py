@@ -15,6 +15,8 @@ import numpy as np
 import onnxruntime as ort
 
 from chess_scan.board import CLASS_NAMES
+from chess_scan.metrics import classification_metrics
+from chess_scan.model_artifact import model_version
 
 EXPECTED_ARCHIVE_SHA256 = "4d795dd6734aa275de2fd515989328bfc362ac4a9bb7bf03b2ec8167e5858ac3"
 EXPECTED_SOURCE_COUNTS = {"train": 80_000, "test": 20_000, "test_real": 13}
@@ -154,7 +156,7 @@ def _evaluate_argus_model(model_path: Path, data_dir: Path) -> dict[str, Any]:
         replay_labels,
     )
     return {
-        "model": model_path.stem,
+        "model": model_version(model_path),
         "chess_positions_test": chess_positions,
         "synthetic_replay": synthetic_replay,
     }
@@ -193,28 +195,6 @@ def argus_pair_decision(
     if candidate["synthetic_replay"]["correct"] < active["synthetic_replay"]["correct"]:
         reasons.append("synthetic replay accuracy regressed")
     return not reasons, reasons
-
-
-def classification_metrics(predicted: np.ndarray, expected: np.ndarray) -> dict[str, Any]:
-    correct = predicted == expected
-    occupied = expected != 0
-    per_class = {}
-    for class_index, class_name in enumerate(CLASS_NAMES):
-        selected = expected == class_index
-        per_class[class_name or "empty"] = {
-            "correct": int(correct[selected].sum()),
-            "total": int(selected.sum()),
-            "accuracy": float(correct[selected].mean()),
-        }
-    return {
-        "correct": int(correct.sum()),
-        "total": len(expected),
-        "accuracy": float(correct.mean()),
-        "non_empty_correct": int(correct[occupied].sum()),
-        "non_empty_total": int(occupied.sum()),
-        "non_empty_accuracy": float(correct[occupied].mean()),
-        "per_class": per_class,
-    }
 
 
 def validate_source_data(data_dir: Path) -> dict[str, Any]:

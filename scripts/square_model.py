@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import onnx
+import onnxruntime as ort
 import torch
 import torch.nn as nn
 from onnx import numpy_helper
@@ -28,13 +30,13 @@ _CONVOLUTION_SPECS = (
     (96, 160, 1, 1, 1),
     (160, 192, 1, 1, 1),
 )
-_WIDE_CONVOLUTION_SPECS = (
-    (3, 32, 5, 2, 1),
-    (32, 64, 3, 2, 1),
-    (64, 96, 3, 2, 1),
-    (96, 160, 3, 2, 1),
-    (160, 256, 3, 1, 1),
-    (256, 384, 1, 1, 1),
+_WIDE_LAYER_SPECS = (
+    (3, 32, 5, 2),
+    (32, 64, 3, 2),
+    (64, 96, 3, 2),
+    (96, 160, 3, 2),
+    (160, 256, 3, 1),
+    (256, 384, 1, 1),
 )
 
 
@@ -108,7 +110,7 @@ class FusedWideSquareClassifier(nn.Module):
 
     def __init__(self) -> None:
         super().__init__()
-        self.features = nn.Sequential(*[ConvAct(*spec) for spec in _WIDE_CONVOLUTION_SPECS])
+        self.features = nn.Sequential(*[ConvAct(*spec, 1) for spec in _WIDE_LAYER_SPECS])
         self.dropout = nn.Dropout(0.15)
         self.classifier = nn.Linear(384, NUM_CLASSES)
 
@@ -123,14 +125,7 @@ class WideSquareClassifier(nn.Module):
 
     def __init__(self) -> None:
         super().__init__()
-        self.features = nn.Sequential(
-            ConvNormAct(3, 32, 5, 2),
-            ConvNormAct(32, 64, 3, 2),
-            ConvNormAct(64, 96, 3, 2),
-            ConvNormAct(96, 160, 3, 2),
-            ConvNormAct(160, 256, 3, 1),
-            ConvNormAct(256, 384, 1, 1),
-        )
+        self.features = nn.Sequential(*[ConvNormAct(*spec) for spec in _WIDE_LAYER_SPECS])
         self.dropout = nn.Dropout(0.15)
         self.classifier = nn.Linear(384, NUM_CLASSES)
 
@@ -180,6 +175,28 @@ def _load_fused_weights(
     gemm = gemm_nodes[0]
     model.classifier.weight.data.copy_(torch.from_numpy(initializers[gemm.input[1]]))
     model.classifier.bias.data.copy_(torch.from_numpy(initializers[gemm.input[2]]))
+
+
+def verify_model_matches_onnx(model: nn.Module, path: Path) -> float:
+    """Verify that a trainable checkpoint and its deployed ONNX artifact are equivalent."""
+    values = np.linspace(0.0, 1.0, 8 * 3 * INPUT_SIZE * INPUT_SIZE, dtype=np.float32)
+    inputs = values.reshape(8, 3, INPUT_SIZE, INPUT_SIZE)
+    with torch.no_grad():
+        expected = model.cpu().eval()(torch.from_numpy(inputs)).numpy()
+    session = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+    actual = np.asarray(session.run(None, {session.get_inputs()[0].name: inputs})[0])
+    maximum_difference = float(np.max(np.abs(expected - actual)))
+    if not np.array_equal(expected.argmax(axis=1), actual.argmax(axis=1)) or not np.allclose(
+        expected,
+        actual,
+        rtol=1e-4,
+        atol=5e-5,
+    ):
+        raise ValueError(
+            f"Checkpoint does not match ONNX artifact {path}; "
+            f"maximum logit difference is {maximum_difference}"
+        )
+    return maximum_difference
 
 
 def export_onnx(model: nn.Module, path: Path) -> None:

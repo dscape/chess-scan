@@ -48,8 +48,7 @@ qa-argus:
 	uv run python scripts/evaluate_argus_replay.py --baseline models/chess-steps-v3.onnx
 
 qa-platform:
-	uv run python scripts/evaluate_platforms.py --baseline models/chess-steps-v3.onnx
-	uv run python scripts/evaluate_platforms.py --baseline models/chess-steps-v3.onnx --variant camera
+	uv run python scripts/evaluate_platforms.py --baseline models/chess-steps-v3.onnx --variant clean --variant camera
 
 qa-online:
 	uv run --with 'pymupdf>=1.25,<2' python scripts/evaluate_online_examples.py --cache-dir data/qa-cache

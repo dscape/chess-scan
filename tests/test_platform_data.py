@@ -5,13 +5,13 @@ from pathlib import Path
 
 import pytest
 
+from chess_scan.board import CLASS_NAMES
 from chess_scan.platform_data import (
     platform_pair_decision,
+    read_records,
     sha256_file,
     verify_data_manifest,
 )
-
-CLASS_NAMES = ("empty", "P", "N", "B", "R", "Q", "K", "p", "n", "b", "r", "q", "k")
 
 
 def test_platform_gate_rejects_per_platform_class_regression() -> None:
@@ -65,12 +65,22 @@ def test_platform_manifest_verifies_every_training_and_gate_image(tmp_path: Path
         verify_data_manifest(tmp_path, manifest_path)
 
 
+def test_record_reader_rejects_malformed_rows(tmp_path: Path) -> None:
+    records = tmp_path / "records.jsonl"
+    records.write_text('{"path":"board.png"}\n')
+
+    with pytest.raises(ValueError, match="missing path, split, or sha256"):
+        read_records(records)
+
+
 def _evaluation_metrics() -> dict:
     group = {
         "exact_boards": 10,
         "non_empty_correct": 100,
         "correct": 200,
-        "per_class": {name: {"correct": 10, "total": 10, "accuracy": 1.0} for name in CLASS_NAMES},
+        "per_class": {
+            name or "empty": {"correct": 10, "total": 10, "accuracy": 1.0} for name in CLASS_NAMES
+        },
     }
     return {
         "overall": json.loads(json.dumps(group)),

@@ -16,6 +16,8 @@ import numpy as np
 
 from chess_scan.classifier import DiagramClassifier
 from chess_scan.geometry import detect_board_corners, rectify_board
+from chess_scan.model_artifact import model_version
+from image_augmentation import resize_round_trip
 from qa_common import download_verified, labels_from_fen, write_json
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -45,10 +47,10 @@ def main() -> None:
         download_verified(benchmark["source_url"], benchmark["source_sha256"], pdf_path)
         boards = render_reference_boards(pdf_path, int(benchmark["pdf_page_index"]))
         items = pair_with_labels(boards, benchmark["positions"])
-        classifier = DiagramClassifier(args.model, version=args.model.stem)
+        classifier = DiagramClassifier(args.model, version=model_version(args.model))
         payload = evaluate(items, classifier)
 
-    payload["runtime_version"] = args.model.stem
+    payload["runtime_version"] = model_version(args.model)
     payload["benchmark"] = str(args.benchmark.relative_to(PROJECT_ROOT))
     write_json(args.output, payload)
     print(json.dumps(payload, indent=2))
@@ -228,14 +230,6 @@ def failure_details(index: int, expected: list[int], predicted: list[int]) -> di
             if expected_label != predicted_label
         ],
     }
-
-
-def resize_round_trip(board: np.ndarray, size: int, *, contrast: float = 1.0) -> np.ndarray:
-    resized = cv2.resize(board, (size, size), interpolation=cv2.INTER_AREA)
-    resized = cv2.resize(resized, (512, 512), interpolation=cv2.INTER_CUBIC)
-    if contrast == 1.0:
-        return resized
-    return np.clip(220 + (resized.astype(np.float32) - 220) * contrast, 0, 255).astype(np.uint8)
 
 
 def make_halftone_screen(size: int) -> np.ndarray:
