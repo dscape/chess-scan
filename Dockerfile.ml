@@ -12,6 +12,7 @@ RUN pip install --no-cache-dir \
     pip install --no-cache-dir ".[ml]"
 COPY scripts/ ./scripts/
 COPY benchmarks/ ./benchmarks/
+RUN python -c "from chess_scan.platform_data import DEFAULT_EXPECTED_MANIFEST; assert DEFAULT_EXPECTED_MANIFEST.is_file(), DEFAULT_EXPECTED_MANIFEST"
 COPY models/ ./models/
 RUN mkdir -p /app/data/model-registry
 CMD ["python", "scripts/automatic_learner.py"]

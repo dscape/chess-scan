@@ -8,13 +8,21 @@ import os
 from pathlib import Path
 from typing import Any
 
-_configured_manifest = os.getenv("CHESS_SCAN_PLATFORM_MANIFEST")
-DEFAULT_EXPECTED_MANIFEST = (
-    Path(_configured_manifest).expanduser().resolve()
-    if _configured_manifest
-    else Path(__file__).resolve().parents[2] / "benchmarks" / "platform-training-corpus.json"
-)
+_MANIFEST_NAME = "platform-training-corpus.json"
 _REAL_RECORD_FILES = ("real/records.jsonl", "real/squares.jsonl")
+
+
+def _default_expected_manifest() -> Path:
+    configured = os.getenv("CHESS_SCAN_PLATFORM_MANIFEST")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    source_manifest = Path(__file__).resolve().parents[2] / "benchmarks" / _MANIFEST_NAME
+    if source_manifest.is_file():
+        return source_manifest
+    return (Path.cwd() / "benchmarks" / _MANIFEST_NAME).resolve()
+
+
+DEFAULT_EXPECTED_MANIFEST = _default_expected_manifest()
 
 
 def default_data_dir() -> Path:
