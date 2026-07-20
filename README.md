@@ -28,10 +28,11 @@ make dev
 - API: http://localhost:8000
 - API docs: http://localhost:8000/api/docs
 
-Run all checks and the reproducible official-source QA gates:
+Run all checks and the reproducible model gates:
 
 ```bash
 make check
+make qa-argus
 make qa-online
 make qa-stress
 ```
@@ -59,18 +60,21 @@ The app checks the SQLite model registry on each scan and atomically reloads a n
 
 ## Base-model adaptation
 
-The `chess-steps-v1` weights fine-tune the original Argus ONNX model rather than restarting randomly. The active `chess-steps-v2` revision adds QA-tested geometry/preprocessing and corrects nine adjudicated queen-color errors without regressing the clean gates. Reproducible base training combines the balanced 19,500-square replay set from the March 29 Argus backup with augmented diagrams from 24 official Chess Steps sample PDFs:
+The active `chess-steps-v3` model starts from the print-accurate v2 weights and restores the representative Argus data omitted from earlier replay. It trains over all 80,000 `chess_positions/train` boards, the 19,500 synthetic replay squares, and 934 official print-retention boards. The 20,000-board Argus test split remains held out.
+
+The labeled image corpus is deliberately outside Git. Prepare the verified local copy from the March 29 archive, then reproduce the recovery model and run every gate:
 
 ```bash
-uv run --extra ml --with 'pymupdf>=1.25,<2' \
-  python scripts/train_chess_steps_model.py
-
-# Reproduce the queen-color adaptation candidate
-uv run --extra ml --with 'pymupdf>=1.25,<2' \
-  python scripts/train_queen_adaptation.py
+make prepare-argus-data  # defaults to ~/chess-scan-training/argus-2026-03-29
+make train-argus-recovery
+make qa-argus
+make qa-online
+make qa-stress
 ```
 
-Official source files are downloaded during training or QA and are not redistributed. The queen adaptation was reconstructed end-to-end from 167 hash-verified PDFs and 4,893 source locators; its gate metrics matched the promoted artifact despite non-byte-identical MPS training. The recorded gates require exact king locations on an independent manually audited page, exact positions across 1,064 standard official diagrams, 267/267 reproducible interactive and German-manual examples, and no regression on the Argus replay gate. Source and result manifests live under [`benchmarks/`](benchmarks/).
+Set `CHESS_SCAN_ARGUS_DATA_DIR` to use another external location. [`benchmarks/argus-training-corpus.json`](benchmarks/argus-training-corpus.json) records the archive, replay, and prepared-split hashes without redistributing source images. Production mounts a read-only server copy for automatic replay and gating; `s46-infra/hetzner/scripts/sync-chess-training-data.sh` explicitly pushes or pulls that copy with rsync.
+
+Official source files are downloaded during training or QA and are not redistributed. V3 remains exact on all 267 reproducible online boards and every enforced photo gate, improves held-out Argus `chess_positions` accuracy from 94.51% to 99.60%, and improves the five reviewed photographed-screen crops from 56.5% to 75.7% occupied-square accuracy without reducing exact boards across the 13 reviewed submissions.
 
 ## Learning loop
 
@@ -105,7 +109,7 @@ See [`docs/learning-loop.md`](docs/learning-loop.md) for the distinction between
 
 ## Model provenance
 
-`models/argus-v2r5.onnx` is the MIT-licensed Argus overlay square classifier and remains the replay baseline. `models/chess-steps-v1.onnx` is the original domain-adapted weight artifact. `models/chess-steps-v1r1.onnx` records the first QA runtime revision. `models/chess-steps-v2.onnx` is the active immutable queen-color and QA revision; trainable checkpoints and metadata are stored alongside the weight artifacts.
+`models/argus-v2r5.onnx` is the MIT-licensed Argus overlay square classifier. `models/chess-steps-v1.onnx` is the original print adaptation, `chess-steps-v2.onnx` is the queen-color and QA revision, and `chess-steps-v3.onnx` is the active print-retaining Argus recovery model. Trainable checkpoints and metadata are stored alongside the immutable weight artifacts.
 
 Recorded king-location results:
 

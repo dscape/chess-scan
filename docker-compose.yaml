@@ -12,8 +12,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.ml
+    environment:
+      CHESS_SCAN_ARGUS_DATA_DIR: /app/training-data/argus-2026-03-29
     volumes:
       - chess-scan-data:/app/data
+      - ${CHESS_SCAN_TRAINING_DATA_DIR:-~/chess-scan-training}:/app/training-data:ro
     command: ["python", "scripts/train_candidate.py"]
 
   learner:
@@ -21,8 +24,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.ml
+    environment:
+      CHESS_SCAN_ARGUS_DATA_DIR: /app/training-data/argus-2026-03-29
     volumes:
       - chess-scan-data:/app/data
+      - ${CHESS_SCAN_TRAINING_DATA_DIR:-~/chess-scan-training}:/app/training-data:ro
     command: ["python", "scripts/automatic_learner.py"]
     restart: unless-stopped
 

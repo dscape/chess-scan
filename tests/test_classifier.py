@@ -36,7 +36,7 @@ def test_split_and_preprocess_board() -> None:
 
 def test_classifier_accepts_batched_preprocessed_boards() -> None:
     classifier = DiagramClassifier(
-        PROJECT_ROOT / "models" / "chess-steps-v2.onnx",
+        PROJECT_ROOT / "models" / "chess-steps-v3.onnx",
         version="test",
     )
     inputs = np.zeros((128, 3, 64, 64), dtype=np.float32)
@@ -81,8 +81,25 @@ def test_chess_steps_model_passed_recorded_king_gates() -> None:
     )
 
 
+def test_argus_recovery_model_passed_recorded_gates() -> None:
+    model_path = PROJECT_ROOT / "models" / "chess-steps-v3.onnx"
+    metadata = json.loads((PROJECT_ROOT / "models" / "chess-steps-v3.json").read_text())
+
+    assert hashlib.sha256(model_path.read_bytes()).hexdigest() == metadata["artifact_sha256"]
+    assert metadata["eligible_for_promotion"] is True
+    assert metadata["gates"]["official_online_exact_boards"] == 267
+    assert (
+        metadata["gates"]["chess_positions_candidate_correct"]
+        > metadata["gates"]["chess_positions_base_correct"]
+    )
+    assert (
+        metadata["gates"]["reviewed_feedback_candidate_exact_boards"]
+        >= metadata["gates"]["reviewed_feedback_base_exact_boards"]
+    )
+
+
 def test_model_manager_reloads_promoted_model(tmp_path: Path) -> None:
-    base_path = PROJECT_ROOT / "models" / "chess-steps-v2.onnx"
+    base_path = PROJECT_ROOT / "models" / "chess-steps-v3.onnx"
     candidate_path = tmp_path / "candidate.onnx"
     shutil.copyfile(base_path, candidate_path)
     database = Database(tmp_path / "db.sqlite3")

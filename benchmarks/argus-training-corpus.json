@@ -1,0 +1,135 @@
+{
+  "version": "argus-2026-03-29-v1",
+  "created_at": "2026-07-20T01:33:36.370117+00:00",
+  "source_archive": "argus_data.tar.gz",
+  "source_archive_bytes": 17122548036,
+  "source_archive_sha256": "4d795dd6734aa275de2fd515989328bfc362ac4a9bb7bf03b2ec8167e5858ac3",
+  "external_only": true,
+  "source": {
+    "chess_positions": {
+      "train": 80000,
+      "test": 20000,
+      "test_real": 13
+    },
+    "piece_classifier_dataset": {
+      "seed": 42,
+      "num_samples_per_class": 1500,
+      "size": 128,
+      "total_samples": 19500,
+      "num_classes": 13,
+      "class_names": [
+        "empty",
+        "P",
+        "N",
+        "B",
+        "R",
+        "Q",
+        "K",
+        "p",
+        "n",
+        "b",
+        "r",
+        "q",
+        "k"
+      ],
+      "created_at": "2026-03-26T07:36:26.147615+00:00"
+    }
+  },
+  "prepared_splits": {
+    "train": {
+      "boards_scanned": 1556,
+      "squares": 12600,
+      "class_counts": [
+        4200,
+        700,
+        700,
+        700,
+        700,
+        700,
+        700,
+        700,
+        700,
+        700,
+        700,
+        700,
+        700
+      ]
+    },
+    "test": {
+      "boards_scanned": 578,
+      "squares": 4500,
+      "class_counts": [
+        1500,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250
+      ]
+    }
+  },
+  "files": [
+    {
+      "path": "data/piece_classifier_dataset/images.npy",
+      "bytes": 958464128,
+      "sha256": "5ae4db2a918f44b3f71f657c90890c84f47af2ff100d76e675400b5e1c58f880"
+    },
+    {
+      "path": "data/piece_classifier_dataset/labels.npy",
+      "bytes": 156128,
+      "sha256": "34d3e3e0e0cf8903d5422f575ce3efab0dbcedc056a3a98bcfebb83c601e1a04"
+    },
+    {
+      "path": "data/piece_classifier_dataset/metadata.json",
+      "bytes": 307,
+      "sha256": "1f50a7939aee7cd0da15e2822205f6d86c2075593cdc9ec4bcc7a210f19801e7"
+    },
+    {
+      "path": "prepared/test-boards.txt",
+      "bytes": 21658,
+      "sha256": "68f202677e5fff3b472df03282c63e1534b077aed0da0df9e5df21154b8f7089"
+    },
+    {
+      "path": "prepared/test-images.npy",
+      "bytes": 55296128,
+      "sha256": "9b926ca15dc0b7720bf0da57cf26612a6530d7c36fd8aca20465bd239c1b8557"
+    },
+    {
+      "path": "prepared/test-labels.npy",
+      "bytes": 36128,
+      "sha256": "323ad228f6b4c800442fbffbd0ce5b44654d5990bbe9c54db411345d56fe3afc"
+    },
+    {
+      "path": "prepared/test-locators.npy",
+      "bytes": 36128,
+      "sha256": "0493022c5f114c0ee1edde3fc323256b88bc53d1d37dbceb099ae27be18fd6da"
+    },
+    {
+      "path": "prepared/train-boards.txt",
+      "bytes": 57703,
+      "sha256": "f2085b7275a180a8176c079944b96f2e6a4fb7d0dd2edf718ba5746c51be78ab"
+    },
+    {
+      "path": "prepared/train-images.npy",
+      "bytes": 154828928,
+      "sha256": "a60125aa8f84185ee35f853762efad4e038814da4f08829fe2844b35e6983b2e"
+    },
+    {
+      "path": "prepared/train-labels.npy",
+      "bytes": 100928,
+      "sha256": "80908ff4e9211222e0a408ed704f5abf2a494249d8bfae0a92682918902c8f0e"
+    },
+    {
+      "path": "prepared/train-locators.npy",
+      "bytes": 100928,
+      "sha256": "bfa36f2fef0ee3d0b467333f466e53b3a3fcc4d3c043042b4f9141f5b0ec9fcb"
+    }
+  ]
+}

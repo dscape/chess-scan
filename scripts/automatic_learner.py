@@ -240,8 +240,10 @@ def benchmark_cycle(
         metrics = {"fixed_qa": "skipped"}
     else:
         try:
+            baseline = database.get_model(str(cycle["base_model_version"]))
             metrics = run_fixed_qa(
                 model_path=Path(candidate["artifact_path"]),
+                baseline_model_path=Path(baseline["artifact_path"]),
                 output_dir=cycle_directory(settings, cycle_id),
                 cache_dir=settings.data_dir / "qa-cache",
             )
@@ -328,6 +330,7 @@ def evaluate_shadow(
 def run_fixed_qa(
     *,
     model_path: Path,
+    baseline_model_path: Path,
     output_dir: Path,
     cache_dir: Path,
 ) -> dict[str, Any]:
@@ -352,6 +355,18 @@ def run_fixed_qa(
             str(cache_dir),
         ],
     }
+    argus_data_dir = os.getenv("CHESS_SCAN_ARGUS_DATA_DIR")
+    if argus_data_dir:
+        commands["argus"] = [
+            sys.executable,
+            str(scripts / "evaluate_argus_replay.py"),
+            "--model",
+            str(model_path),
+            "--baseline",
+            str(baseline_model_path),
+            "--data-dir",
+            argus_data_dir,
+        ]
     metrics: dict[str, Any] = {"passed": True}
     for name, command in commands.items():
         output_path = output_dir / f"{name}-qa.json"
@@ -369,6 +384,8 @@ def run_fixed_qa(
 def _qa_summary(name: str, payload: dict[str, Any]) -> dict[str, Any]:
     if name == "online":
         return dict(payload["combined"])
+    if name == "argus":
+        return payload
     return {
         "classifier": payload.get("classifier"),
         "pipeline": payload.get("pipeline"),

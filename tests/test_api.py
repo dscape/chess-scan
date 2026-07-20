@@ -94,7 +94,7 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         status = client.get("/api/learning/status").json()
         assert status["confirmed_boards"] == 1
         assert status["training_boards"] == 1
-        assert status["active_model"] == "chess-steps-v2"
+        assert status["active_model"] == "chess-steps-v3"
         assert status["learning_state"] == "collecting"
         assert status["learning_progress"] == 1
         assert status["learning_target"] == 100
@@ -189,10 +189,10 @@ def test_unknown_length_body_is_bounded_and_busy_upload_is_rejected_before_readi
 def test_startup_rejects_corrupted_active_model(tmp_path: Path) -> None:
     model_dir = tmp_path / "models"
     model_dir.mkdir()
-    base_path = model_dir / "chess-steps-v2.onnx"
-    base_metadata_path = model_dir / "chess-steps-v2.json"
-    shutil.copyfile(PROJECT_ROOT / "models/chess-steps-v2.onnx", base_path)
-    shutil.copyfile(PROJECT_ROOT / "models/chess-steps-v2.json", base_metadata_path)
+    base_path = model_dir / "chess-steps-v3.onnx"
+    base_metadata_path = model_dir / "chess-steps-v3.json"
+    shutil.copyfile(PROJECT_ROOT / "models/chess-steps-v3.onnx", base_path)
+    shutil.copyfile(PROJECT_ROOT / "models/chess-steps-v3.json", base_metadata_path)
     settings = Settings(
         data_dir=tmp_path / "data",
         model_dir=model_dir,

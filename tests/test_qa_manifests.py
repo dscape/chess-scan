@@ -33,7 +33,22 @@ def test_online_source_inventory_is_complete_and_portable() -> None:
     assert "/Users/" not in path.read_text()
 
 
-def test_qa_results_match_active_runtime_metadata() -> None:
+def test_argus_training_manifest_is_portable_and_complete() -> None:
+    manifest = json.loads((PROJECT_ROOT / "benchmarks" / "argus-training-corpus.json").read_text())
+
+    assert manifest["external_only"] is True
+    assert manifest["source"]["chess_positions"] == {
+        "train": 80_000,
+        "test": 20_000,
+        "test_real": 13,
+    }
+    assert manifest["prepared_splits"]["test"]["squares"] == 4_500
+    assert len(manifest["source_archive_sha256"]) == 64
+    assert all(len(record["sha256"]) == 64 for record in manifest["files"])
+    assert "/Users/" not in json.dumps(manifest)
+
+
+def test_qa_results_match_v2_runtime_metadata() -> None:
     results = json.loads((PROJECT_ROOT / "benchmarks" / "qa-2026-07-18.json").read_text())
     metadata = json.loads((PROJECT_ROOT / "models" / "chess-steps-v2.json").read_text())
     artifact = PROJECT_ROOT / "models" / "chess-steps-v2.onnx"

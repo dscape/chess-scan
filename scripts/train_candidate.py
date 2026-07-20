@@ -20,6 +20,8 @@ import torch.nn as nn
 import torch.nn.functional as functional
 from torch.utils.data import DataLoader, Dataset
 
+from chess_scan.argus_data import default_data_dir as default_argus_data_dir
+from chess_scan.argus_data import evaluate_argus_pair, load_prepared_split, verify_data_manifest
 from chess_scan.bootstrap import initialize_database
 from chess_scan.classifier import (
     INPUT_SIZE,
@@ -70,6 +72,33 @@ class FeedbackBoardDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tenso
         return images, labels, rejected
 
 
+class ArgusReplayDataset(Dataset[tuple[torch.Tensor, int]]):
+    def __init__(self, data_dir: Path) -> None:
+        split = load_prepared_split(data_dir, "train")
+        self.position_images = split.images
+        self.position_labels = split.labels
+        replay_dir = data_dir / "data" / "piece_classifier_dataset"
+        self.synthetic_images = np.load(replay_dir / "images.npy", mmap_mode="r")
+        self.synthetic_labels = np.load(replay_dir / "labels.npy", mmap_mode="r")
+
+    def __len__(self) -> int:
+        return len(self.position_labels) + len(self.synthetic_labels)
+
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, int]:
+        if index < len(self.position_labels):
+            image = np.asarray(self.position_images[index])
+            label = int(self.position_labels[index])
+        else:
+            replay_index = index - len(self.position_labels)
+            image = np.asarray(self.synthetic_images[replay_index])
+            label = int(self.synthetic_labels[replay_index])
+        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        if rgb.shape[:2] != (INPUT_SIZE, INPUT_SIZE):
+            rgb = cv2.resize(rgb, (INPUT_SIZE, INPUT_SIZE), interpolation=cv2.INTER_AREA)
+        tensor = torch.from_numpy(np.ascontiguousarray(rgb.transpose(2, 0, 1))).float().div_(255.0)
+        return tensor, label
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--epochs", type=int, default=24)
@@ -104,6 +133,23 @@ def main() -> None:
         help="Allow a non-regressing candidate to proceed to a fresh shadow promotion gate",
     )
     parser.add_argument(
+        "--argus-data-dir",
+        type=Path,
+        default=default_argus_data_dir(),
+        help="External Argus corpus used for retention training and held-out gating",
+    )
+    parser.add_argument(
+        "--argus-replay-weight",
+        type=float,
+        default=0.25,
+        help="Weight for labeled Argus replay plus active-model retention",
+    )
+    parser.add_argument(
+        "--skip-argus-replay",
+        action="store_true",
+        help="Development-only: train without the external Argus replay and gate",
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=None,
@@ -131,6 +177,15 @@ def main() -> None:
         raise SystemExit(f"Feedback snapshot contains unavailable records: {missing}")
     if args.corrected_square_weight < 1:
         raise SystemExit("--corrected-square-weight must be at least 1")
+    if args.argus_replay_weight < 0:
+        raise SystemExit("--argus-replay-weight cannot be negative")
+    if not args.skip_argus_replay and not args.argus_data_dir.exists():
+        raise SystemExit(
+            f"External Argus corpus not found at {args.argus_data_dir}. "
+            "Prepare or mount it, or use --skip-argus-replay only for development."
+        )
+    if not args.skip_argus_replay:
+        verify_data_manifest(args.argus_data_dir)
     if len(rows) < args.min_boards:
         raise SystemExit(
             f"Need at least {args.min_boards} consented confirmed boards; found {len(rows)}"
@@ -175,8 +230,18 @@ def main() -> None:
         shuffle=False,
         num_workers=0,
     )
+    argus_loader = None
+    if not args.skip_argus_replay:
+        argus_loader = DataLoader(
+            ArgusReplayDataset(args.argus_data_dir),
+            batch_size=256,
+            shuffle=True,
+            num_workers=0,
+            generator=torch.Generator().manual_seed(args.seed),
+        )
 
     model = load_fused_onnx(active_path).to(device)
+    teacher = load_fused_onnx(active_path).eval().to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
     class_weights = class_weights_for_rows(train_rows).to(device)
@@ -187,6 +252,7 @@ def main() -> None:
         model.train()
         epoch_loss = 0.0
         board_count = 0
+        argus_iterator = iter(argus_loader) if argus_loader is not None else None
         for images, labels, rejected in train_loader:
             batch_size = images.shape[0]
             logits = model(images.reshape(batch_size * 64, 3, INPUT_SIZE, INPUT_SIZE).to(device))
@@ -210,6 +276,27 @@ def main() -> None:
             loss = supervised_loss
             if args.preference_weight > 0:
                 loss = loss + args.preference_weight * preference_loss(logits, labels, rejected)
+            if argus_iterator is not None and args.argus_replay_weight > 0:
+                try:
+                    argus_images, argus_labels = next(argus_iterator)
+                except StopIteration:
+                    argus_iterator = iter(argus_loader)
+                    argus_images, argus_labels = next(argus_iterator)
+                argus_images = argus_images.to(device)
+                argus_labels = argus_labels.to(device)
+                argus_logits = model(argus_images)
+                with torch.no_grad():
+                    teacher_logits = teacher(argus_images)
+                argus_loss = functional.cross_entropy(argus_logits, argus_labels)
+                argus_loss += (
+                    functional.kl_div(
+                        functional.log_softmax(argus_logits / 2, dim=1),
+                        functional.softmax(teacher_logits / 2, dim=1),
+                        reduction="batchmean",
+                    )
+                    * 4
+                )
+                loss = loss + args.argus_replay_weight * argus_loss
 
             optimizer.zero_grad()
             loss.backward()
@@ -264,11 +351,14 @@ def main() -> None:
     )
     if sha256_file(onnx_path) != artifact_sha256:
         raise RuntimeError("Candidate artifact changed during ONNX Runtime evaluation")
+    argus_gate = None
+    if not args.skip_argus_replay:
+        argus_gate = evaluate_argus_pair(active_path, onnx_path, args.argus_data_dir)
     eligible = passes_gates(
         candidate_metrics,
         active_metrics,
         allow_board_exact_tie=args.allow_gate_tie,
-    )
+    ) and (argus_gate is None or bool(argus_gate["passed"]))
     metadata = {
         "version": version,
         "created_at": datetime.now(UTC).isoformat(),
@@ -280,6 +370,8 @@ def main() -> None:
         "seed": args.seed,
         "preference_weight": args.preference_weight,
         "corrected_square_weight": args.corrected_square_weight,
+        "argus_replay_weight": args.argus_replay_weight,
+        "argus_gate": argus_gate,
         "feedback_snapshot_sha256": feedback_snapshot_sha256(rows),
         "artifact_sha256": artifact_sha256,
         "active_baseline": active["version"],

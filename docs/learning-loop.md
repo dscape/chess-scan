@@ -67,7 +67,11 @@ Only diagrams template-matched to exactly one king of each color enter training.
 
 The adapted weights moved from 9/1,064 to 1,064/1,064 exact king locations on standard official diagrams. The independent 12-position king gate and the manually audited 12-board full-position reference both pass exactly. Argus replay accuracy improved from 97.77% to 99.04%.
 
-`chess-steps-v2` is the active registry revision. It starts from `chess-steps-v1r1`, retains the QA-tested low-contrast geometry and guarded faded-print preprocessing, and fine-tunes queen color using 2,725 hash-located official queen examples plus Argus and king replay. A corrected audit found nine localized white queens that `v1r1` read as black; `v2` fixes all nine without another clean-source change. It passes 267/267 reproducible official interactive and German-manual examples, 1,243/1,243 additional standard online source images after adjudication, and improves the measured Argus replay slice. The source/result/training manifests live under `benchmarks/`. Bootstrap upgrades only obsolete base registrations through `chess-steps-v1r1`; feedback-promoted candidates remain active.
+`chess-steps-v2` corrected the nine audited queen-color errors and established the print/geometry gates, but a later provenance audit found that its 19,500-square "Argus replay" was synthetic-only. The original Argus training distribution also contained `chess_positions` and real overlay crops. On the reconstructed held-out split, v2 had fallen from Argus v2r5's 99.91% to 94.51%, dominated by black pieces becoming their matching white classes.
+
+`chess-steps-v3` is the active registry revision. It starts from v2, performs class-weighted supervised recovery over all 80,000 external `chess_positions/train` boards, and retains v2 behavior by distilling augmented official training boards. The 20,000-board Argus test split remains held out. V3 reaches 99.60% on the fixed 4,500-square held-out sample, improves the synthetic replay set, remains exact on all 267 reproducible online boards and enforced photo gates, and preserves exact-board count while reducing errors across the 13 reviewed submissions. The external corpus is hash-described by `benchmarks/argus-training-corpus.json` and mounted read-only in production; images are not stored in Git.
+
+Every future feedback candidate interleaves labeled Argus replay with user-feedback training and must not regress against the active model on the held-out Argus gate. Bootstrap upgrades obsolete base registrations through `chess-steps-v2`; feedback-promoted candidates remain active.
 
 ## Continuous improvement, not per-request online learning
 
@@ -77,7 +81,7 @@ The application collects feedback continuously and advances one automatic learni
 2. Snapshot accepted replay feedback plus the new pending batch.
 3. Split at image and installation level, never randomly by square.
 4. Initialize from the active ONNX artifact and fine-tune with extra weight on explicitly corrected squares.
-5. Reject candidates that regress on the grouped feedback gate or immutable official online/photo gates.
+5. Reject candidates that regress on the grouped feedback gate, the held-out Argus gate, or immutable official online/photo gates.
 6. Keep a passing candidate hidden and evaluate it on confirmations created only after training.
 7. Score the active and candidate models against the same final labels.
 8. Promote automatically only when the candidate saves a meaningful number of square errors while exact boards and occupied-square errors do not regress.
@@ -97,6 +101,7 @@ The primary product metric is **whole-board exact match**. Square accuracy can c
 - no regression in non-empty square errors
 - no regression in grouped square accuracy or macro-F1 across all 13 classes
 - exact passage of the fixed online examples, king slices, and photo/geometry stress gates
+- no overall, occupied-square, or per-class regression on held-out `chess_positions`, and no synthetic replay regression
 - a verified immutable artifact hash
 
 Candidates retain the same tiny classifier architecture and runtime as the active model, keeping deployment size and latency bounded independently of public feedback.
