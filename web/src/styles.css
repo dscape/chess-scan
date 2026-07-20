@@ -55,14 +55,20 @@ button {
 
 button:focus-visible,
 input:focus-visible,
-summary:focus-visible {
+summary:focus-visible,
+.photo-picker:focus-within {
   outline: 3px solid color-mix(in srgb, var(--pencil-blue), white 22%);
   outline-offset: 3px;
 }
 
-button:disabled {
+button:disabled,
+.photo-picker.is-disabled {
   cursor: wait;
   opacity: 0.58;
+}
+
+.photo-picker:not(.is-disabled) {
+  cursor: pointer;
 }
 
 .app-frame {
@@ -1442,6 +1448,9 @@ button:disabled {
   min-height: 44px;
   margin-bottom: 18px;
   padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 0;
   border-radius: 999px;
   background: rgba(5, 15, 10, 0.65);
@@ -1559,6 +1568,8 @@ button:disabled {
 
 .camera-fallback-button {
   min-height: 48px;
+  display: grid;
+  place-items: center;
   border: 0;
   background: white;
   color: var(--forest);

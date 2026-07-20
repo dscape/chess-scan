@@ -1,6 +1,7 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import type { LearningStatus } from "../types";
 import LiveCamera from "./LiveCamera";
+import PhotoPicker from "./PhotoPicker";
 
 interface CapturePanelProps {
   busy: boolean;
@@ -13,13 +14,7 @@ export default function CapturePanel({
   status,
   onImage,
 }: CapturePanelProps) {
-  const libraryInputRef = useRef<HTMLInputElement>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
-
-  function handleFile(file: File | undefined, input: HTMLInputElement) {
-    if (file) onImage(file);
-    input.value = "";
-  }
 
   if (cameraOpen) {
     return (
@@ -30,19 +25,6 @@ export default function CapturePanel({
             onImage(file);
           }}
           onCancel={() => setCameraOpen(false)}
-          onChoosePhoto={() => {
-            setCameraOpen(false);
-            window.setTimeout(() => libraryInputRef.current?.click(), 0);
-          }}
-        />
-        <input
-          ref={libraryInputRef}
-          className="visually-hidden"
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          onChange={(event) =>
-            handleFile(event.target.files?.[0], event.currentTarget)
-          }
         />
       </main>
     );
@@ -88,23 +70,13 @@ export default function CapturePanel({
         >
           <span>{busy ? "Scanning" : "Open camera"}</span>
         </button>
-        <button
-          type="button"
+        <PhotoPicker
           className="text-button capture-library-button"
           disabled={busy}
-          onClick={() => libraryInputRef.current?.click()}
+          onPhoto={onImage}
         >
           Choose an existing photo instead
-        </button>
-        <input
-          ref={libraryInputRef}
-          className="visually-hidden"
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          onChange={(event) =>
-            handleFile(event.target.files?.[0], event.currentTarget)
-          }
-        />
+        </PhotoPicker>
       </section>
 
       <aside className="learning-note">

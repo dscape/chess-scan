@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { detectBoard } from "../api";
 import type { BoardDetection, Point } from "../types";
+import PhotoPicker from "./PhotoPicker";
 
 type CameraPhase =
   | "requesting"
@@ -14,14 +15,9 @@ type CameraPhase =
 interface LiveCameraProps {
   onCapture: (file: File) => void;
   onCancel: () => void;
-  onChoosePhoto: () => void;
 }
 
-export default function LiveCamera({
-  onCapture,
-  onCancel,
-  onChoosePhoto,
-}: LiveCameraProps) {
+export default function LiveCamera({ onCapture, onCancel }: LiveCameraProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<number | null>(null);
@@ -41,7 +37,7 @@ export default function LiveCamera({
   useEffect(() => {
     let cancelled = false;
     stoppedRef.current = false;
-    void startCamera(() => cancelled);
+    void startCamera(() => cancelled || stoppedRef.current);
     return () => {
       cancelled = true;
       stopCamera();
@@ -170,6 +166,7 @@ export default function LiveCamera({
 
   async function captureFinalFrame(video: HTMLVideoElement) {
     const blob = await frameBlob(video, 2000, 0.93);
+    if (stoppedRef.current) return;
     const file = new File([blob], `chess-board-${Date.now()}.jpg`, { type: "image/jpeg" });
     stopStream();
     onCaptureRef.current(file);
@@ -191,9 +188,13 @@ export default function LiveCamera({
     onCancel();
   }
 
-  function choosePhoto() {
+  function openPhotoPicker() {
     stopCamera();
-    onChoosePhoto();
+  }
+
+  function choosePhoto(file: File) {
+    stopCamera();
+    onCaptureRef.current(file);
   }
 
   const status = cameraStatus(phase, stableFramesRef.current);
@@ -229,9 +230,14 @@ export default function LiveCamera({
             <span aria-hidden="true"><i /></span>
             <strong>Capture now</strong>
           </button>
-          <button type="button" className="camera-photo-button" onClick={choosePhoto}>
+          <PhotoPicker
+            className="camera-photo-button"
+            onOpen={openPhotoPicker}
+            onCancel={cancel}
+            onPhoto={choosePhoto}
+          >
             Photos
-          </button>
+          </PhotoPicker>
         </div>
       )}
       <div className="live-camera__feedback" aria-live="polite">
@@ -247,9 +253,14 @@ export default function LiveCamera({
       {phase === "error" && (
         <div className="live-camera__error">
           <p>{error}</p>
-          <button type="button" className="camera-fallback-button" onClick={choosePhoto}>
+          <PhotoPicker
+            className="camera-fallback-button"
+            onOpen={openPhotoPicker}
+            onCancel={cancel}
+            onPhoto={choosePhoto}
+          >
             Choose a photo
-          </button>
+          </PhotoPicker>
         </div>
       )}
     </section>
