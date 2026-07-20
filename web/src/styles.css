@@ -266,6 +266,9 @@ button:disabled {
 .source-board-grid {
   position: absolute;
   inset: 0;
+}
+
+.capture-card__grid {
   background-color: #f2efe4;
   background-image:
     linear-gradient(45deg, #a8a69f 25%, transparent 25%, transparent 75%, #a8a69f 75%),
@@ -681,6 +684,7 @@ button:disabled {
   background-image:
     linear-gradient(to right, transparent calc(100% - 1px), rgba(185, 67, 53, 0.45) 1px),
     linear-gradient(to bottom, transparent calc(100% - 1px), rgba(185, 67, 53, 0.45) 1px);
+  background-position: 0 0, 0 0;
   background-size: 12.5% 12.5%;
   transition: opacity 160ms ease;
 }
