@@ -1,7 +1,6 @@
 import type {
   BoardDetection,
   ConfirmResult,
-  LearningStatus,
   Orientation,
   Point,
   ScanResult,
@@ -62,10 +61,6 @@ export async function confirmScan(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-}
-
-export async function getLearningStatus(): Promise<LearningStatus> {
-  return request<LearningStatus>("/api/learning/status");
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {

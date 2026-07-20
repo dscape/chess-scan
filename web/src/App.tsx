@@ -2,21 +2,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
   confirmScan,
-  getLearningStatus,
   getScan,
   isScanId,
   reprocessScan,
   scanImage,
 } from "./api";
 import { countKings, fullFen, predictionNeedsReview } from "./board";
-import AppHeader from "./components/AppHeader";
 import BoardEditor from "./components/BoardEditor";
 import CapturePanel from "./components/CapturePanel";
 import CornerEditor from "./components/CornerEditor";
 import RecognitionSuccess from "./components/RecognitionSuccess";
 import type {
   ConfirmResult,
-  LearningStatus,
   Orientation,
   Point,
   ScanResult,
@@ -63,17 +60,12 @@ export default function App() {
   const [reviewReady, setReviewReady] = useState(false);
   const [geometryOpen, setGeometryOpen] = useState(false);
   const [geometryMounted, setGeometryMounted] = useState(false);
-  const [learningStatus, setLearningStatus] = useState<LearningStatus | null>(null);
   const [routeLoadError, setRouteLoadError] = useState<string | null>(null);
   const [routeLoadAttempt, setRouteLoadAttempt] = useState(0);
   const [clientSessionId] = useState(getClientSessionId);
   const requestGeneration = useRef(0);
   const pendingDraftRef = useRef<PendingScanDraft | null>(null);
   const routeLoading = route.page === "scan" && scan?.scan_id !== route.scanId;
-
-  useEffect(() => {
-    void getLearningStatus().then(setLearningStatus).catch(() => undefined);
-  }, []);
 
   useEffect(() => {
     const generation = ++requestGeneration.current;
@@ -313,7 +305,6 @@ export default function App() {
         return;
       }
       setConfirmation(result);
-      void getLearningStatus().then(setLearningStatus).catch(() => undefined);
       if (lichessTab) lichessTab.location.replace(result.lichess_url);
       else window.location.assign(result.lichess_url);
     } catch (cause) {
@@ -384,7 +375,6 @@ export default function App() {
 
   return (
     <div className="app-frame">
-      <AppHeader onReset={route.page === "scan" && scan && busy === null ? reset : undefined} />
       {error && (
         <div className="error-banner" role="alert">
           <span>!</span>
@@ -409,7 +399,7 @@ export default function App() {
           ) : "Loading board…"}
         </main>
       ) : route.page === "home" || !scan ? (
-        <CapturePanel busy={busy === "scan"} status={learningStatus} onImage={handleImage} />
+        <CapturePanel busy={busy === "scan"} onImage={handleImage} />
       ) : !reviewReady ? (
         <RecognitionSuccess
           imageUrl={rectifiedImageUrl}
@@ -590,10 +580,6 @@ export default function App() {
           </footer>
         </main>
       )}
-      <footer className="site-footer">
-        <span>Chess Scan / experimental vision tool</span>
-        <span>{learningStatus?.active_model ?? "model loading"}</span>
-      </footer>
     </div>
   );
 }

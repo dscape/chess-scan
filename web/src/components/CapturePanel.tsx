@@ -1,19 +1,13 @@
 import { useState } from "react";
-import type { LearningStatus } from "../types";
 import LiveCamera from "./LiveCamera";
 import PhotoPicker from "./PhotoPicker";
 
 interface CapturePanelProps {
   busy: boolean;
-  status: LearningStatus | null;
   onImage: (file: File) => void;
 }
 
-export default function CapturePanel({
-  busy,
-  status,
-  onImage,
-}: CapturePanelProps) {
+export default function CapturePanel({ busy, onImage }: CapturePanelProps) {
   const [cameraOpen, setCameraOpen] = useState(false);
 
   if (cameraOpen) {
@@ -32,22 +26,21 @@ export default function CapturePanel({
 
   return (
     <main className="capture-shell">
-      <section className="capture-intro">
-        <p className="eyebrow">Workbook position → Lichess</p>
-        <h1>
-          Read the board.
-          <br />
-          Check the pieces.
-          <br />
-          Keep learning.
-        </h1>
-        <p className="capture-intro__copy">
-          Frame one Chess Steps diagram as if it were a QR code. We turn it into
-          a position; you make the final call.
-        </p>
-      </section>
-
       <section className={`capture-card ${busy ? "is-scanning" : ""}`}>
+        <div className="capture-card__brand">
+          <div className="brand">
+            <span className="brand__mark" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+              <i />
+            </span>
+            <span>
+              <strong>Chess</strong>
+              <em>Scan</em>
+            </span>
+          </div>
+        </div>
         <div className="capture-card__target" aria-hidden="true">
           <div className="capture-card__grid" />
           {busy && <div className="scan-line" />}
@@ -55,7 +48,7 @@ export default function CapturePanel({
         <div className="capture-card__content">
           <span className="step-number">01</span>
           <div>
-            <h2>{busy ? "Reading the diagram…" : "Photograph one board"}</h2>
+            <h1>{busy ? "Reading the diagram…" : "Photograph one board"}</h1>
             <p>
               Fill the frame, keep the page flat, and include the black turn dot
               if present.
@@ -78,24 +71,6 @@ export default function CapturePanel({
           Choose an existing photo instead
         </PhotoPicker>
       </section>
-
-      <aside className="learning-note">
-        <span className="learning-note__mark">↻</span>
-        <p>
-          <strong>{learningProgress(status)}</strong> The learner trains,
-          tests, and activates a model only when it beats the current one.
-        </p>
-      </aside>
     </main>
   );
-}
-
-function learningProgress(status: LearningStatus | null): string {
-  if (!status) return "Automatic learning is starting.";
-  if (status.learning_state === "training") return "A new model is training.";
-  if (status.learning_state === "benchmarking") return "A new model is being tested.";
-  if (status.learning_state === "shadowing") {
-    return `A candidate has ${status.learning_progress}/${status.learning_target} fresh checks.`;
-  }
-  return `${status.learning_progress}/${status.learning_target} boards collected for the next model.`;
 }
