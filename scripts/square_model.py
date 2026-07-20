@@ -28,6 +28,14 @@ _CONVOLUTION_SPECS = (
     (96, 160, 1, 1, 1),
     (160, 192, 1, 1, 1),
 )
+_WIDE_CONVOLUTION_SPECS = (
+    (3, 32, 5, 2, 1),
+    (32, 64, 3, 2, 1),
+    (64, 96, 3, 2, 1),
+    (96, 160, 3, 2, 1),
+    (160, 256, 3, 1, 1),
+    (256, 384, 1, 1, 1),
+)
 
 
 class ConvAct(nn.Sequential):
@@ -53,6 +61,28 @@ class ConvAct(nn.Sequential):
         )
 
 
+class ConvNormAct(nn.Sequential):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        stride: int,
+    ) -> None:
+        super().__init__(
+            nn.Conv2d(
+                in_channels,
+                out_channels,
+                kernel_size,
+                stride=stride,
+                padding=kernel_size // 2,
+                bias=False,
+            ),
+            nn.BatchNorm2d(out_channels),
+            nn.SiLU(inplace=True),
+        )
+
+
 class FusedTinySquareClassifier(nn.Module):
     """Inference-equivalent form of Argus's batch-normalized tiny CNN.
 
@@ -73,8 +103,61 @@ class FusedTinySquareClassifier(nn.Module):
         return self.classifier(self.dropout(pooled))
 
 
+class FusedWideSquareClassifier(nn.Module):
+    """Trainable form of a deployed wide model with batch normalization folded."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.features = nn.Sequential(*[ConvAct(*spec) for spec in _WIDE_CONVOLUTION_SPECS])
+        self.dropout = nn.Dropout(0.15)
+        self.classifier = nn.Linear(384, NUM_CLASSES)
+
+    def forward(self, images: torch.Tensor) -> torch.Tensor:
+        features = self.features(images)
+        pooled = functional.adaptive_avg_pool2d(features, 1).flatten(1)
+        return self.classifier(self.dropout(pooled))
+
+
+class WideSquareClassifier(nn.Module):
+    """Higher-capacity square classifier for diverse platform artwork."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.features = nn.Sequential(
+            ConvNormAct(3, 32, 5, 2),
+            ConvNormAct(32, 64, 3, 2),
+            ConvNormAct(64, 96, 3, 2),
+            ConvNormAct(96, 160, 3, 2),
+            ConvNormAct(160, 256, 3, 1),
+            ConvNormAct(256, 384, 1, 1),
+        )
+        self.dropout = nn.Dropout(0.15)
+        self.classifier = nn.Linear(384, NUM_CLASSES)
+
+    def forward(self, images: torch.Tensor) -> torch.Tensor:
+        features = self.features(images)
+        pooled = functional.adaptive_avg_pool2d(features, 1).flatten(1)
+        return self.classifier(self.dropout(pooled))
+
+
 def load_fused_onnx(path: Path) -> FusedTinySquareClassifier:
-    """Reconstruct a trainable PyTorch model from the deployed ONNX weights."""
+    """Reconstruct a trainable tiny model from the deployed ONNX weights."""
+    model = FusedTinySquareClassifier()
+    _load_fused_weights(path, model)
+    return model
+
+
+def load_fused_wide_onnx(path: Path) -> FusedWideSquareClassifier:
+    """Reconstruct a trainable wide model from the deployed ONNX weights."""
+    model = FusedWideSquareClassifier()
+    _load_fused_weights(path, model)
+    return model
+
+
+def _load_fused_weights(
+    path: Path,
+    model: FusedTinySquareClassifier | FusedWideSquareClassifier,
+) -> None:
     graph = onnx.load(path).graph
     initializers = {
         initializer.name: numpy_helper.to_array(initializer).copy()
@@ -83,7 +166,6 @@ def load_fused_onnx(path: Path) -> FusedTinySquareClassifier:
     convolution_nodes = [node for node in graph.node if node.op_type == "Conv"]
     gemm_nodes = [node for node in graph.node if node.op_type == "Gemm"]
 
-    model = FusedTinySquareClassifier()
     convolutions = [block[0] for block in model.features]
     if len(convolution_nodes) != len(convolutions) or len(gemm_nodes) != 1:
         raise ValueError(
@@ -98,7 +180,6 @@ def load_fused_onnx(path: Path) -> FusedTinySquareClassifier:
     gemm = gemm_nodes[0]
     model.classifier.weight.data.copy_(torch.from_numpy(initializers[gemm.input[1]]))
     model.classifier.bias.data.copy_(torch.from_numpy(initializers[gemm.input[2]]))
-    return model
 
 
 def export_onnx(model: nn.Module, path: Path) -> None:

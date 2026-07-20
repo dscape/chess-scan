@@ -11,7 +11,7 @@ from chess_scan.argus_data import default_data_dir, evaluate_argus_model, evalua
 from qa_common import write_json
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_MODEL = PROJECT_ROOT / "models" / "chess-steps-v3.onnx"
+DEFAULT_MODEL = PROJECT_ROOT / "models" / "chess-steps-v4.onnx"
 
 
 def main() -> None:

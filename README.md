@@ -33,6 +33,7 @@ Run all checks and the reproducible model gates:
 ```bash
 make check
 make qa-argus
+make qa-platform
 make qa-online
 make qa-stress
 ```
@@ -54,27 +55,31 @@ Production runs an automatic learner against the same persistent volume:
 docker compose --profile learning up -d learner
 ```
 
-The learner waits for 100 initial consented boards, trains a supervised candidate, and runs the immutable official online and photo gates. A passing candidate remains hidden while it is compared with the active model on at least 40 later confirmations from diverse installations and diagrams. It is promoted only when it makes strictly fewer square errors without regressing exact boards or occupied squares. Rejected training batches are quarantined automatically; successful batches enter the accepted replay pool. Later cycles begin after 40 new boards.
+The learner waits for 100 initial consented boards, trains a supervised candidate, and runs the immutable official online, print-photo, Argus, and platform gates. A passing candidate remains hidden while it is compared with the active model on at least 40 later confirmations from diverse installations and diagrams. It is promoted only when it makes strictly fewer square errors without regressing exact boards or occupied squares. Rejected training batches are quarantined automatically; successful batches enter the accepted replay pool. Later cycles begin after 40 new boards.
 
 The app checks the SQLite model registry on each scan and atomically reloads a newly promoted ONNX artifact without a redeploy. Model artifacts and lifecycle state remain in the persistent data volume across application deployments. Successful `main` CI dispatches the exact source SHA to `s46-infra`; the repository requires the `S46_INFRA_DISPATCH_TOKEN` Actions secret for that one-time deployment setup.
 
 ## Base-model adaptation
 
-The active `chess-steps-v3` model starts from the print-accurate v2 weights and restores the representative Argus data omitted from earlier replay. It trains over all 80,000 `chess_positions/train` boards, the 19,500 synthetic replay squares, and 934 official print-retention boards. The 20,000-board Argus test split remains held out.
+The active `chess-steps-v4` model uses a 2.6 MB square CNN trained for standard Lichess, Chess.com, and Take Take Take artwork. Its external `platforms-v1` corpus contains 3,984 FEN-labelled boards spanning 83 visible piece styles, with the final 12 positions per style held out. Intentionally concealed themes—Chess.com Blindfold and Lichess Mono/Disguised—are excluded because their missing pixel information cannot be classified.
 
-The labeled image corpus is deliberately outside Git. Prepare the verified local copy from the March 29 archive, then reproduce the recovery model and run every gate:
+The labeled image corpora are deliberately outside Git. Prepare or sync the verified copies, then reproduce the model and run every gate:
 
 ```bash
-make prepare-argus-data  # defaults to ~/chess-scan-training/argus-2026-03-29
-make train-argus-recovery
+make prepare-argus-data     # ~/chess-scan-training/argus-2026-03-29
+make prepare-platform-data  # ~/chess-scan-training/platforms-v1 after acquiring assets
+make train-platform-model
 make qa-argus
+make qa-platform
 make qa-online
 make qa-stress
 ```
 
-Set `CHESS_SCAN_ARGUS_DATA_DIR` to use another external location. [`benchmarks/argus-training-corpus.json`](benchmarks/argus-training-corpus.json) records the archive, replay, and prepared-split hashes without redistributing source images. Production mounts a read-only server copy for automatic replay and gating; `s46-infra/hetzner/scripts/sync-chess-training-data.sh` explicitly pushes or pulls that copy with rsync.
+Set `CHESS_SCAN_ARGUS_DATA_DIR` and `CHESS_SCAN_PLATFORM_DATA_DIR` to use other external locations. [`benchmarks/argus-training-corpus.json`](benchmarks/argus-training-corpus.json) and [`benchmarks/platform-training-corpus.json`](benchmarks/platform-training-corpus.json) hash-describe both corpora without redistributing source images. Production mounts a read-only server copy for automatic replay and gating; `s46-infra/hetzner/scripts/sync-chess-training-data.sh` explicitly pushes or pulls it with rsync.
 
-Official source files are downloaded during training or QA and are not redistributed. V3 remains exact on all 267 reproducible online boards and every enforced photo gate, improves held-out Argus `chess_positions` accuracy from 94.51% to 99.60%, and improves the five reviewed photographed-screen crops from 56.5% to 75.7% occupied-square accuracy without reducing exact boards across the 13 reviewed submissions.
+V4 reaches 99.97% square and 99.90% occupied-square accuracy across the grouped clean platform holdout, with 982/996 exact boards. Its deterministic camera/display gate reaches 99.94% square and 99.80% occupied-square accuracy with 980/996 exact boards. Chess.com is 454/456 exact, Lichess 468/480, and Take Take Take 60/60 on clean captures. Two separate real Take Take Take app boards remain exactly held out. The latest confirmed Chess.com Glass board is 64/64 after entering the immutable training pool.
+
+Official source files are downloaded during training or QA and are not redistributed. V4 remains exact on all 267 reproducible online boards and every enforced print/photo gate, improves the Argus held-out sample from v3's 4,482/4,500 to 4,495/4,500 without regressing any class, and preserves synthetic replay at 19,378/19,500.
 
 ## Learning loop
 
@@ -109,7 +114,7 @@ See [`docs/learning-loop.md`](docs/learning-loop.md) for the distinction between
 
 ## Model provenance
 
-`models/argus-v2r5.onnx` is the MIT-licensed Argus overlay square classifier. `models/chess-steps-v1.onnx` is the original print adaptation, `chess-steps-v2.onnx` is the queen-color and QA revision, and `chess-steps-v3.onnx` is the active print-retaining Argus recovery model. Trainable checkpoints and metadata are stored alongside the immutable weight artifacts.
+`models/argus-v2r5.onnx` is the MIT-licensed Argus overlay square classifier. `models/chess-steps-v1.onnx` is the original print adaptation, `chess-steps-v2.onnx` is the queen-color revision, `chess-steps-v3.onnx` restores Argus coverage, and `chess-steps-v4.onnx` is the active multi-platform model. Trainable checkpoints and metadata are stored alongside the immutable weight artifacts.
 
 Recorded king-location results:
 

@@ -102,7 +102,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip-fixed-qa",
         action="store_true",
-        help="Development-only: skip official online and photo gates",
+        help="Development-only: skip all immutable model gates",
     )
     parser.add_argument(
         "training_args",
@@ -355,18 +355,35 @@ def run_fixed_qa(
             str(cache_dir),
         ],
     }
+    platform_data_dir = os.getenv("CHESS_SCAN_PLATFORM_DATA_DIR")
     argus_data_dir = os.getenv("CHESS_SCAN_ARGUS_DATA_DIR")
-    if argus_data_dir:
-        commands["argus"] = [
+    if not platform_data_dir or not argus_data_dir:
+        raise BenchmarkUnavailableError(
+            "CHESS_SCAN_PLATFORM_DATA_DIR and CHESS_SCAN_ARGUS_DATA_DIR are required"
+        )
+    for variant in ("clean", "camera"):
+        commands[f"platform-{variant}"] = [
             sys.executable,
-            str(scripts / "evaluate_argus_replay.py"),
+            str(scripts / "evaluate_platforms.py"),
             "--model",
             str(model_path),
             "--baseline",
             str(baseline_model_path),
             "--data-dir",
-            argus_data_dir,
+            platform_data_dir,
+            "--variant",
+            variant,
         ]
+    commands["argus"] = [
+        sys.executable,
+        str(scripts / "evaluate_argus_replay.py"),
+        "--model",
+        str(model_path),
+        "--baseline",
+        str(baseline_model_path),
+        "--data-dir",
+        argus_data_dir,
+    ]
     metrics: dict[str, Any] = {"passed": True}
     for name, command in commands.items():
         output_path = output_dir / f"{name}-qa.json"
@@ -384,7 +401,7 @@ def run_fixed_qa(
 def _qa_summary(name: str, payload: dict[str, Any]) -> dict[str, Any]:
     if name == "online":
         return dict(payload["combined"])
-    if name == "argus":
+    if name == "argus" or name.startswith("platform-"):
         return payload
     return {
         "classifier": payload.get("classifier"),

@@ -1,0 +1,79 @@
+{
+  "version": "platforms-v1",
+  "created_at": "2026-07-20T11:28:12.232311+00:00",
+  "seed": 46,
+  "positions": 48,
+  "test_positions": 12,
+  "records": 3984,
+  "platforms": {
+    "chess.com": {
+      "piece_styles": 38,
+      "boards": 1824
+    },
+    "lichess": {
+      "piece_styles": 40,
+      "boards": 1920
+    },
+    "taketaketake": {
+      "piece_styles": 5,
+      "boards": 240
+    }
+  },
+  "records_sha256": "cca6a8790cf9e422aa849c24a9342c5e71c434ca1062d17e1b485b0c287db016",
+  "real_records_sha256": "f7a1f936dffe6c69a61a31f486b2d64966c1fd694ec1fa7ce01637110d09cf5f",
+  "real_squares_sha256": "96cae848f683c9b0216468b2a4c1b87fcc2a1d05691072be79c45ac2eaaac9b9",
+  "source_files": [
+    {
+      "path": "source/ChessPieces-BrG63oAs.js",
+      "bytes": 52616,
+      "sha256": "13a372e2c8091ebcc9ecabe36f56ce85408276987f821bac1094741fe5d6ff4a"
+    },
+    {
+      "path": "source/SHA256SUMS",
+      "bytes": 90,
+      "sha256": "707ab89f471f39d65af03416169ad3cd86bdd2a0de31b33eff0a0f6ec5837bb6"
+    },
+    {
+      "path": "source/lichess-piece-index.json",
+      "bytes": 34125,
+      "sha256": "10e5f3b3227a9541f1c6e2d162d9354361679a7874c8b26c9e46ed89275caf79"
+    },
+    {
+      "path": "source/lichess-sheet.html",
+      "bytes": 60948,
+      "sha256": "f5c58270abebf71ab9b5a364c9f319e2f49e9fd1ce81a792d6fe5e91a16a99e0"
+    },
+    {
+      "path": "source/lichess-sheet.png",
+      "bytes": 945721,
+      "sha256": "a69f9fe36357acf63f2e2848dccb00279fe313267b99ad397355e931105b8d35"
+    },
+    {
+      "path": "source/lichess-styles.txt",
+      "bytes": 341,
+      "sha256": "67ed27b92defb6435f29d78da49f6cb16a7dd5c6b4c3469c4ebb8eb1e2439fbb"
+    },
+    {
+      "path": "source/taketaketake-sheet.html",
+      "bytes": 7938,
+      "sha256": "02c4e246e98cafe6d3e753eeca0cea86745bc714390f163d583e90a541fb13fa"
+    },
+    {
+      "path": "source/taketaketake-sheet.png",
+      "bytes": 66248,
+      "sha256": "26b6004997cd131d1c6ce07dfa2b7935953bf7a84d38d5d763093292b8783094"
+    },
+    {
+      "path": "source/taketaketake-styles.txt",
+      "bytes": 43,
+      "sha256": "5117a8004691c31cd0c5527fdff00afd3f19e493823d9c79465f433787516896"
+    }
+  ],
+  "notes": [
+    "Images are generated training inputs and are not distributed in the source repository.",
+    "Chess.com artwork remains subject to Chess.com's terms; this corpus is an operator copy.",
+    "Lichess artwork has per-piece-set licensing recorded by the upstream lila repository.",
+    "Take Take Take pieces were rendered from its public web client bundle.",
+    "Lichess mono/disguised and Chess.com blindfold are excluded because piece color or identity is intentionally hidden."
+  ]
+}

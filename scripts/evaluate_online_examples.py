@@ -22,7 +22,7 @@ from qa_common import download_verified, labels_from_fen, write_json
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_MANIFEST = PROJECT_ROOT / "benchmarks" / "chess-steps-online-sources.json"
 DEFAULT_MANUAL_BENCHMARK = PROJECT_ROOT / "benchmarks" / "chess-steps-german-manuals.json"
-DEFAULT_MODEL = PROJECT_ROOT / "models" / "chess-steps-v3.onnx"
+DEFAULT_MODEL = PROJECT_ROOT / "models" / "chess-steps-v4.onnx"
 PIECE_ASSET_IDS = {
     "K": "c40wk",
     "Q": "c40wq",

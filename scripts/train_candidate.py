@@ -31,7 +31,15 @@ from chess_scan.classifier import (
 )
 from chess_scan.config import Settings
 from chess_scan.model_artifact import sha256_file, verify_model_artifact
-from square_model import export_onnx, load_fused_onnx
+from chess_scan.platform_data import default_data_dir as default_platform_data_dir
+from chess_scan.platform_data import load_records as load_platform_records
+from chess_scan.platform_data import verify_data_manifest as verify_platform_data_manifest
+from square_model import (
+    FusedWideSquareClassifier,
+    WideSquareClassifier,
+    export_onnx,
+    load_fused_onnx,
+)
 from training_utils import resolve_device
 
 _MIN_CLASS_EXAMPLES_PER_SPLIT = 5
@@ -72,6 +80,24 @@ class FeedbackBoardDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tenso
         return images, labels, rejected
 
 
+class PlatformReplayDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
+    def __init__(self, data_dir: Path) -> None:
+        self.data_dir = data_dir
+        self.records = load_platform_records(data_dir, split="train")
+
+    def __len__(self) -> int:
+        return len(self.records)
+
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+        record = self.records[index]
+        board = cv2.imread(str(self.data_dir / record["path"]), cv2.IMREAD_COLOR)
+        if board is None:
+            raise ValueError(f"Cannot read platform replay board: {record['path']}")
+        images = torch.from_numpy(preprocess_board(board).copy())
+        labels = torch.tensor(record["labels"], dtype=torch.long)
+        return images, labels
+
+
 class ArgusReplayDataset(Dataset[tuple[torch.Tensor, int]]):
     def __init__(self, data_dir: Path) -> None:
         split = load_prepared_split(data_dir, "train")
@@ -103,7 +129,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--epochs", type=int, default=24)
     parser.add_argument("--batch-size", type=int, default=4)
-    parser.add_argument("--lr", type=float, default=8e-4)
+    parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--selection-fraction", type=float, default=0.15)
     parser.add_argument("--gate-fraction", type=float, default=0.15)
@@ -150,6 +176,23 @@ def main() -> None:
         help="Development-only: train without the external Argus replay and gate",
     )
     parser.add_argument(
+        "--platform-data-dir",
+        type=Path,
+        default=default_platform_data_dir(),
+        help="External platform corpus used for retention training",
+    )
+    parser.add_argument(
+        "--platform-replay-weight",
+        type=float,
+        default=0.25,
+        help="Weight for labelled platform replay plus active-model retention",
+    )
+    parser.add_argument(
+        "--skip-platform-replay",
+        action="store_true",
+        help="Development-only: train without external platform replay",
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=None,
@@ -167,6 +210,7 @@ def main() -> None:
     database = initialize_database(settings)
     active = database.get_active_model()
     active_path = Path(active["artifact_path"])
+    active_metadata = json.loads(str(active["metadata_json"]))
     verify_model_artifact(active_path, str(active["metadata_json"]))
 
     feedback_ids = load_feedback_ids(args.feedback_ids_file)
@@ -179,6 +223,8 @@ def main() -> None:
         raise SystemExit("--corrected-square-weight must be at least 1")
     if args.argus_replay_weight < 0:
         raise SystemExit("--argus-replay-weight cannot be negative")
+    if args.platform_replay_weight < 0:
+        raise SystemExit("--platform-replay-weight cannot be negative")
     if not args.skip_argus_replay and not args.argus_data_dir.exists():
         raise SystemExit(
             f"External Argus corpus not found at {args.argus_data_dir}. "
@@ -186,6 +232,13 @@ def main() -> None:
         )
     if not args.skip_argus_replay:
         verify_data_manifest(args.argus_data_dir)
+    if not args.skip_platform_replay and not args.platform_data_dir.exists():
+        raise SystemExit(
+            f"External platform corpus not found at {args.platform_data_dir}. "
+            "Prepare or mount it, or use --skip-platform-replay only for development."
+        )
+    if not args.skip_platform_replay:
+        verify_platform_data_manifest(args.platform_data_dir)
     if len(rows) < args.min_boards:
         raise SystemExit(
             f"Need at least {args.min_boards} consented confirmed boards; found {len(rows)}"
@@ -230,6 +283,15 @@ def main() -> None:
         shuffle=False,
         num_workers=0,
     )
+    platform_loader = None
+    if not args.skip_platform_replay:
+        platform_loader = DataLoader(
+            PlatformReplayDataset(args.platform_data_dir),
+            batch_size=4,
+            shuffle=True,
+            num_workers=0,
+            generator=torch.Generator().manual_seed(args.seed + 1),
+        )
     argus_loader = None
     if not args.skip_argus_replay:
         argus_loader = DataLoader(
@@ -240,8 +302,22 @@ def main() -> None:
             generator=torch.Generator().manual_seed(args.seed),
         )
 
-    model = load_fused_onnx(active_path).to(device)
-    teacher = load_fused_onnx(active_path).eval().to(device)
+    architecture = str(active_metadata.get("architecture", "fused_tiny_square_cnn"))
+    checkpoint_sha256 = active_metadata.get("checkpoint_sha256")
+    model = load_active_model(
+        active_path,
+        architecture=architecture,
+        checkpoint_sha256=checkpoint_sha256,
+    ).to(device)
+    teacher = (
+        load_active_model(
+            active_path,
+            architecture=architecture,
+            checkpoint_sha256=checkpoint_sha256,
+        )
+        .eval()
+        .to(device)
+    )
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
     class_weights = class_weights_for_rows(train_rows).to(device)
@@ -253,6 +329,7 @@ def main() -> None:
         epoch_loss = 0.0
         board_count = 0
         argus_iterator = iter(argus_loader) if argus_loader is not None else None
+        platform_iterator = iter(platform_loader) if platform_loader is not None else None
         for images, labels, rejected in train_loader:
             batch_size = images.shape[0]
             logits = model(images.reshape(batch_size * 64, 3, INPUT_SIZE, INPUT_SIZE).to(device))
@@ -297,6 +374,27 @@ def main() -> None:
                     * 4
                 )
                 loss = loss + args.argus_replay_weight * argus_loss
+            if platform_iterator is not None and args.platform_replay_weight > 0:
+                try:
+                    platform_images, platform_labels = next(platform_iterator)
+                except StopIteration:
+                    platform_iterator = iter(platform_loader)
+                    platform_images, platform_labels = next(platform_iterator)
+                platform_images = platform_images.flatten(0, 1).to(device)
+                platform_labels = platform_labels.flatten().to(device)
+                platform_logits = model(platform_images)
+                with torch.no_grad():
+                    teacher_logits = teacher(platform_images)
+                platform_loss = functional.cross_entropy(platform_logits, platform_labels)
+                platform_loss += (
+                    functional.kl_div(
+                        functional.log_softmax(platform_logits / 2, dim=1),
+                        functional.softmax(teacher_logits / 2, dim=1),
+                        reduction="batchmean",
+                    )
+                    * 4
+                )
+                loss = loss + args.platform_replay_weight * platform_loss
 
             optimizer.zero_grad()
             loss.backward()
@@ -332,7 +430,7 @@ def main() -> None:
         {
             "state_dict": best_state,
             "version": version,
-            "architecture": "fused_tiny_square_cnn",
+            "architecture": architecture,
             "input_size": INPUT_SIZE,
             "num_classes": NUM_CLASSES,
         },
@@ -341,6 +439,7 @@ def main() -> None:
     export_onnx(model.cpu(), onnx_path)
 
     artifact_sha256 = sha256_file(onnx_path)
+    checkpoint_sha256 = sha256_file(checkpoint_path)
     active_classifier = DiagramClassifier(active_path, version=str(active["version"]))
     candidate_classifier = DiagramClassifier(onnx_path, version=version)
     active_metrics, candidate_metrics = evaluate_onnx_pair(
@@ -362,7 +461,7 @@ def main() -> None:
     metadata = {
         "version": version,
         "created_at": datetime.now(UTC).isoformat(),
-        "architecture": "fused_tiny_square_cnn",
+        "architecture": architecture,
         "training_boards": len(train_rows),
         "selection_boards": len(selection_rows),
         "gate_boards": len(gate_rows),
@@ -371,9 +470,11 @@ def main() -> None:
         "preference_weight": args.preference_weight,
         "corrected_square_weight": args.corrected_square_weight,
         "argus_replay_weight": args.argus_replay_weight,
+        "platform_replay_weight": args.platform_replay_weight,
         "argus_gate": argus_gate,
         "feedback_snapshot_sha256": feedback_snapshot_sha256(rows),
         "artifact_sha256": artifact_sha256,
+        "checkpoint_sha256": checkpoint_sha256,
         "active_baseline": active["version"],
         "active_metrics": active_metrics,
         "candidate_metrics": candidate_metrics,
@@ -403,6 +504,34 @@ def main() -> None:
         )
     else:
         print("Not eligible for promotion; the active model remains unchanged")
+
+
+def load_active_model(
+    path: Path,
+    *,
+    architecture: str,
+    checkpoint_sha256: object,
+) -> nn.Module:
+    if architecture in {"fused_wide_square_cnn", "wide_square_cnn"}:
+        checkpoint_path = path.with_suffix(".pt")
+        if not isinstance(checkpoint_sha256, str) or len(checkpoint_sha256) != 64:
+            raise ValueError("Wide model metadata has no valid checkpoint hash")
+        if not checkpoint_path.is_file():
+            raise FileNotFoundError(f"Wide model checkpoint not found: {checkpoint_path}")
+        if sha256_file(checkpoint_path) != checkpoint_sha256:
+            raise ValueError(f"Wide model checkpoint failed verification: {checkpoint_path}")
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+        model_class = (
+            FusedWideSquareClassifier
+            if architecture == "fused_wide_square_cnn"
+            else WideSquareClassifier
+        )
+        model = model_class()
+        model.load_state_dict(checkpoint["state_dict"])
+        return model
+    if architecture != "fused_tiny_square_cnn":
+        raise ValueError(f"Unsupported trainable model architecture: {architecture}")
+    return load_fused_onnx(path)
 
 
 def load_feedback_ids(path: Path | None) -> set[str] | None:

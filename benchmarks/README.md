@@ -8,6 +8,8 @@ These manifests reference official sample PDFs without redistributing their imag
 - `chess-steps-german-manuals.json`: 63 standard diagram FENs from six official manual samples. Labels come from the audited glyph templates; the sole disagreement was visually adjudicated.
 - `chess-steps-queen-colors.json`: source locators, augmentation settings, and labels for the reproducible queen-color adaptation and king retention set. Its end-to-end reconstruction is gate-equivalent to the promoted artifact; MPS output is not byte-deterministic.
 - `qa-2026-07-18.json`: machine-readable corpus counts, metrics, stress results, and all manually adjudicated model/template disagreements.
+- `argus-training-corpus.json`: external Argus archive, prepared-split, and replay hashes without source images.
+- `platform-training-corpus.json`: external Chess.com, Lichess, and Take Take Take source and label-manifest hashes without redistributing platform artwork.
 
 Square indices are image-order values from `0` at the top-left to `63` at the bottom-right. Source hashes make an upstream sample change fail loudly instead of silently changing a benchmark.
 
@@ -23,6 +25,8 @@ Rerun the independent online and deterministic photo QA gates:
 ```bash
 make qa-online
 make qa-stress
+make qa-argus
+make qa-platform
 ```
 
 Recreate the queen-color adaptation candidate:
