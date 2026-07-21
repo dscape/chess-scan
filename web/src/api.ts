@@ -88,6 +88,25 @@ export async function createPositionReview(
   });
 }
 
+export async function ratePositionReview(
+  reviewId: string,
+  payload: {
+    rating: "helpful" | "unhelpful";
+    reason: "correct" | "incorrect_chess" | "irrelevant_topic" | "unclear"
+      | "equivalent_move_rejected" | "too_verbose" | "missing_detail" | "other";
+    detail?: string;
+  },
+): Promise<{ feedback_id: string }> {
+  return request<{ feedback_id: string }>(
+    `/api/position-reviews/${encodeURIComponent(reviewId)}/feedback`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   if (!response.ok) {

@@ -7,9 +7,12 @@ export type EngineScore = {
 };
 
 export type EngineLine = {
+  rank: number;
   depth: number;
   score: EngineScore;
+  wdl?: [number, number, number];
   pv: string[];
+  stable?: boolean;
 };
 
 export type ParsedUciMove = {
@@ -38,7 +41,14 @@ export function parseInfoLine(message: string): EngineLine | null {
 
   const pvTokens = tokens.slice(pvIndex + 1);
   if (pvTokens.length === 0 || pvTokens.some((move) => !isUciMove(move))) return null;
-  const pv = pvTokens.slice(0, 24);
+  const pv = pvTokens.slice(0, 16);
+
+  const rankIndex = tokens.indexOf("multipv");
+  const parsedRank = integerAfter(tokens, "multipv");
+  if (rankIndex >= 0 && (parsedRank === null || parsedRank < 1 || parsedRank > 3)) return null;
+  const rank = parsedRank ?? 1;
+  const wdlIndex = tokens.indexOf("wdl");
+  const wdl = wdlIndex >= 0 ? parseWdl(tokens.slice(wdlIndex + 1, wdlIndex + 4)) : undefined;
 
   const boundToken = tokens[scoreIndex + 3];
   const bound = boundToken === "lowerbound"
@@ -48,19 +58,33 @@ export function parseInfoLine(message: string): EngineLine | null {
       : undefined;
 
   return {
+    rank,
     depth,
     score: { kind: scoreKind, value: scoreValue, ...(bound ? { bound } : {}) },
+    ...(wdl ? { wdl } : {}),
     pv,
   };
 }
 
-export function isMatchingPrimary(
-  bestMove: string,
-  primary: EngineLine | null | undefined,
-): primary is EngineLine {
-  return primary != null
-    && primary.score.bound == null
-    && primary.pv[0] === bestMove;
+export function isStableLine(
+  expectedMove: string,
+  line: EngineLine | undefined,
+  recentMoves: string[],
+): line is EngineLine {
+  return line !== undefined
+    && line.score.bound == null
+    && line.pv[0] === expectedMove
+    && recentMoves.length >= 2
+    && recentMoves.every((move) => move === expectedMove);
+}
+
+export function contiguousRankedLines(lines: EngineLine[]): EngineLine[] {
+  const contiguous: EngineLine[] = [];
+  for (const line of [...lines].sort((left, right) => left.rank - right.rank)) {
+    if (line.rank !== contiguous.length + 1) break;
+    contiguous.push(line);
+  }
+  return contiguous;
 }
 
 export function parseBestMove(message: string): string | null {
@@ -89,4 +113,13 @@ function integerAfter(tokens: string[], key: string): number | null {
   if (index < 0) return null;
   const value = Number(tokens[index + 1]);
   return Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+function parseWdl(tokens: string[]): [number, number, number] | undefined {
+  if (tokens.length !== 3) return undefined;
+  const values = tokens.map(Number);
+  if (!values.every((value) => Number.isInteger(value) && value >= 0)) return undefined;
+  const total = values[0]! + values[1]! + values[2]!;
+  if (total !== 1000) return undefined;
+  return [values[0]!, values[1]!, values[2]!];
 }

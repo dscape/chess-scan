@@ -1,4 +1,4 @@
-import type { EngineLine, EngineScore } from "./engine/uci";
+import type { EngineScore } from "./engine/uci";
 
 export type Point = [number, number];
 export type Orientation = "white" | "black";
@@ -60,8 +60,11 @@ export interface ReviewArrow {
 export interface ReviewAnnotation {
   label: string;
   text: string;
+  scope: "root" | "best_line" | "attempt_line" | "attempt_refutation" | "terminal";
+  ply: number;
   squares: string[];
   arrows: ReviewArrow[];
+  evidence_ids: string[];
 }
 
 export interface PositionTopic {
@@ -69,18 +72,91 @@ export interface PositionTopic {
   name: string;
 }
 
+export interface ReviewPieceRef {
+  color: "white" | "black";
+  piece: string;
+  square: string;
+}
+
+export interface ReviewEvidence {
+  id: string;
+  kind: string;
+  scope: "best_line" | "attempt_line" | "attempt_refutation" | "terminal";
+  proof: "legal_geometry" | "line_consequence" | "direct_rule";
+  ply: number;
+  actor: ReviewPieceRef | null;
+  targets: ReviewPieceRef[];
+  from_square: string | null;
+  to_square: string | null;
+  squares: string[];
+  moves: string[];
+  score: (EngineScore & { bound: NonNullable<EngineScore["bound"]> | null }) | null;
+  wdl: [number, number, number] | null;
+  expected_score_loss: number | null;
+  centipawn_loss: number | null;
+  lost_forced_mate: boolean | null;
+  mate_delay: number | null;
+  verdict: string | null;
+}
+
+export interface ReviewLine {
+  role: "best_candidate" | "alternative_candidate" | "attempt_line" | "attempt_refutation";
+  rank: number;
+  depth: number;
+  score: EngineScore & { bound: NonNullable<EngineScore["bound"]> | null };
+  wdl: [number, number, number];
+  moves: ReviewMove[];
+}
+
+export interface ReviewAttempt {
+  move: ReviewMove;
+  verdict: "best" | "excellent" | "good" | "inaccuracy" | "mistake" | "blunder";
+  equivalent: boolean;
+  expected_score_loss: number;
+  centipawn_loss: number | null;
+  lost_forced_mate: boolean;
+  mate_delay: number | null;
+  line: ReviewLine;
+}
+
 export interface PositionReview {
+  schema_version: "position-analysis-2";
+  review_id: string | null;
   fen: string;
   engine: string;
   evaluation: string;
   score: (EngineScore & { bound: NonNullable<EngineScore["bound"]> | null }) | null;
+  score_pov: "side_to_move" | null;
   best_move: ReviewMove | null;
+  lines: ReviewLine[];
+  attempt: ReviewAttempt | null;
   topic: PositionTopic;
+  findings: Array<{ topic: PositionTopic; evidence_ids: string[] }>;
+  evidence: ReviewEvidence[];
   hint: ReviewAnnotation;
   explanation: ReviewAnnotation[];
 }
 
+export interface ReviewEngineLine {
+  rank: number;
+  depth: number;
+  score: EngineScore;
+  wdl: [number, number, number];
+  pv: string[];
+  stable: boolean;
+}
+
+export interface ReviewAnalysis {
+  score_pov: "side_to_move";
+  lines: ReviewEngineLine[];
+  attempt?: {
+    move: string;
+    line: ReviewEngineLine;
+  } | null;
+}
+
 export interface PositionReviewRequest {
   fen: string;
-  line: EngineLine | null;
+  feedback_id: string;
+  analysis: ReviewAnalysis | null;
 }

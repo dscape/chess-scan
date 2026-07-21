@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { fenError, pieceDisplay } from "../src/board.ts";
+import { fenError, pieceDisplay, positionAt } from "../src/board.ts";
 
 test("accepts a FEN that can be loaded into a review", () => {
   assert.equal(fenError("4k3/8/8/8/8/8/8/4K3 w - - 0 1"), null);
@@ -10,6 +10,16 @@ test("accepts a FEN that can be loaded into a review", () => {
 test("maps chess.js pieces to the shared board metadata", () => {
   assert.deepEqual(pieceDisplay("w", "n"), { name: "White knight", symbol: "♘" });
   assert.deepEqual(pieceDisplay("b", "q"), { name: "Black queen", symbol: "♛" });
+});
+
+test("replays review moves through one validated board helper", () => {
+  const position = positionAt(
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    ["e2e4", "e7e5"],
+  );
+
+  assert.equal(position.fen(), "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2");
+  assert.throws(() => positionAt(position.fen(), ["e2e5"]), /Illegal review move/);
 });
 
 test("rejects a FEN with invalid king counts", () => {

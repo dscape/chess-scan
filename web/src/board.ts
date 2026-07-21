@@ -1,4 +1,4 @@
-import { validateFen, type Color, type PieceSymbol } from "chess.js";
+import { Chess, validateFen, type Color, type PieceSymbol } from "chess.js";
 import type { Orientation, SideToMove } from "./types";
 
 export const pieceSymbols = ["·", "♙", "♘", "♗", "♖", "♕", "♔", "♟", "♞", "♝", "♜", "♛", "♚"] as const;
@@ -33,6 +33,18 @@ export function pieceDisplay(color: Color, type: PieceSymbol): { name: string; s
     name: pieceNames[index]!,
     symbol: pieceSymbols[index]!,
   };
+}
+
+export function positionAt(fen: string, moves: string[]): Chess {
+  const chess = new Chess(fen);
+  for (const uci of moves) {
+    try {
+      chess.move(uci);
+    } catch (cause) {
+      throw new Error(`Illegal review move: ${uci}`, { cause });
+    }
+  }
+  return chess;
 }
 
 export function labelsToBoardFen(labels: number[], orientation: Orientation): string {

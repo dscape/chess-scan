@@ -1,7 +1,6 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { Chess, SQUARES, type PieceSymbol, type Square } from "chess.js";
-import { pieceDisplay } from "../board";
-import { parseUciMove } from "../engine/uci";
+import { pieceDisplay, positionAt } from "../board";
 import type { Orientation, ReviewAnnotation, ReviewArrow } from "../types";
 
 export type AttemptedMove = { uci: string; san: string };
@@ -10,7 +9,6 @@ type InteractiveBoardProps = {
   fen: string;
   orientation: Orientation;
   moves?: string[];
-  ply?: number;
   interactive?: boolean;
   cue?: ReviewAnnotation | null;
   onMove?: (move: AttemptedMove) => void;
@@ -30,7 +28,6 @@ export default function InteractiveBoard({
   fen,
   orientation,
   moves = [],
-  ply = 0,
   interactive = false,
   cue = null,
   onMove,
@@ -38,7 +35,7 @@ export default function InteractiveBoard({
   const [selected, setSelected] = useState<Square | null>(null);
   const [promotion, setPromotion] = useState<PromotionChoice | null>(null);
   const markerId = useId().replaceAll(":", "");
-  const position = useMemo(() => positionAt(fen, moves, ply), [fen, moves, ply]);
+  const position = useMemo(() => positionAt(fen, moves), [fen, moves]);
   const highlightedSquares = useMemo(() => new Set(cue?.squares ?? []), [cue]);
   const legalTargets = useMemo(() => {
     if (!interactive || !selected) return new Set<Square>();
@@ -52,7 +49,7 @@ export default function InteractiveBoard({
   useEffect(() => {
     setSelected(null);
     setPromotion(null);
-  }, [fen, moves, ply]);
+  }, [fen, moves]);
 
   function selectSquare(square: Square) {
     if (!interactive) return;
@@ -177,7 +174,7 @@ function BoardOverlay({
   });
   const anchorSquare = cue.arrows[0]?.to_square ?? cue.squares[0];
   const anchor = anchorSquare ? pointForSquare(anchorSquare, orientation) : null;
-  const tagWidth = Math.min(1.9, Math.max(0.85, cue.label.length * 0.095 + 0.35));
+  const tagWidth = clamp(cue.label.length * 0.095 + 0.35, 0.85, 1.9);
   const tagX = anchor ? clamp(anchor.x - tagWidth / 2, 0.08, 7.92 - tagWidth) : 0;
   const tagY = anchor ? clamp(anchor.y < 1.1 ? anchor.y + 0.34 : anchor.y - 0.62, 0.08, 7.5) : 0;
 
@@ -235,25 +232,13 @@ function arrowLine(arrow: ReviewArrow, orientation: Orientation) {
 }
 
 function pointForSquare(square: string, orientation: Orientation): BoardPoint | null {
-  if (!/^[a-h][1-8]$/.test(square)) return null;
-  const file = square.charCodeAt(0) - 97;
-  const rank = Number(square[1]) - 1;
-  return orientation === "white"
-    ? { x: file + 0.5, y: 7 - rank + 0.5 }
-    : { x: 7 - file + 0.5, y: rank + 0.5 };
-}
-
-function positionAt(fen: string, moves: string[], ply: number): Chess {
-  const chess = new Chess(fen);
-  for (const uci of moves.slice(0, ply)) {
-    if (!parseUciMove(uci)) throw new Error(`Invalid review move: ${uci}`);
-    try {
-      chess.move(uci);
-    } catch (cause) {
-      throw new Error(`Illegal review move: ${uci}`, { cause });
-    }
-  }
-  return chess;
+  const squares = orientation === "white" ? SQUARES : BLACK_ORIENTED_SQUARES;
+  const index = squares.indexOf(square as Square);
+  if (index < 0) return null;
+  return {
+    x: index % 8 + 0.5,
+    y: Math.floor(index / 8) + 0.5,
+  };
 }
 
 function coordinateFor(square: Square, row: number, col: number) {

@@ -1,5 +1,6 @@
 import {
-  isMatchingPrimary,
+  contiguousRankedLines,
+  isStableLine,
   parseBestMove,
   parseInfoLine,
   type EngineLine,
@@ -7,19 +8,31 @@ import {
 
 export type AnalysisOptions = {
   budgetMs?: number;
+  multiPv?: number;
+  newGame?: boolean;
+  requireStable?: boolean;
+  searchMoves?: string[];
   signal?: AbortSignal;
-  onUpdate?: (line: EngineLine) => void;
+  onUpdate?: (lines: EngineLine[]) => void;
 };
 
 export type AnalysisResult = {
-  line: EngineLine | null;
+  lines: EngineLine[];
 };
+
+export class StockfishError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StockfishError";
+  }
+}
 
 type WorkerLike = Pick<Worker, "postMessage" | "terminate" | "onmessage" | "onerror">;
 type ActiveAnalysis = {
-  line: EngineLine | null;
-  linesByMove: Map<string, EngineLine>;
-  onUpdate?: (line: EngineLine) => void;
+  lines: Map<number, EngineLine>;
+  firstMovesByRank: Map<number, Map<number, string>>;
+  requireStable: boolean;
+  onUpdate?: (lines: EngineLine[]) => void;
   resolve: (result: AnalysisResult) => void;
   reject: (reason: unknown) => void;
   drained: Promise<void>;
@@ -49,30 +62,34 @@ export default class StockfishClient {
     this.worker = createWorker();
     this.worker.onmessage = (event) => this.handleMessage(event.data);
     this.worker.onerror = (event) => this.fatal(
-      new Error(event.message || "Stockfish failed to load."),
+      new StockfishError(event.message || "Stockfish failed to load."),
     );
     this.ready = this.initialize();
   }
 
   async analyze(fen: string, options: AnalysisOptions = {}): Promise<AnalysisResult> {
     const budgetMs = Math.min(Math.max(options.budgetMs ?? 1800, 250), 10_000);
+    const multiPv = Math.min(Math.max(options.multiPv ?? 3, 1), 3);
     await this.ready;
     this.assertAvailable();
     await this.stop();
     if (options.signal?.aborted) throw abortError();
 
-    this.send("ucinewgame");
+    if (options.newGame) this.send("ucinewgame");
+    this.send(`setoption name MultiPV value ${multiPv}`);
+    this.send("setoption name UCI_ShowWDL value true");
     this.send(`position fen ${fen}`);
 
     let drain = () => {};
     const drained = new Promise<void>((resolve) => { drain = resolve; });
     const result = new Promise<AnalysisResult>((resolve, reject) => {
       const timeout = window.setTimeout(() => {
-        if (this.active) this.fatal(new Error("Stockfish analysis timed out."));
+        if (this.active) this.fatal(new StockfishError("Stockfish analysis timed out."));
       }, budgetMs + 5000);
       this.active = {
-        line: null,
-        linesByMove: new Map(),
+        lines: new Map(),
+        firstMovesByRank: new Map(),
+        requireStable: options.requireStable ?? true,
         onUpdate: options.onUpdate,
         resolve,
         reject,
@@ -85,7 +102,10 @@ export default class StockfishClient {
 
     const abort = () => { void this.stop(); };
     options.signal?.addEventListener("abort", abort, { once: true });
-    this.send(`go movetime ${budgetMs}`);
+    const searchMoves = options.searchMoves?.length
+      ? ` searchmoves ${options.searchMoves.join(" ")}`
+      : "";
+    this.send(`go movetime ${budgetMs}${searchMoves}`);
     try {
       return await result;
     } finally {
@@ -124,7 +144,7 @@ export default class StockfishClient {
     return new Promise((resolve, reject) => {
       const timeout = window.setTimeout(() => {
         this.waiters = this.waiters.filter((waiter) => waiter.expected !== expected);
-        reject(new Error(`Stockfish did not answer ${expected}.`));
+        reject(new StockfishError(`Stockfish did not answer ${expected}.`));
       }, timeoutMs);
       this.waiters.push({ expected, resolve, reject, timeout });
     });
@@ -146,18 +166,15 @@ export default class StockfishClient {
       const active = this.active;
       if (!active) continue;
       const info = parseInfoLine(line);
-      if (info && !info.score.bound) {
-        if (!active.line || info.depth >= active.line.depth) {
-          active.line = info;
-          active.onUpdate?.(info);
+      if (info) {
+        const previous = active.lines.get(info.rank);
+        if (!previous || info.depth >= previous.depth) active.lines.set(info.rank, info);
+        if (!info.score.bound && info.pv[0]) {
+          const history = active.firstMovesByRank.get(info.rank) ?? new Map<number, string>();
+          history.set(info.depth, info.pv[0]);
+          active.firstMovesByRank.set(info.rank, history);
         }
-        const firstMove = info.pv[0];
-        if (firstMove) {
-          const previous = active.linesByMove.get(firstMove);
-          if (!previous || info.depth >= previous.depth) {
-            active.linesByMove.set(firstMove, info);
-          }
-        }
+        active.onUpdate?.(orderedLines(active.lines));
         continue;
       }
       const bestMove = parseBestMove(line);
@@ -169,23 +186,46 @@ export default class StockfishClient {
     if (this.active !== active) return;
     window.clearTimeout(active.timeout);
     this.active = null;
+    const allLines = orderedLines(active.lines);
+    const primaryDepth = allLines.find((line) => line.rank === 1)?.depth ?? 0;
+    const eligible = allLines.filter(
+      (line) => line.depth >= primaryDepth - 2 && !line.score.bound && line.wdl,
+    );
+    const lines = contiguousRankedLines(eligible);
     active.drain();
     if (active.stopping) {
       active.reject(abortError());
       return;
     }
     if (bestMove === "(none)") {
-      active.resolve({ line: null });
+      active.resolve({ lines: [] });
       return;
     }
-    const line = isMatchingPrimary(bestMove, active.line)
-      ? active.line
-      : active.linesByMove.get(bestMove);
-    if (!line) {
-      active.reject(new Error("Stockfish did not return a matching principal variation."));
+    const primary = lines.find((line) => line.rank === 1);
+    if (!primary || primary.pv[0] !== bestMove) {
+      active.reject(new StockfishError("Stockfish did not return a matching principal variation."));
       return;
     }
-    active.resolve({ line });
+    const markedLines = lines.map((line) => {
+      const recentMoves = [...(active.firstMovesByRank.get(line.rank)?.entries() ?? [])]
+        .sort(([left], [right]) => right - left)
+        .slice(0, 3)
+        .map(([, move]) => move);
+      const expectedMove = line.rank === 1 ? bestMove : line.pv[0];
+      return {
+        ...line,
+        stable: expectedMove !== undefined && isStableLine(expectedMove, line, recentMoves),
+      };
+    });
+    if (active.requireStable && !markedLines[0]?.stable) {
+      active.reject(new StockfishError("Stockfish did not return a stable principal variation."));
+      return;
+    }
+    active.resolve({
+      lines: active.requireStable
+        ? contiguousRankedLines(markedLines.filter((line) => line.stable))
+        : markedLines,
+    });
   }
 
   private send(command: string): void {
@@ -194,7 +234,7 @@ export default class StockfishClient {
   }
 
   private assertAvailable(): void {
-    if (this.disposed) throw new Error("Stockfish has been disposed.");
+    if (this.disposed) throw new StockfishError("Stockfish has been disposed.");
   }
 
   private fatal(reason: unknown): void {
@@ -219,6 +259,10 @@ export default class StockfishClient {
       this.active = null;
     }
   }
+}
+
+function orderedLines(lines: Map<number, EngineLine>): EngineLine[] {
+  return [...lines.values()].sort((left, right) => left.rank - right.rank);
 }
 
 function abortError(): DOMException {

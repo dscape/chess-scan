@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Chess } from "chess.js";
-import { createPositionReview } from "../api";
-import StockfishClient from "../engine/StockfishClient";
-import type { EngineScore } from "../engine/uci";
+import { createPositionReview, ratePositionReview } from "../api";
+import { positionAt } from "../board";
+import StockfishClient, { StockfishError } from "../engine/StockfishClient";
+import type { EngineLine, EngineScore } from "../engine/uci";
 import type {
   Orientation,
   PositionReview as PositionReviewData,
+  ReviewAnalysis,
   ReviewAnnotation,
   ReviewedPosition,
+  ReviewLine,
 } from "../types";
 import InteractiveBoard, { type AttemptedMove } from "./InteractiveBoard";
 
@@ -16,42 +19,91 @@ type PositionReviewProps = {
   onScanAnother: () => void;
 };
 
-type ReviewStatus = "loading" | "ready" | "error";
-type Evaluations = Record<string, EngineScore>;
+type ReviewState =
+  | { status: "loading" }
+  | { status: "ready"; review: PositionReviewData }
+  | { status: "error"; message: string };
+
+type CachedEvaluation = {
+  score: EngineScore;
+  complete: boolean;
+};
+
+type EvaluationPublisher = {
+  queue: (score: EngineScore) => void;
+  complete: (score: EngineScore) => void;
+  cancel: () => void;
+};
+
+type RatingState = {
+  reviewId: string | null;
+  status: "idle" | "sending" | "done" | "error";
+};
+
+type AnalysisError = {
+  source: "engine" | "api";
+  message: string;
+};
 
 const INITIAL_ANALYSIS_MS = 2500;
+const ATTEMPT_ANALYSIS_MS = 1600;
 const LIVE_ANALYSIS_MS = 750;
+const EVALUATION_UPDATE_MS = 150;
+const EVALUATION_CACHE_LIMIT = 48;
 
 export default function PositionReview({
   position,
   onScanAnother,
 }: PositionReviewProps) {
-  const [status, setStatus] = useState<ReviewStatus>("loading");
-  const [review, setReview] = useState<PositionReviewData | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [reviewState, setReviewState] = useState<ReviewState>({ status: "loading" });
   const [retry, setRetry] = useState(0);
+  const [liveRetry, setLiveRetry] = useState(0);
+  const [liveError, setLiveError] = useState<AnalysisError | null>(null);
+  const [ratingState, setRatingState] = useState<RatingState>({
+    reviewId: null,
+    status: "idle",
+  });
+  const [ratingReason, setRatingReason] = useState<
+    "incorrect_chess" | "irrelevant_topic" | "unclear" | "equivalent_move_rejected"
+      | "too_verbose" | "missing_detail" | "other"
+  >("incorrect_chess");
   const [playedMoves, setPlayedMoves] = useState<AttemptedMove[]>([]);
+  const [linePreview, setLinePreview] = useState<"best" | "attempt" | null>(null);
   const [firstAttempt, setFirstAttempt] = useState<AttemptedMove | null>(null);
-  const [evaluations, setEvaluations] = useState<Evaluations>({});
+  const [pendingAttempt, setPendingAttempt] = useState<AttemptedMove | null>(null);
+  const checkingAttempt = pendingAttempt !== null;
+  const [currentScore, setCurrentScore] = useState<EngineScore | null>(null);
   const [evaluatingFen, setEvaluatingFen] = useState<string | null>(null);
   const [hoveredCue, setHoveredCue] = useState<ReviewAnnotation | null>(null);
   const [pinnedCue, setPinnedCue] = useState<ReviewAnnotation | null>(null);
   const engine = useRef<StockfishClient | null>(null);
-  const playedMovesRef = useRef(playedMoves);
-  playedMovesRef.current = playedMoves;
+  const reviewLines = useRef(new Map<string, EngineLine[]>());
+  const initialReview = useRef<PositionReviewData | null>(null);
+  const evaluationCache = useRef(new Map<string, CachedEvaluation>());
+  const analysisGeneration = useRef(0);
+  const ratingGeneration = useRef(0);
 
   const root = useMemo(() => new Chess(position.full_fen), [position.full_fen]);
   const moveUcis = useMemo(() => playedMoves.map((move) => move.uci), [playedMoves]);
   const current = useMemo(
-    () => positionAfter(position.full_fen, moveUcis),
+    () => positionAt(position.full_fen, moveUcis),
     [position.full_fen, moveUcis],
   );
   const currentFen = current.fen();
+  const currentFenRef = useRef(currentFen);
+  currentFenRef.current = currentFen;
   const rootIsTerminal = root.isGameOver();
+  const currentTerminal = terminalResult(current);
   const revealed = rootIsTerminal || firstAttempt !== null;
+  const review = reviewState.status === "ready" ? reviewState.review : null;
+  const ratingStatus = ratingState.reviewId === review?.review_id
+    ? ratingState.status
+    : "idle";
   const defaultCue = revealed ? review?.explanation[0] ?? null : null;
-  const boardCue = hoveredCue ?? pinnedCue ?? defaultCue;
-  const currentScore = evaluations[currentFen] ?? null;
+  const rootHoveredCue = hoveredCue?.ply === 0 ? hoveredCue : null;
+  const rootDefaultCue = defaultCue?.ply === 0 ? defaultCue : null;
+  const boardCue = pinnedCue
+    ?? (playedMoves.length === 0 ? rootHoveredCue ?? rootDefaultCue : null);
   const lastMove = playedMoves.at(-1) ?? null;
 
   useEffect(() => () => {
@@ -62,75 +114,214 @@ export default function PositionReview({
 
   useEffect(() => {
     const controller = new AbortController();
+    const generation = ++analysisGeneration.current;
     let active = true;
+    let updates: EvaluationPublisher | null = null;
 
-    setStatus("loading");
-    setReview(null);
-    setError(null);
+    setReviewState({ status: "loading" });
     setPinnedCue(null);
     setHoveredCue(null);
+    setLiveError(null);
+    ratingGeneration.current += 1;
+    setRatingState({ reviewId: null, status: "idle" });
+    setLinePreview(null);
+    setFirstAttempt(null);
+    setPendingAttempt(null);
 
     async function loadReview() {
-      try {
-        if (rootIsTerminal) {
+      if (rootIsTerminal) {
+        setEvaluatingFen(null);
+        try {
           const result = await createPositionReview(
-            { fen: position.full_fen, line: null },
+            {
+              fen: position.full_fen,
+              feedback_id: position.feedback_id,
+              analysis: null,
+            },
             controller.signal,
           );
-          if (!active) return;
-          setReview(result);
-          setStatus("ready");
-          return;
+          if (active) {
+            initialReview.current = result;
+            setReviewState({ status: "ready", review: result });
+          }
+        } catch (cause) {
+          if (active && !isAbortError(cause)) {
+            setReviewState({ status: "error", message: messageFrom(cause) });
+          }
         }
+        return;
+      }
 
-        engine.current ??= new StockfishClient();
-        setEvaluatingFen(position.full_fen);
-        const analysis = await engine.current.analyze(position.full_fen, {
-          budgetMs: INITIAL_ANALYSIS_MS,
-          signal: controller.signal,
-          onUpdate: (line) => {
-            if (!active || playedMovesRef.current.length > 0) return;
-            cacheEvaluation(position.full_fen, line.score, setEvaluations);
-          },
-        });
-        if (!active) return;
-        const line = analysis.line;
-        if (!line) throw new Error("Stockfish did not return a principal line.");
-        cacheEvaluation(position.full_fen, line.score, setEvaluations);
+      let lines = reviewLines.current.get(position.full_fen) ?? null;
+      if (!lines) {
+        try {
+          engine.current ??= new StockfishClient();
+          setEvaluatingFen(position.full_fen);
+          updates = createEvaluationPublisher(
+            position.full_fen,
+            evaluationCache.current,
+            currentFenRef,
+            setCurrentScore,
+          );
+          const analysis = await engine.current.analyze(position.full_fen, {
+            budgetMs: INITIAL_ANALYSIS_MS,
+            multiPv: 3,
+            newGame: true,
+            requireStable: true,
+            signal: controller.signal,
+            onUpdate: (candidates) => {
+              const primary = candidates.find((candidate) => candidate.rank === 1);
+              if (active && primary) updates?.queue(primary.score);
+            },
+          });
+          if (!active) return;
+          lines = analysis.lines;
+          const primary = lines.find((line) => line.rank === 1);
+          if (!primary) throw new Error("Stockfish did not return a principal line.");
+          updates.complete(primary.score);
+          reviewLines.current.set(position.full_fen, lines);
+        } catch (cause) {
+          if (!active || isAbortError(cause)) return;
+          engine.current?.dispose();
+          engine.current = null;
+          setReviewState({ status: "error", message: messageFrom(cause) });
+          return;
+        } finally {
+          updates?.cancel();
+          clearEvaluatingFen(generation, position.full_fen);
+        }
+      } else {
+        const primary = lines.find((line) => line.rank === 1);
+        if (!primary) throw new Error("Cached analysis has no principal line.");
+        storeEvaluation(
+          evaluationCache.current,
+          position.full_fen,
+          { score: primary.score, complete: true },
+        );
+        if (currentFenRef.current === position.full_fen) setCurrentScore(primary.score);
+        clearEvaluatingFen(generation, position.full_fen);
+      }
+
+      try {
         const result = await createPositionReview(
-          { fen: position.full_fen, line },
+          {
+            fen: position.full_fen,
+            feedback_id: position.feedback_id,
+            analysis: reviewAnalysis(lines),
+          },
           controller.signal,
         );
-        if (!active) return;
-        setReview(result);
-        setStatus("ready");
+        if (active) {
+          initialReview.current = result;
+          setReviewState({ status: "ready", review: result });
+        }
       } catch (cause) {
-        if (!active || isAbortError(cause)) return;
-        engine.current?.dispose();
-        engine.current = null;
-        setError(messageFrom(cause));
-        setStatus("error");
-      } finally {
-        if (active) setEvaluatingFen(null);
+        if (active && !isAbortError(cause)) {
+          setReviewState({ status: "error", message: messageFrom(cause) });
+        }
       }
+    }
+
+    function clearEvaluatingFen(requestGeneration: number, fen: string) {
+      if (analysisGeneration.current !== requestGeneration) return;
+      setEvaluatingFen((currentValue) => currentValue === fen ? null : currentValue);
     }
 
     void loadReview();
     return () => {
       active = false;
       controller.abort();
+      updates?.cancel();
+      clearEvaluatingFen(generation, position.full_fen);
     };
-  }, [position.full_fen, retry, rootIsTerminal]);
+  }, [position.feedback_id, position.full_fen, retry, rootIsTerminal]);
 
   useEffect(() => {
-    if (status !== "ready" || playedMoves.length === 0 || current.isGameOver()) {
-      setEvaluatingFen(null);
-      return;
-    }
-    const cached = evaluations[currentFen];
-    if (cached) return;
+    if (!pendingAttempt) return;
+    const attempt = pendingAttempt;
+    const cachedRootLines = reviewLines.current.get(position.full_fen);
+    if (!cachedRootLines) return;
+    const rootLines = cachedRootLines;
 
     const controller = new AbortController();
+    let active = true;
+    setLiveError(null);
+
+    async function checkAttempt() {
+      try {
+        let attemptLine: EngineLine;
+        try {
+          engine.current ??= new StockfishClient();
+          const analysis = await engine.current.analyze(position.full_fen, {
+            budgetMs: ATTEMPT_ANALYSIS_MS,
+            multiPv: 1,
+            requireStable: true,
+            searchMoves: [attempt.uci],
+            signal: controller.signal,
+          });
+          const line = analysis.lines[0];
+          if (!line) throw new StockfishError("Stockfish could not evaluate your move.");
+          attemptLine = line;
+        } catch (cause) {
+          if (active && !isAbortError(cause)) {
+            if (cause instanceof StockfishError) {
+              engine.current?.dispose();
+              engine.current = null;
+            }
+            setLiveError({ source: "engine", message: messageFrom(cause) });
+            if (initialReview.current) {
+              setReviewState({ status: "ready", review: initialReview.current });
+            }
+          }
+          return;
+        }
+
+        try {
+          const result = await createPositionReview(
+            {
+              fen: position.full_fen,
+              feedback_id: position.feedback_id,
+              analysis: reviewAnalysis(rootLines, attempt, attemptLine),
+            },
+            controller.signal,
+          );
+          if (active) setReviewState({ status: "ready", review: result });
+        } catch (cause) {
+          if (active && !isAbortError(cause)) {
+            setLiveError({ source: "api", message: messageFrom(cause) });
+            if (initialReview.current) {
+              setReviewState({ status: "ready", review: initialReview.current });
+            }
+          }
+        }
+      } finally {
+        if (active) setPendingAttempt(null);
+      }
+    }
+
+    void checkAttempt();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [pendingAttempt, position.feedback_id, position.full_fen]);
+
+  useEffect(() => {
+    if (reviewState.status !== "ready") return;
+
+    const generation = ++analysisGeneration.current;
+    const cached = readEvaluation(evaluationCache.current, currentFen);
+    setCurrentScore(cached?.score ?? null);
+    setEvaluatingFen(null);
+    if (playedMoves.length === 0 || currentTerminal !== null || cached?.complete) return;
+
+    const controller = new AbortController();
+    const updates = createEvaluationPublisher(
+      currentFen,
+      evaluationCache.current,
+      currentFenRef,
+      setCurrentScore,
+    );
     const timeout = window.setTimeout(() => {
       async function evaluateCurrentPosition() {
         try {
@@ -138,22 +329,28 @@ export default function PositionReview({
           setEvaluatingFen(currentFen);
           const analysis = await engine.current.analyze(currentFen, {
             budgetMs: LIVE_ANALYSIS_MS,
+            multiPv: 1,
+            requireStable: false,
             signal: controller.signal,
-            onUpdate: (line) => {
-              if (!controller.signal.aborted) {
-                cacheEvaluation(currentFen, line.score, setEvaluations);
-              }
+            onUpdate: (lines) => {
+              const primary = lines[0];
+              if (!controller.signal.aborted && primary) updates.queue(primary.score);
             },
           });
-          const line = analysis.line;
-          if (line) cacheEvaluation(currentFen, line.score, setEvaluations);
+          if (controller.signal.aborted) return;
+          const line = analysis.lines[0];
+          if (!line) throw new StockfishError("Stockfish did not return a live evaluation.");
+          updates.complete(line.score);
+          setLiveError(null);
         } catch (cause) {
           if (!isAbortError(cause)) {
             engine.current?.dispose();
             engine.current = null;
+            setLiveError({ source: "engine", message: messageFrom(cause) });
           }
         } finally {
-          if (!controller.signal.aborted) {
+          updates.cancel();
+          if (analysisGeneration.current === generation) {
             setEvaluatingFen((fen) => fen === currentFen ? null : fen);
           }
         }
@@ -164,12 +361,22 @@ export default function PositionReview({
     return () => {
       window.clearTimeout(timeout);
       controller.abort();
+      updates.cancel();
+      if (analysisGeneration.current === generation) {
+        setEvaluatingFen((fen) => fen === currentFen ? null : fen);
+      }
     };
-  }, [currentFen, playedMoves.length, status]);
+  }, [currentFen, currentTerminal, liveRetry, playedMoves.length, reviewState.status]);
 
   function play(move: AttemptedMove) {
-    setPlayedMoves((moves) => [...moves, move]);
-    setFirstAttempt((attempt) => attempt ?? move);
+    setLinePreview(null);
+    if (firstAttempt === null) {
+      setFirstAttempt(move);
+      setPendingAttempt(move);
+      setPlayedMoves([]);
+    } else {
+      setPlayedMoves((moves) => [...moves, move]);
+    }
     setPinnedCue(null);
   }
 
@@ -180,12 +387,67 @@ export default function PositionReview({
 
   function resetBoard() {
     setPlayedMoves([]);
+    setLinePreview(null);
     setFirstAttempt(null);
+    setPendingAttempt(null);
+    setLiveError(null);
+    ratingGeneration.current += 1;
+    setRatingState({ reviewId: null, status: "idle" });
+    setPinnedCue(null);
+    setHoveredCue(null);
+    if (initialReview.current) {
+      setReviewState({ status: "ready", review: initialReview.current });
+    }
+    const rootEvaluation = evaluationCache.current.get(position.full_fen);
+    evaluationCache.current.clear();
+    if (rootEvaluation) {
+      evaluationCache.current.set(position.full_fen, rootEvaluation);
+    }
+    setCurrentScore(rootEvaluation?.score ?? null);
+  }
+
+  function showLine(line: ReviewLine) {
+    setPlayedMoves(line.moves.map((move) => ({ uci: move.uci, san: move.san })));
+    setLinePreview(
+      line.role === "best_candidate" || line.role === "alternative_candidate"
+        ? "best"
+        : "attempt",
+    );
     setPinnedCue(null);
     setHoveredCue(null);
   }
 
+  async function rateReview(rating: "helpful" | "unhelpful") {
+    if (!review?.review_id || ratingStatus === "sending") return;
+    const reviewId = review.review_id;
+    const generation = ++ratingGeneration.current;
+    setRatingState({ reviewId, status: "sending" });
+    try {
+      await ratePositionReview(reviewId, {
+        rating,
+        reason: rating === "helpful" ? "correct" : ratingReason,
+      });
+      if (ratingGeneration.current === generation) {
+        setRatingState({ reviewId, status: "done" });
+      }
+    } catch {
+      if (ratingGeneration.current === generation) {
+        setRatingState({ reviewId, status: "error" });
+      }
+    }
+  }
+
   function pinCue(cue: ReviewAnnotation) {
+    if (hasBoardCue(cue) && review) {
+      setPlayedMoves(movesForCue(cue, review));
+      setLinePreview(
+        cue.scope === "best_line"
+          ? "best"
+          : cue.scope === "attempt_line" || cue.scope === "attempt_refutation"
+            ? "attempt"
+            : null,
+      );
+    }
     setPinnedCue((currentCue) => currentCue === cue ? null : cue);
   }
 
@@ -203,9 +465,19 @@ export default function PositionReview({
           <span className="brand__mark" aria-hidden="true"><i /><i /><i /><i /></span>
           <span><strong>Chess Scan</strong><em>review</em></span>
         </button>
-        <div className={`engine-status is-${status}`} role="status">
+        <div
+          className={`engine-status is-${liveError ? "error" : reviewState.status}`}
+          role="status"
+          title={liveError?.message}
+        >
           <i aria-hidden="true" />
-          <span>{engineStatus(status, evaluatingFen === currentFen)}</span>
+          <span>{engineStatus(
+            reviewState.status,
+            evaluatingFen === currentFen,
+            liveError,
+            rootIsTerminal,
+            checkingAttempt,
+          )}</span>
         </div>
       </header>
 
@@ -214,10 +486,18 @@ export default function PositionReview({
           <div className="board-context">
             <div>
               <span>{turnName(current.turn())} to move</span>
-              <small>{lastMove ? `After ${lastMove.san}` : "Starting position"}</small>
+              <small>
+                {lastMove
+                  ? `${linePreview ? "Hypothetical · after" : "After"} ${lastMove.san}`
+                  : "Starting position"}
+              </small>
             </div>
             <span className="board-context__topic">
-              {review?.topic.name ?? (status === "loading" ? "Finding the idea…" : "Position")}
+              {revealed && review
+                ? review.topic.name
+                : reviewState.status === "loading"
+                  ? "Finding the idea…"
+                  : "Your turn"}
             </span>
           </div>
 
@@ -226,15 +506,22 @@ export default function PositionReview({
               score={currentScore}
               turn={current.turn()}
               orientation={position.orientation}
-              loading={evaluatingFen === currentFen || (status === "loading" && !currentScore)}
-              terminal={terminalResult(current)}
+              loading={currentTerminal === null && (
+                evaluatingFen === currentFen
+                || (reviewState.status === "loading" && !rootIsTerminal && !currentScore)
+              )}
+              terminal={currentTerminal}
             />
             <InteractiveBoard
               fen={position.full_fen}
               orientation={position.orientation}
               moves={moveUcis}
-              ply={moveUcis.length}
-              interactive={!current.isGameOver()}
+              interactive={
+                currentTerminal === null
+                && reviewState.status === "ready"
+                && !checkingAttempt
+                && linePreview === null
+              }
               cue={boardCue}
               onMove={play}
             />
@@ -250,6 +537,17 @@ export default function PositionReview({
               >
                 Reset
               </button>
+              {liveError?.source === "engine" && playedMoves.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLiveError(null);
+                    setLiveRetry((value) => value + 1);
+                  }}
+                >
+                  Retry analysis
+                </button>
+              )}
             </div>
             <span className="board-tools__eval">
               Local eval <b>{evaluationLabel(currentScore, current.turn(), current)}</b>
@@ -257,21 +555,25 @@ export default function PositionReview({
           </div>
         </div>
 
-        <article className="review-notes" aria-live={status === "loading" ? "off" : "polite"}>
-          {status === "loading" && (
+        <article className="review-notes" aria-live={reviewState.status === "loading" ? "off" : "polite"}>
+          {reviewState.status === "loading" && (
             <div className="review-loading">
               <span className="review-loading__mark" aria-hidden="true" />
-              <p className="commentary-kicker">Reading the position</p>
-              <h1>Finding the useful clue…</h1>
-              <p>The board is live while the local engine checks the first move.</p>
+              <p className="commentary-kicker">{rootIsTerminal ? "Rules check" : "Reading the position"}</p>
+              <h1>{rootIsTerminal ? "Confirming the result…" : "Finding the useful clue…"}</h1>
+              <p>
+                {rootIsTerminal
+                  ? "The board is checking why the game has ended."
+                  : "The board is live while the local engine checks the first move."}
+              </p>
             </div>
           )}
 
-          {status === "error" && (
+          {reviewState.status === "error" && (
             <>
               <p className="commentary-kicker">Review unavailable</p>
               <h1>Keep the board.</h1>
-              <p>{error}</p>
+              <p>{reviewState.message}</p>
               <div className="review-actions">
                 <button type="button" className="primary-button" onClick={() => setRetry((value) => value + 1)}>
                   Try the review again
@@ -283,42 +585,26 @@ export default function PositionReview({
             </>
           )}
 
-          {status === "ready" && review && (
+          {reviewState.status === "ready" && (
             <>
-              <BoardReference
-                className="topic-reference"
-                cue={review.hint}
-                {...cueEvents(review.hint)}
-              >
-                <span>Position topic</span>
-                <strong>{review.topic.name}</strong>
-                <small>Show on board</small>
-              </BoardReference>
+              {revealed && (
+                <BoardReference
+                  className="topic-reference"
+                  cue={reviewState.review.hint}
+                  {...cueEvents(reviewState.review.hint)}
+                >
+                  <span>Position topic</span>
+                  <strong>{reviewState.review.topic.name}</strong>
+                  <small>{hasBoardCue(reviewState.review.hint) ? "Show on board" : "Position guide"}</small>
+                </BoardReference>
+              )}
 
-              {!revealed ? (
-                <div className="review-prompt">
-                  <p className="commentary-kicker">{turnName(root.turn())} to move</p>
-                  <h1>What is the first move?</h1>
-                  <BoardReference
-                    className="hint-reference"
-                    cue={review.hint}
-                    {...cueEvents(review.hint)}
-                  >
-                    <span className="annotation-index">Hint</span>
-                    <span className="hint-reference__copy">{review.hint.text}</span>
-                    <small>Tap to mark the clues on the board</small>
-                  </BoardReference>
-                  <p className="spoiler-note"><i aria-hidden="true" /> No move names until you try.</p>
-                </div>
-              ) : (
+              {reviewState.review.best_move === null ? (
                 <div className="review-explanation">
-                  <p className="commentary-kicker">{review.evaluation}</p>
-                  <h1>{attemptVerdict(firstAttempt, review)}</h1>
-                  <p className="review-explanation__lead">
-                    Follow the red move arrow, then use each note to inspect the idea on the board.
-                  </p>
+                  <p className="commentary-kicker">{reviewState.review.evaluation}</p>
+                  <h1>{reviewState.review.hint.text}</h1>
                   <div className="annotation-list">
-                    {review.explanation.map((cue, index) => (
+                    {reviewState.review.explanation.map((cue, index) => (
                       <BoardReference
                         key={`${cue.label}-${index}`}
                         className="annotation-reference"
@@ -330,10 +616,126 @@ export default function PositionReview({
                           <strong>{cue.label}</strong>
                           <span className="annotation-reference__copy">{cue.text}</span>
                         </span>
-                        <small>Board</small>
+                        <small>{hasBoardCue(cue) ? "Board" : "Note"}</small>
                       </BoardReference>
                     ))}
                   </div>
+                </div>
+              ) : !revealed ? (
+                <div className="review-prompt">
+                  <p className="commentary-kicker">{turnName(root.turn())} to move</p>
+                  <h1>What is the first move?</h1>
+                  <BoardReference
+                    className="hint-reference"
+                    cue={reviewState.review.hint}
+                    {...cueEvents(reviewState.review.hint)}
+                  >
+                    <span className="annotation-index">Hint</span>
+                    <span className="hint-reference__copy">{reviewState.review.hint.text}</span>
+                    {hasBoardCue(reviewState.review.hint) && (
+                      <small>Tap to mark the clues on the board</small>
+                    )}
+                  </BoardReference>
+                  <p className="spoiler-note"><i aria-hidden="true" /> No move names until you try.</p>
+                </div>
+              ) : checkingAttempt ? (
+                <div className="review-loading">
+                  <span className="review-loading__mark" aria-hidden="true" />
+                  <p className="commentary-kicker">Your move</p>
+                  <h1>Checking the strongest reply…</h1>
+                  <p>The line is hypothetical until the local engine finishes comparing it.</p>
+                </div>
+              ) : (
+                <div className="review-explanation">
+                  <p className="commentary-kicker">
+                    {reviewState.review.attempt
+                      ? `Your line · ${scoreText(reviewState.review.attempt.line.score, root.turn())}`
+                      : reviewState.review.evaluation}
+                  </p>
+                  <h1>{attemptVerdict(firstAttempt, reviewState.review)}</h1>
+                  <p className="review-explanation__lead">
+                    {reviewState.review.explanation.some((cue) => cue.arrows.length > 0)
+                      ? "Follow the red move arrow, then use each note to inspect the idea on the board."
+                      : "Use each note to compare your move with the checked engine lines."}
+                  </p>
+                  <div className="annotation-list">
+                    {reviewState.review.explanation.map((cue, index) => (
+                      <BoardReference
+                        key={`${cue.label}-${index}`}
+                        className="annotation-reference"
+                        cue={cue}
+                        {...cueEvents(cue, index === 0)}
+                      >
+                        <span className="annotation-index">{String(index + 1).padStart(2, "0")}</span>
+                        <span>
+                          <strong>{cue.label}</strong>
+                          <span className="annotation-reference__copy">{cue.text}</span>
+                        </span>
+                        <small>{hasBoardCue(cue) ? "Board" : "Note"}</small>
+                      </BoardReference>
+                    ))}
+                  </div>
+                  <div className="review-actions" aria-label="Hypothetical engine lines">
+                    {reviewState.review.attempt && (
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => showLine(reviewState.review.attempt!.line)}
+                      >
+                        Your line: {reviewState.review.attempt.move.san}
+                      </button>
+                    )}
+                    {reviewState.review.lines[0] && (
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => showLine(reviewState.review.lines[0]!)}
+                      >
+                        Best line: {reviewState.review.lines[0].moves[0]?.san}
+                      </button>
+                    )}
+                  </div>
+                  <p className="spoiler-note">
+                    <i aria-hidden="true" /> These are engine continuations, not moves already played.
+                  </p>
+                  {reviewState.review.review_id && (
+                    <div className="review-feedback" aria-label="Rate this analysis">
+                      {ratingStatus === "done" ? (
+                        <span>Feedback saved for review.</span>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            disabled={ratingStatus === "sending"}
+                            onClick={() => void rateReview("helpful")}
+                          >
+                            Helpful
+                          </button>
+                          <select
+                            aria-label="Problem with this analysis"
+                            value={ratingReason}
+                            onChange={(event) => setRatingReason(event.target.value as typeof ratingReason)}
+                          >
+                            <option value="incorrect_chess">Incorrect chess</option>
+                            <option value="irrelevant_topic">Irrelevant topic</option>
+                            <option value="unclear">Unclear explanation</option>
+                            <option value="equivalent_move_rejected">Equivalent move rejected</option>
+                            <option value="too_verbose">Too verbose</option>
+                            <option value="missing_detail">Missing useful detail</option>
+                            <option value="other">Other</option>
+                          </select>
+                          <button
+                            type="button"
+                            disabled={ratingStatus === "sending"}
+                            onClick={() => void rateReview("unhelpful")}
+                          >
+                            Report issue
+                          </button>
+                          {ratingStatus === "error" && <span>Feedback could not be saved.</span>}
+                        </>
+                      )}
+                    </div>
+                  )}
                   <button type="button" className="try-again-button" onClick={resetBoard}>
                     Hide the answer & try again
                   </button>
@@ -376,18 +778,19 @@ function BoardReference({
   onLeave: () => void;
   onToggle: () => void;
 }) {
-  const hasBoardCue = cue.squares.length > 0 || cue.arrows.length > 0;
+  if (!hasBoardCue(cue)) {
+    return <div className={`${className} is-static`}>{children}</div>;
+  }
   return (
     <button
       type="button"
-      className={`${className}${active ? " is-active" : ""}${hasBoardCue ? "" : " is-static"}`}
-      aria-pressed={hasBoardCue ? active : undefined}
-      aria-disabled={!hasBoardCue}
-      onPointerEnter={hasBoardCue ? onEnter : undefined}
-      onPointerLeave={hasBoardCue ? onLeave : undefined}
-      onFocus={hasBoardCue ? onEnter : undefined}
-      onBlur={hasBoardCue ? onLeave : undefined}
-      onClick={hasBoardCue ? onToggle : undefined}
+      className={`${className}${active ? " is-active" : ""}`}
+      aria-pressed={active}
+      onPointerEnter={onEnter}
+      onPointerLeave={onLeave}
+      onFocus={onEnter}
+      onBlur={onLeave}
+      onClick={onToggle}
     >
       {children}
     </button>
@@ -446,22 +849,122 @@ function EvalBar({
   );
 }
 
-function cacheEvaluation(
+function createEvaluationPublisher(
   fen: string,
-  score: EngineScore,
-  setEvaluations: React.Dispatch<React.SetStateAction<Evaluations>>,
-) {
-  setEvaluations((current) => {
-    const previous = current[fen];
-    if (previous?.kind === score.kind && previous.value === score.value) return current;
-    return { ...current, [fen]: score };
-  });
+  cache: Map<string, CachedEvaluation>,
+  currentFen: React.RefObject<string>,
+  setCurrentScore: React.Dispatch<React.SetStateAction<EngineScore | null>>,
+): EvaluationPublisher {
+  let pending: EngineScore | null = null;
+  let timer: number | null = null;
+
+  function publish(score: EngineScore, complete: boolean) {
+    storeEvaluation(cache, fen, { score, complete });
+    if (currentFen.current === fen) setCurrentScore(score);
+  }
+
+  function flush() {
+    timer = null;
+    if (!pending) return;
+    const score = pending;
+    pending = null;
+    publish(score, false);
+  }
+
+  return {
+    queue(score) {
+      pending = score;
+      timer ??= window.setTimeout(flush, EVALUATION_UPDATE_MS);
+    },
+    complete(score) {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = null;
+      pending = null;
+      publish(score, true);
+    },
+    cancel() {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = null;
+      pending = null;
+    },
+  };
 }
 
-function positionAfter(fen: string, moves: string[]): Chess {
-  const chess = new Chess(fen);
-  for (const move of moves) chess.move(move);
-  return chess;
+function readEvaluation(
+  cache: Map<string, CachedEvaluation>,
+  fen: string,
+): CachedEvaluation | undefined {
+  const value = cache.get(fen);
+  if (!value) return undefined;
+  cache.delete(fen);
+  cache.set(fen, value);
+  return value;
+}
+
+function storeEvaluation(
+  cache: Map<string, CachedEvaluation>,
+  fen: string,
+  value: CachedEvaluation,
+) {
+  cache.delete(fen);
+  cache.set(fen, value);
+  while (cache.size > EVALUATION_CACHE_LIMIT) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+}
+
+function reviewAnalysis(
+  lines: EngineLine[],
+  attempt?: AttemptedMove,
+  attemptLine?: EngineLine,
+): ReviewAnalysis {
+  const candidates = lines.map(reviewEngineLine);
+  return {
+    score_pov: "side_to_move",
+    lines: candidates,
+    ...(attempt && attemptLine
+      ? {
+          attempt: {
+            move: attempt.uci,
+            line: reviewEngineLine({ ...attemptLine, rank: 1 }),
+          },
+        }
+      : {}),
+  };
+}
+
+function reviewEngineLine(line: EngineLine) {
+  if (!line.wdl) throw new Error("Stockfish did not return WDL evidence.");
+  return {
+    rank: line.rank,
+    depth: line.depth,
+    score: line.score,
+    wdl: line.wdl,
+    pv: line.pv.slice(0, 16),
+    stable: line.stable === true,
+  };
+}
+
+function hasBoardCue(cue: ReviewAnnotation): boolean {
+  return cue.squares.length > 0 || cue.arrows.length > 0;
+}
+
+function movesForCue(
+  cue: ReviewAnnotation,
+  review: PositionReviewData,
+): AttemptedMove[] {
+  let line: ReviewLine | undefined;
+  if (cue.scope === "best_line") {
+    line = review.lines.find((candidate) => candidate.rank === 1);
+  } else if (cue.scope === "attempt_line" || cue.scope === "attempt_refutation") {
+    line = review.attempt?.line;
+  }
+  if (!line) return [];
+  return line.moves
+    .slice(0, cue.ply)
+    .map((move) => ({ uci: move.uci, san: move.san }));
 }
 
 function attemptVerdict(
@@ -469,8 +972,23 @@ function attemptVerdict(
   review: PositionReviewData,
 ): string {
   if (!review.best_move) return review.evaluation;
-  if (attempt?.uci === review.best_move.uci) return `${attempt.san} finds the idea.`;
-  if (attempt) return `You tried ${attempt.san}. The key move is ${review.best_move.san}.`;
+  if (review.attempt?.verdict === "best") return `${review.attempt.move.san} is the best move.`;
+  if (review.attempt?.equivalent) {
+    return `${review.attempt.move.san} is effectively as strong as the first engine choice.`;
+  }
+  if (review.attempt?.verdict === "blunder") {
+    return `${review.attempt.move.san} is a blunder; compare the strongest reply with ${review.best_move.san}.`;
+  }
+  if (review.attempt?.lost_forced_mate) {
+    return `${review.attempt.move.san} stays favorable but gives up the forced mate.`;
+  }
+  if (review.attempt) {
+    const comparison = review.attempt.verdict === "mistake"
+      ? "strongest reply"
+      : "checked continuation";
+    return `${review.attempt.move.san} is a ${review.attempt.verdict}; compare its ${comparison} with ${review.best_move.san}.`;
+  }
+  if (attempt) return `The comparison for ${attempt.san} was unavailable.`;
   return `The key move is ${review.best_move.san}.`;
 }
 
@@ -507,8 +1025,23 @@ function turnName(turn: "w" | "b"): string {
   return turn === "w" ? "White" : "Black";
 }
 
-function engineStatus(status: ReviewStatus, evaluatingCurrent: boolean): string {
-  if (status === "error") return "Local analysis unavailable";
+function engineStatus(
+  status: ReviewState["status"],
+  evaluatingCurrent: boolean,
+  liveError: AnalysisError | null,
+  terminal: boolean,
+  checkingAttempt: boolean,
+): string {
+  if (terminal) {
+    if (status === "error") return "Rules review unavailable";
+    if (status === "loading") return "Checking the result from chess rules";
+    return "Rules result ready";
+  }
+  if (status === "error" || liveError?.source === "engine") {
+    return "Local analysis unavailable";
+  }
+  if (liveError?.source === "api") return "Move review unavailable";
+  if (checkingAttempt) return "Comparing your move locally";
   if (status === "loading" || evaluatingCurrent) return "Stockfish is checking locally";
   return "Local analysis ready";
 }

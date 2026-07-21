@@ -19,7 +19,7 @@ Chess Scan extracts the useful single-image classifier from [Argus](https://gith
 
 ## Development
 
-Requires Python 3.12, Node.js 22+, and `uv`.
+Requires Python 3.12, Node.js 22+, and `uv`. Rebuilding the external Lichess benchmark also requires `zstd`.
 
 ```bash
 make install
@@ -36,6 +36,8 @@ Run all checks and the reproducible model gates:
 make check
 make qa-argus
 make qa-platform
+make qa-print
+make qa-review
 make qa-online
 make qa-stress
 ```
@@ -45,11 +47,14 @@ make qa-stress
 The review pipeline keeps separate responsibilities:
 
 - [`chess.js`](https://github.com/jhlywa/chess.js) validates every move made on the browser board.
-- Stockfish checks one principal line locally and updates the evaluation after exploratory moves.
-- The API independently validates the engine line before deterministic detectors select one grounded position topic.
-- Human-authored topic copy supplies the spoiler-free hint and explanation; structured squares and arrows keep every text annotation tied to the board.
+- Stockfish calculates three stable candidate lines with WDL evidence locally in a browser Worker.
+- After the learner moves, Stockfish force-searches that attempt so equivalent moves are accepted and mistakes receive a concrete hypothetical refutation.
+- The API validates every move, normalizes score point of view, and emits versioned evidence with actors, targets, causal move endpoints, proof type, scope, and explicit hypothetical-line roles.
+- Deterministic tactical detectors are gated against two disjoint, balanced 1,000-puzzle Lichess sets. Held-out accuracy is 99.8% with official setup evidence; FEN-only accuracy is 99.78% across the nine nonhistorical motifs. Mapped-claim precision is 99.77% with setup evidence and 100% in both FEN-only and production-planner modes.
+- Human-authored copy verbalizes only selected evidence. Every annotation cites evidence IDs, and a deterministic fallback abstains when no causal subject is proven.
+- Review runs, helpful/problem reports, and expert adjudications are append-only, preserving the engine, contract, output, and required regression fixture for each approved fix.
 
-Chess Scan is independently branded and does not redistribute workbook text, diagrams, answer keys, logos, or trade dress. Each review covers one corrected FEN; whole-game review requires move history and is intentionally out of scope.
+Chess Scan is independently branded and does not redistribute workbook text, diagrams, answer keys, logos, or trade dress. Each review covers one corrected FEN and one observed learner attempt; engine continuations are always marked hypothetical. Opening history, player intent, and whole-game accuracy remain out of scope without PGN history. See [`docs/position-analysis.md`](docs/position-analysis.md) for the contract and held-out evaluation.
 
 ### Stockfish licensing
 
@@ -85,16 +90,18 @@ The labeled image corpora are deliberately outside Git. Prepare or sync the veri
 ```bash
 make prepare-argus-data     # ~/chess-scan-training/argus-2026-03-29
 make prepare-platform-data  # ~/chess-scan-training/platforms-v1 after acquiring assets
+make prepare-lichess-puzzles # ~/chess-scan-training/lichess-puzzles-2026-07-05
 make train-platform-model
 make train-print-recovery
 make qa-argus
 make qa-platform
 make qa-print
+make qa-review
 make qa-online
 make qa-stress
 ```
 
-Set `CHESS_SCAN_ARGUS_DATA_DIR`, `CHESS_SCAN_PLATFORM_DATA_DIR`, and `CHESS_SCAN_PRINT_DATA_DIR` to use other external locations. The manifests under [`benchmarks/`](benchmarks/) hash-describe all three corpora without redistributing source images. Production mounts read-only server copies for automatic replay and gating; `s46-infra/hetzner/scripts/sync-chess-training-data.sh` explicitly pushes or pulls them with rsync.
+Set `CHESS_SCAN_ARGUS_DATA_DIR`, `CHESS_SCAN_PLATFORM_DATA_DIR`, `CHESS_SCAN_PRINT_DATA_DIR`, and `CHESS_SCAN_LICHESS_PUZZLE_DATA_DIR` to use other external locations. The manifests under [`benchmarks/`](benchmarks/) hash-describe the external corpora without redistributing source images or the 1,000-record puzzle splits. Production mounts the vision-training corpora read-only for automatic replay and gating; `s46-infra/hetzner/scripts/sync-chess-training-data.sh` explicitly pushes or pulls them with rsync.
 
 V5 fixes the reference workbook from 62/64 to 64/64 squares and stays exact across eight fixed degradation variants. On the grouped clean platform holdout it improves v4 from 982 to 987 exact boards and from 63,724 to 63,729 correct squares. The deterministic camera/display gate retains 980/996 exact boards while improving by one square. Clean Chess.com is 454/456 exact, Lichess improves to 473/480, and Take Take Take remains 60/60. Two separate real Take Take Take app boards and the latest Chess.com Glass board remain exact.
 
@@ -116,6 +123,10 @@ Manual tools remain available for audits and experiments:
 ```bash
 uv run python scripts/export_feedback.py
 uv run python scripts/export_preferences.py
+uv run python scripts/export_review_feedback.py --rating unhelpful
+uv run python scripts/adjudicate_review_feedback.py REVIEW_FEEDBACK_ID \
+  --reviewer NAME --disposition approved_fix --notes REASON \
+  --regression-fixture tests/test_review.py::TEST_NAME
 uv run python scripts/train_candidate.py --min-boards 100
 uv run python scripts/train_candidate.py --min-boards 100 --preference-weight 0.1
 uv run python scripts/promote_model.py steps-YYYYMMDDHHMMSS --confirm
