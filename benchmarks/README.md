@@ -11,6 +11,7 @@ These manifests reference official sample PDFs without redistributing their imag
 - `argus-training-corpus.json`: external Argus archive, prepared-split, and replay hashes without source images.
 - `platform-training-corpus.json`: external Chess.com, Lichess, and Take Take Take source and label-manifest hashes without redistributing platform artwork.
 - `print-regression-corpus.json`: hash inventory for consented rectified workbook crops; full photographs and workbook pixels are not committed.
+- `lichess-puzzle-corpus.json`: checksum, deterministic game-grouped sampling rules, and balanced split metadata for two external 1,000-puzzle theme benchmarks sourced from Lichess's public-domain puzzle database. The evaluator reports setup-aware, history-free, and production-planner agreement separately.
 
 Square indices are image-order values from `0` at the top-left to `63` at the bottom-right. Source hashes make an upstream sample change fail loudly instead of silently changing a benchmark.
 
@@ -29,6 +30,13 @@ make qa-stress
 make qa-argus
 make qa-platform
 make qa-print
+make qa-review
+```
+
+Recreate the disjoint Lichess development and validation splits from the checksum-pinned archive:
+
+```bash
+make prepare-lichess-puzzles
 ```
 
 Recreate the photographed-print recovery candidate after mounting all verified external corpora:

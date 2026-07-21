@@ -36,9 +36,9 @@ _TOPIC_COPY = {
         "The target is forced away while the attacking piece improves. That extra tempo is the point of the move.",
     ),
     "check": (
-        "Answer the check",
-        "Your king is under attack, so solve that first. Compare moving, capturing, and blocking.",
-        "A legal answer to check must move the king, capture the checking piece, or block the line of attack.",
+        "Giving check",
+        "Checks force an immediate reply. Look for one that improves your position or sets up the next forcing move.",
+        "The move gives check, so the opponent must answer the king threat before pursuing another plan.",
     ),
     "clearing": (
         "Clearance",
@@ -77,8 +77,8 @@ _TOPIC_COPY = {
     ),
     "intermediate_move": (
         "In-between move",
-        "Before making the obvious recapture, look for a check, capture, or threat that the opponent must answer first.",
-        "Instead of completing the expected exchange, the move inserts a more urgent threat and changes the move order.",
+        "Before making the available capture, look for a check or threat that the opponent must answer first.",
+        "The move postpones an available capture to insert a more urgent threat and change the move order.",
     ),
     "king_attack": (
         "King attack",
@@ -102,8 +102,8 @@ _TOPIC_COPY = {
     ),
     "mate_technique": (
         "Mating technique",
-        "Keep the enemy king boxed in and bring your pieces closer without allowing stalemate.",
-        "The move reduces the king's available space and keeps the mating net under control.",
+        "Look first at checks and king-restricting moves. Verify that every legal reply stays covered.",
+        "The checked line preserves the mating net while controlling the king's legal replies.",
     ),
     "material": (
         "Winning material",
@@ -143,7 +143,7 @@ _TOPIC_COPY = {
     "pawn_race": (
         "Pawn race",
         "Count both races all the way to promotion, including checks after a new queen appears.",
-        "The move wins the race because promotion arrives with the right tempo or because the new queen gives check.",
+        "Both sides have advanced pawn candidates. Compare the exact promotion tempi and any checks before deciding which race is favorable.",
     ),
     "pawn_square": (
         "The pawn's square",
@@ -244,7 +244,12 @@ DEFAULT_TOPIC = ReviewTopic(
 )
 
 
-def topic_for(handler: str, evidence_kind: str = "") -> ReviewTopic:
+def topic_for(handler: str | None, evidence_kind: str = "") -> ReviewTopic:
+    if handler is None:
+        return DEFAULT_TOPIC
     if handler == "double_attack" and evidence_kind in FORK_TOPICS:
         return FORK_TOPICS[evidence_kind]
-    return REVIEW_TOPICS.get(handler, DEFAULT_TOPIC)
+    try:
+        return REVIEW_TOPICS[handler]
+    except KeyError as exc:
+        raise ValueError(f"Unknown review topic handler: {handler}") from exc

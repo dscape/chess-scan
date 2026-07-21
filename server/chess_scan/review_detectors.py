@@ -6,10 +6,17 @@ python-chess and emit only facts that can be tied to pieces, squares, and legal 
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 import chess
+
+from chess_scan.review_themes import (
+    PieceRef,
+    Proof,
+    ThemeEvidence,
+    detect_solution_themes,
+)
 
 PIECE_VALUES = {
     chess.PAWN: 1,
@@ -27,6 +34,28 @@ class Evidence:
     summary: str
     squares: tuple[str, ...] = ()
     moves: tuple[str, ...] = ()
+    proof: Proof = "legal_geometry"
+    ply: int = 0
+    actor: PieceRef | None = None
+    targets: tuple[PieceRef, ...] = ()
+    from_square: str | None = None
+    to_square: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.proof not in {"legal_geometry", "line_consequence"}:
+            raise ValueError(f"Unknown evidence proof: {self.proof}")
+        for square in (*self.squares, self.from_square, self.to_square):
+            if square is not None:
+                _validate_evidence_square(square)
+        if (self.from_square is None) != (self.to_square is None):
+            raise ValueError("Evidence move geometry requires both endpoint squares")
+        for move in self.moves:
+            try:
+                parsed = chess.Move.from_uci(move)
+            except ValueError as exc:
+                raise ValueError(f"Evidence contains an invalid move: {move}") from exc
+            if parsed == chess.Move.null() or parsed.drop is not None:
+                raise ValueError(f"Evidence contains an invalid move: {move}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +63,7 @@ class DetectedSubject:
     handler: str
     confidence: float
     evidence: tuple[Evidence, ...]
+    validated_theme: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,26 +112,196 @@ def build_analyzed_line(
     return AnalyzedLine(tuple(moves), tuple(boards))
 
 
-def detect_subjects(context: ReviewContext) -> tuple[DetectedSubject, ...]:
-    findings = [finding for detector in DETECTORS if (finding := detector(context)) is not None]
-    findings.extend(
-        finding for evaluator in POSITION_EVALUATORS if (finding := evaluator(context)) is not None
+def detect_subjects(
+    context: ReviewContext,
+    *,
+    theme_evidence: Sequence[ThemeEvidence] | None = None,
+) -> tuple[DetectedSubject, ...]:
+    return _detect_subjects(
+        context,
+        DETECTOR_REGISTRY,
+        theme_evidence=theme_evidence,
+        include_legacy_themes=True,
     )
-    best_by_handler: dict[str, DetectedSubject] = {}
-    for finding in findings:
+
+
+def teaching_subjects(
+    context: ReviewContext,
+    *,
+    theme_evidence: Sequence[ThemeEvidence] | None = None,
+) -> tuple[DetectedSubject, ...]:
+    return _detect_subjects(
+        context,
+        TEACHING_DETECTOR_REGISTRY,
+        theme_evidence=theme_evidence,
+        include_legacy_themes=False,
+    )
+
+
+def detect_primary_subject(context: ReviewContext) -> DetectedSubject | None:
+    findings = teaching_subjects(context)
+    return findings[0] if findings else None
+
+
+_CONTEXT_ONLY_HANDLERS = {
+    "material_advantage",
+    "mate_technique",
+    "mobility",
+    "pawn_endgame",
+    "pawn_race",
+    "pawn_square",
+    "queen_endgame",
+    "queen_pawn",
+    "rook_endgame",
+    "rook_pawn",
+    "wrong_bishop",
+}
+
+
+_THEME_HANDLERS = {
+    "double_attack",
+    "pin",
+    "eliminate_defence",
+    "discovered_attack",
+    "xray",
+    "intermediate_move",
+    "trapping",
+    "interference",
+    "luring",
+    "magnet",
+    "clearing",
+}
+
+
+def _detect_subjects(
+    context: ReviewContext,
+    registrations: Sequence[DetectorRegistration],
+    *,
+    theme_evidence: Sequence[ThemeEvidence] | None,
+    include_legacy_themes: bool,
+) -> tuple[DetectedSubject, ...]:
+    best_by_handler = {
+        finding.handler: finding
+        for finding in _theme_findings(context, theme_evidence=theme_evidence)
+    }
+    for registration in registrations:
+        handler, _detector = registration
+        if handler in _THEME_HANDLERS and (not include_legacy_themes or handler in best_by_handler):
+            continue
+        finding = _run_detector(registration, context)
+        if finding is None:
+            continue
         previous = best_by_handler.get(finding.handler)
         if previous is None or finding.confidence > previous.confidence:
             best_by_handler[finding.handler] = finding
-    return tuple(
-        sorted(
-            best_by_handler.values(),
-            key=lambda finding: (
-                SUBJECT_PRIORITY.get(finding.handler, 100),
-                -finding.confidence,
-                finding.handler,
-            ),
-        )
+    return tuple(sorted(best_by_handler.values(), key=_subject_sort_key))
+
+
+def _theme_findings(
+    context: ReviewContext,
+    *,
+    theme_evidence: Sequence[ThemeEvidence] | None,
+) -> tuple[DetectedSubject, ...]:
+    evidence = (
+        detect_solution_themes(context.board, context.line.moves)
+        if theme_evidence is None
+        else theme_evidence
     )
+    return tuple(
+        _theme_finding(context, item)
+        for item in evidence
+        if not _routine_opening_clearance(context, item)
+    )
+
+
+def _routine_opening_clearance(context: ReviewContext, evidence: ThemeEvidence) -> bool:
+    if evidence.theme != "clearance" or evidence.ply != 0 or len(context.board.piece_map()) < 28:
+        return False
+    piece = context.board.piece_at(context.move.from_square)
+    return (
+        piece is not None
+        and piece.piece_type == chess.PAWN
+        and chess.square_file(context.move.from_square) in {3, 4}
+        and chess.square_rank(context.move.from_square) in {1, 6}
+        and not context.board.is_capture(context.move)
+        and not context.after.is_check()
+    )
+
+
+def _theme_finding(context: ReviewContext, evidence: ThemeEvidence) -> DetectedSubject:
+    handler = _handler_for_theme(evidence)
+    kind = evidence.theme
+    if evidence.theme == "fork" and evidence.actor is not None:
+        kind = f"two_targets_{evidence.actor.piece}"
+    return DetectedSubject(
+        handler=handler,
+        confidence=1.0,
+        evidence=(
+            Evidence(
+                kind=kind,
+                summary=_theme_summary(context, evidence),
+                squares=evidence.squares,
+                moves=evidence.moves,
+                proof=evidence.proof,
+                ply=evidence.ply,
+                actor=evidence.actor,
+                targets=evidence.targets,
+                from_square=evidence.from_square,
+                to_square=evidence.to_square,
+            ),
+        ),
+        validated_theme=True,
+    )
+
+
+def _handler_for_theme(evidence: ThemeEvidence) -> str:
+    if evidence.theme == "attraction":
+        attracted = evidence.targets[0] if evidence.targets else None
+        return "magnet" if attracted is not None and attracted.piece == "king" else "luring"
+    return {
+        "capturingDefender": "eliminate_defence",
+        "clearance": "clearing",
+        "discoveredAttack": "discovered_attack",
+        "fork": "double_attack",
+        "interference": "interference",
+        "intermezzo": "intermediate_move",
+        "pin": "pin",
+        "trappedPiece": "trapping",
+        "xRayAttack": "xray",
+    }[evidence.theme]
+
+
+def _theme_summary(context: ReviewContext, evidence: ThemeEvidence) -> str:
+    move = context.line.moves[evidence.ply]
+    before = context.board if evidence.ply == 0 else context.line.boards[evidence.ply - 1]
+    san = before.san(move)
+    target_names = [_piece_label(target) for target in evidence.targets]
+    if evidence.theme == "fork" and len(target_names) >= 2:
+        return f"{san} attacks {target_names[0]} and {target_names[1]} at once."
+    if evidence.theme == "pin" and target_names:
+        return f"The piece on {evidence.targets[0].square} is pinned and cannot move freely."
+    if evidence.theme == "discoveredAttack":
+        return f"{san} clears a line for a discovered attack."
+    if evidence.theme == "xRayAttack":
+        return "The continuation exploits an attack through an intervening enemy piece."
+    if evidence.theme == "intermezzo":
+        return f"{san} inserts a forcing move before the available capture."
+    if evidence.theme == "clearance":
+        return f"{san} clears a square or line used by the continuation."
+    if evidence.theme == "interference":
+        return f"{san} interrupts a defensive line."
+    if evidence.theme == "attraction" and target_names:
+        return f"{san} draws {target_names[0]} onto the square needed for the follow-up."
+    if evidence.theme == "capturingDefender" and len(target_names) >= 2:
+        return f"{san} removes {target_names[0]}, leaving {target_names[1]} vulnerable."
+    if evidence.theme == "trappedPiece" and target_names:
+        return f"The continuation wins {target_names[0]}, which has no safe escape."
+    raise RuntimeError(f"Unsupported theme evidence: {evidence.theme}")
+
+
+def _piece_label(piece: PieceRef) -> str:
+    article = "the"
+    return f"{article} {piece.piece} on {piece.square}"
 
 
 def _mate(context: ReviewContext) -> DetectedSubject | None:
@@ -164,9 +364,7 @@ def _material(context: ReviewContext) -> DetectedSubject | None:
     board, move = context.board, context.move
     captured = _captured_piece(board, move)
     mover = board.piece_at(move.from_square)
-    gain = _material_balance(context.line.boards[-1], context.mover) - _material_balance(
-        board, context.mover
-    )
+    gain = _settled_material_gain(context)
     if gain <= 0:
         return None
     if captured is not None:
@@ -247,6 +445,10 @@ def _double_attack(context: ReviewContext) -> DetectedSubject | None:
         f"{context.board.san(move)} attacks the {names[0]} and the {names[1]} at once.",
         squares=squares,
         moves=(move.uci(),),
+        actor=(
+            _piece_reference(moving_piece, move.to_square) if moving_piece is not None else None
+        ),
+        targets=tuple(_piece_reference(piece, square) for square, piece in valuable[:2]),
     )
 
 
@@ -807,20 +1009,44 @@ def _opening(context: ReviewContext) -> DetectedSubject | None:
     board = context.board
     if len(board.piece_map()) < 24 or board.fullmove_number > 20:
         return None
-    undeveloped = []
-    for square in (chess.B1, chess.G1, chess.C1, chess.F1, chess.B8, chess.G8, chess.C8, chess.F8):
-        piece = board.piece_at(square)
-        if piece and piece.piece_type in {chess.KNIGHT, chess.BISHOP}:
-            undeveloped.append(square)
-    if not undeveloped:
+    piece = board.piece_at(context.move.from_square)
+    starting_squares = (
+        {chess.B1, chess.G1, chess.C1, chess.F1}
+        if context.mover == chess.WHITE
+        else {chess.B8, chess.G8, chess.C8, chess.F8}
+    )
+    central_pawn = (
+        piece is not None
+        and piece.piece_type == chess.PAWN
+        and context.move.from_square
+        in ({chess.D2, chess.E2} if context.mover == chess.WHITE else {chess.D7, chess.E7})
+    )
+    developing_piece = (
+        piece is not None
+        and piece.piece_type in {chess.KNIGHT, chess.BISHOP}
+        and context.move.from_square in starting_squares
+    )
+    if not central_pawn and not developing_piece:
         return None
+    summary = (
+        f"{board.san(context.move)} claims central space and opens lines for development."
+        if central_pawn
+        else (
+            f"{board.san(context.move)} develops the "
+            f"{chess.piece_name(piece.piece_type)} from its starting square."
+        )
+    )
     return _finding(
         "opening",
-        0.7,
-        "development",
-        f"{len(undeveloped)} minor "
-        f"piece{'s remain' if len(undeveloped) != 1 else ' remains'} on their starting squares.",
-        squares=tuple(chess.square_name(square) for square in undeveloped),
+        0.9,
+        "center_control" if central_pawn else "development",
+        summary,
+        squares=(
+            chess.square_name(context.move.from_square),
+            chess.square_name(context.move.to_square),
+        ),
+        moves=(context.move.uci(),),
+        actor=_piece_reference(piece, context.move.to_square),
     )
 
 
@@ -915,7 +1141,9 @@ def _weak_pawn(context: ReviewContext) -> DetectedSubject | None:
     targeted = [
         weakness
         for weakness in weaknesses
-        if weakness[2] != context.mover and context.after.is_attacked_by(context.mover, weakness[0])
+        if weakness[2] != context.mover
+        and context.after.is_attacked_by(context.mover, weakness[0])
+        and not context.board.is_attacked_by(context.mover, weakness[0])
     ]
     if not targeted:
         return None
@@ -931,14 +1159,13 @@ def _weak_pawn(context: ReviewContext) -> DetectedSubject | None:
 
 def _material_advantage(context: ReviewContext) -> DetectedSubject | None:
     balance = _material_balance(context.board, context.mover)
-    if abs(balance) < 2:
+    if balance < 2:
         return None
-    side = "moving side" if balance > 0 else "opponent"
     return _finding(
         "material_advantage",
         0.9,
         "material_balance",
-        f"The {side} has a material advantage of about {abs(balance)} points.",
+        f"The moving side has a material advantage of about {balance} points.",
     )
 
 
@@ -1134,99 +1361,72 @@ def _signature_evaluator(
     return evaluate
 
 
-DETECTORS: tuple[Callable[[ReviewContext], DetectedSubject | None], ...] = (
-    _mate,
-    _defence,
-    _material,
-    _double_attack,
-    _pin,
-    _eliminate_defence,
-    _discovered_attack,
-    _xray,
-    _intermediate_move,
-    _promotion,
-    _threat,
-    _trapping,
-    _interference,
-    _luring,
-    _magnet,
-    _blocking,
-    _chasing_targeting,
-    _clearing,
-    _breakthrough,
+Detector = Callable[[ReviewContext], DetectedSubject | None]
+DetectorRegistration = tuple[str, Detector]
+
+DETECTORS: tuple[DetectorRegistration, ...] = (
+    ("mate", _mate),
+    ("defence", _defence),
+    ("material", _material),
+    ("double_attack", _double_attack),
+    ("pin", _pin),
+    ("eliminate_defence", _eliminate_defence),
+    ("discovered_attack", _discovered_attack),
+    ("xray", _xray),
+    ("intermediate_move", _intermediate_move),
+    ("promotion", _promotion),
+    ("threat", _threat),
+    ("trapping", _trapping),
+    ("interference", _interference),
+    ("luring", _luring),
+    ("magnet", _magnet),
+    ("blocking", _blocking),
+    ("chasing_targeting", _chasing_targeting),
+    ("clearing", _clearing),
+    ("breakthrough", _breakthrough),
 )
 
-POSITION_EVALUATORS: tuple[Callable[[ReviewContext], DetectedSubject | None], ...] = (
-    _check,
-    _draw,
-    _passed_pawn,
-    _activity,
-    _opening,
-    _mate_technique,
-    _pawn_endgame,
-    _pawn_square,
-    _mobility,
-    _rook_pawn,
-    _weak_pawn,
-    _material_advantage,
-    _king_attack,
-    _seventh_rank,
-    _queen_pawn,
-    _pawn_race,
-    _strong_square,
-    _open_file,
-    _signature_evaluator("rook_endgame", {chess.ROOK}, both_sides=chess.ROOK),
-    _wrong_bishop,
-    _signature_evaluator("queen_endgame", {chess.QUEEN}, both_sides=chess.QUEEN),
+POSITION_EVALUATORS: tuple[DetectorRegistration, ...] = (
+    ("check", _check),
+    ("draw", _draw),
+    ("passed_pawn", _passed_pawn),
+    ("activity", _activity),
+    ("opening", _opening),
+    ("mate_technique", _mate_technique),
+    ("pawn_endgame", _pawn_endgame),
+    ("pawn_square", _pawn_square),
+    ("mobility", _mobility),
+    ("rook_pawn", _rook_pawn),
+    ("weak_pawn", _weak_pawn),
+    ("material_advantage", _material_advantage),
+    ("king_attack", _king_attack),
+    ("seventh_rank", _seventh_rank),
+    ("queen_pawn", _queen_pawn),
+    ("pawn_race", _pawn_race),
+    ("strong_square", _strong_square),
+    ("open_file", _open_file),
+    (
+        "rook_endgame",
+        _signature_evaluator("rook_endgame", {chess.ROOK}, both_sides=chess.ROOK),
+    ),
+    ("wrong_bishop", _wrong_bishop),
+    (
+        "queen_endgame",
+        _signature_evaluator("queen_endgame", {chess.QUEEN}, both_sides=chess.QUEEN),
+    ),
 )
 
-DETECTABLE_HANDLERS = {
-    "activity",
-    "blocking",
-    "breakthrough",
-    "chasing_targeting",
-    "check",
-    "clearing",
-    "defence",
-    "discovered_attack",
-    "double_attack",
-    "draw",
-    "eliminate_defence",
-    "interference",
-    "intermediate_move",
-    "king_attack",
-    "luring",
-    "magnet",
-    "mate",
-    "mate_technique",
-    "material",
-    "material_advantage",
-    "mobility",
-    "open_file",
-    "opening",
-    "passed_pawn",
-    "pawn_endgame",
-    "pawn_race",
-    "pawn_square",
-    "pin",
-    "promotion",
-    "queen_endgame",
-    "queen_pawn",
-    "rook_endgame",
-    "rook_pawn",
-    "seventh_rank",
-    "strong_square",
-    "threat",
-    "trapping",
-    "weak_pawn",
-    "wrong_bishop",
-    "xray",
-}
+DETECTOR_REGISTRY = DETECTORS + POSITION_EVALUATORS
+TEACHING_DETECTOR_REGISTRY = tuple(
+    registration
+    for registration in DETECTOR_REGISTRY
+    if registration[0] not in _CONTEXT_ONLY_HANDLERS
+)
+DETECTABLE_HANDLERS = {handler for handler, _detector in DETECTOR_REGISTRY}
 
 
 SUBJECT_PRIORITY = {
     "mate": 0,
-    "defence": 1,
     "double_attack": 2,
     "eliminate_defence": 3,
     "material": 4,
@@ -1245,6 +1445,7 @@ SUBJECT_PRIORITY = {
     "breakthrough": 17,
     "threat": 18,
     "check": 19,
+    "defence": 20,
     "passed_pawn": 30,
     "king_attack": 31,
     "seventh_rank": 32,
@@ -1252,6 +1453,32 @@ SUBJECT_PRIORITY = {
     "strong_square": 34,
     "material_advantage": 35,
 }
+
+
+def _validate_evidence_square(square: str) -> None:
+    try:
+        chess.parse_square(square)
+    except ValueError as exc:
+        raise ValueError(f"Evidence contains an invalid square: {square}") from exc
+
+
+def _run_detector(
+    registration: DetectorRegistration,
+    context: ReviewContext,
+) -> DetectedSubject | None:
+    handler, detector = registration
+    finding = detector(context)
+    if finding is not None and finding.handler != handler:
+        raise RuntimeError(f"Detector registered as {handler} returned {finding.handler}")
+    return finding
+
+
+def _subject_sort_key(finding: DetectedSubject) -> tuple[int, float, str]:
+    return (
+        SUBJECT_PRIORITY.get(finding.handler, 100),
+        -finding.confidence,
+        finding.handler,
+    )
 
 
 def _finding(
@@ -1262,11 +1489,30 @@ def _finding(
     *,
     squares: tuple[str, ...] = (),
     moves: tuple[str, ...] = (),
+    actor: PieceRef | None = None,
+    targets: tuple[PieceRef, ...] = (),
 ) -> DetectedSubject:
     return DetectedSubject(
         handler=handler,
         confidence=confidence,
-        evidence=(Evidence(kind, summary, squares, moves),),
+        evidence=(
+            Evidence(
+                kind,
+                summary,
+                squares,
+                moves,
+                actor=actor,
+                targets=targets,
+            ),
+        ),
+    )
+
+
+def _piece_reference(piece: chess.Piece, square: chess.Square) -> PieceRef:
+    return PieceRef(
+        color="white" if piece.color == chess.WHITE else "black",
+        piece=chess.piece_name(piece.piece_type),
+        square=chess.square_name(square),
     )
 
 
@@ -1291,6 +1537,29 @@ def _line_captures_square(
         if board.is_capture(move) and move.to_square in squares:
             return True
     return False
+
+
+def _settled_material_gain(context: ReviewContext) -> int:
+    initial = _material_balance(context.board, context.mover)
+    final = context.line.boards[-1]
+    final_gain = _material_balance(final, context.mover) - initial
+    if final_gain <= 0 or final.turn == context.mover:
+        return final_gain
+
+    settled = context.line.boards[-2] if len(context.line.boards) > 1 else context.board
+    settled_gain = _material_balance(settled, context.mover) - initial
+    if settled_gain > 0:
+        return settled_gain
+
+    last_move = context.line.moves[-1]
+    before_last = settled
+    if not before_last.is_capture(last_move):
+        return settled_gain
+    recapture = any(
+        final.is_capture(reply) and reply.to_square == last_move.to_square
+        for reply in final.legal_moves
+    )
+    return settled_gain if recapture else final_gain
 
 
 def _material_balance(board: chess.Board, color: chess.Color) -> int:

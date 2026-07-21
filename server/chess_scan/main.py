@@ -21,12 +21,13 @@ from chess_scan.bootstrap import initialize_database
 from chess_scan.classifier import ModelManager
 from chess_scan.config import Settings
 from chess_scan.errors import ScanStateError, StoredDataIntegrityError
-from chess_scan.review import build_position_review
 from chess_scan.schemas import (
     BoardDetectionResponse,
     ConfirmRequest,
     ConfirmResponse,
     LearningStatusResponse,
+    PositionReviewFeedbackRequest,
+    PositionReviewFeedbackResponse,
     PositionReviewRequest,
     PositionReviewResponse,
     ReprocessRequest,
@@ -207,11 +208,43 @@ def _register_api_routes(application: FastAPI) -> None:
             raise HTTPException(500, "Stored review data is invalid") from exc
 
     @application.post("/api/position-reviews", response_model=PositionReviewResponse)
-    def position_review(body: PositionReviewRequest) -> PositionReviewResponse:
+    def position_review(
+        body: PositionReviewRequest,
+        request: Request,
+    ) -> PositionReviewResponse:
         try:
-            return build_position_review(body)
+            return request.app.state.service.create_position_review(body)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
+
+    @application.get(
+        "/api/position-reviews/{review_id}",
+        response_model=PositionReviewResponse,
+    )
+    def stored_position_review(review_id: str, request: Request) -> PositionReviewResponse:
+        try:
+            return request.app.state.service.get_position_review(review_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except StoredDataIntegrityError as exc:
+            logger.exception("Stored position review is invalid for %s", review_id)
+            raise HTTPException(500, "Stored position review is invalid") from exc
+
+    @application.post(
+        "/api/position-reviews/{review_id}/feedback",
+        response_model=PositionReviewFeedbackResponse,
+    )
+    def position_review_feedback(
+        review_id: str,
+        body: PositionReviewFeedbackRequest,
+        request: Request,
+    ) -> PositionReviewFeedbackResponse:
+        try:
+            return request.app.state.service.add_position_review_feedback(review_id, body)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
 
     @application.get("/api/learning/status", response_model=LearningStatusResponse)
     def learning_status(request: Request) -> LearningStatusResponse:

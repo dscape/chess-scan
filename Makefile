@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: install dev dev-api dev-web test web-test lint format-check typecheck build check prepare-argus-data prepare-platform-data train-argus-recovery train-platform-model train-print-recovery qa-argus qa-platform qa-print qa-online qa-stress docker-build
+.PHONY: install dev dev-api dev-web test web-test lint format-check typecheck build check prepare-argus-data prepare-platform-data prepare-lichess-puzzles train-argus-recovery train-platform-model train-print-recovery qa-argus qa-platform qa-print qa-review qa-online qa-stress docker-build
 
 install:
 	uv sync --extra dev
@@ -41,6 +41,9 @@ prepare-argus-data:
 prepare-platform-data:
 	uv run python scripts/prepare_platform_training_data.py
 
+prepare-lichess-puzzles:
+	uv run python scripts/prepare_lichess_puzzles.py --download
+
 train-argus-recovery:
 	uv run --extra ml --with 'pymupdf>=1.25,<2' python scripts/train_argus_recovery.py
 
@@ -58,6 +61,9 @@ qa-platform:
 
 qa-print:
 	uv run python scripts/evaluate_print_regressions.py --baseline models/chess-steps-v4.onnx
+
+qa-review:
+	uv run python scripts/evaluate_lichess_puzzles.py --split validation
 
 qa-online:
 	uv run --with 'pymupdf>=1.25,<2' python scripts/evaluate_online_examples.py --cache-dir data/qa-cache

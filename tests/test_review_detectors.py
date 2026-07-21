@@ -7,7 +7,9 @@ from chess_scan.review_detectors import (
     DetectedSubject,
     ReviewContext,
     build_analyzed_line,
+    detect_primary_subject,
     detect_subjects,
+    teaching_subjects,
 )
 
 
@@ -312,6 +314,30 @@ def test_passed_pawn_and_seventh_rank_report_the_moved_piece() -> None:
 
     assert passed.evidence[0].squares == ("e4",)
     assert seventh_rank.evidence[0].squares == ("h7",)
+
+
+def test_material_advantage_only_describes_the_moving_side_when_ahead() -> None:
+    assert "material_advantage" not in _handlers(
+        "6k1/7r/8/8/8/8/8/6K1 w - - 0 1",
+        ["g1f2", "g8f8"],
+    )
+
+
+def test_unanswered_horizon_capture_is_not_counted_when_it_can_be_recaptured() -> None:
+    assert "material" not in _handlers(
+        chess.STARTING_FEN,
+        ["e2e4", "e7e5", "f1b5", "b8c6", "b5c6"],
+    )
+
+
+def test_primary_detection_matches_the_first_production_teaching_finding() -> None:
+    board = chess.Board("8/7k/8/8/2r5/8/4Q3/4K3 w - - 0 1")
+    line = build_analyzed_line(board, ["e2e4", "h7g8", "e4c4"])
+    context = ReviewContext(board, line)
+
+    assert detect_primary_subject(context) == teaching_subjects(context)[0]
+    assert detect_subjects(context)[0].handler == "double_attack"
+    assert teaching_subjects(context)[0].handler == "material"
 
 
 def test_engine_line_rejects_illegal_moves() -> None:

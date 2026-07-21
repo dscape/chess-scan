@@ -1,0 +1,71 @@
+{
+  "version": "lichess-puzzles-2026-07-05-v1",
+  "source": {
+    "url": "https://database.lichess.org/lichess_db_puzzle.csv.zst",
+    "updated": "2026-07-05",
+    "bytes": 302111223,
+    "sha256": "5503bfaf5534518ffe3c4c3bb0ac1ae82350d117ad1a52947796096b75e6247e",
+    "license": "public-domain"
+  },
+  "selection": {
+    "version": "balanced-theme-hash-v1",
+    "seed": "chess-scan-lichess-themes-v1",
+    "minimum_popularity": 80,
+    "minimum_plays": 50,
+    "candidates_per_theme": 500,
+    "puzzles_per_theme_per_split": 100,
+    "grouping": "lichess_game_id",
+    "source_rows_scanned": 6057356,
+    "eligible_rows": 1409157
+  },
+  "themes": [
+    "attraction",
+    "capturingDefender",
+    "clearance",
+    "discoveredAttack",
+    "fork",
+    "interference",
+    "intermezzo",
+    "pin",
+    "trappedPiece",
+    "xRayAttack"
+  ],
+  "splits": {
+    "development": {
+      "path": "development.csv",
+      "puzzles": 1000,
+      "bytes": 213929,
+      "sha256": "3b6805275f7e8315cc9ff3465135c0c889bca42a465491ae1c363c24291f4de0",
+      "theme_counts": {
+        "attraction": 100,
+        "capturingDefender": 100,
+        "clearance": 100,
+        "discoveredAttack": 100,
+        "fork": 100,
+        "interference": 100,
+        "intermezzo": 100,
+        "pin": 100,
+        "trappedPiece": 100,
+        "xRayAttack": 100
+      }
+    },
+    "validation": {
+      "path": "validation.csv",
+      "puzzles": 1000,
+      "bytes": 215221,
+      "sha256": "05f86cb2f14d2be5266402edeeeebf6f8b34df58e43046cc7d6434e0ba4cb058",
+      "theme_counts": {
+        "attraction": 100,
+        "capturingDefender": 100,
+        "clearance": 100,
+        "discoveredAttack": 100,
+        "fork": 100,
+        "interference": 100,
+        "intermezzo": 100,
+        "pin": 100,
+        "trappedPiece": 100,
+        "xRayAttack": 100
+      }
+    }
+  }
+}

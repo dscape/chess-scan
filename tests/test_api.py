@@ -85,8 +85,10 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert "Expected exactly one white king" in invalid_position.json()["detail"]
 
         labels = [0] * 64
-        labels[4] = 12
-        labels[60] = 6
+        labels[15] = 12  # black king h7
+        labels[18] = 10  # black rook c6
+        labels[52] = 5  # white queen e2
+        labels[60] = 6  # white king e1
         confirm_response = client.post(
             f"/api/scans/{scan['scan_id']}/confirm",
             json={
@@ -114,11 +116,20 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         review_response = client.post(
             "/api/position-reviews",
             json={
-                "fen": "8/7k/8/8/2r5/8/4Q3/4K3 w - - 0 1",
-                "line": {
-                    "depth": 18,
-                    "score": {"kind": "cp", "value": 520},
-                    "pv": ["e2e4", "h7g8", "e4c4"],
+                "fen": "8/7k/2r5/8/8/8/4Q3/4K3 w - - 0 1",
+                "feedback_id": confirmation["feedback_id"],
+                "analysis": {
+                    "score_pov": "side_to_move",
+                    "lines": [
+                        {
+                            "rank": 1,
+                            "depth": 18,
+                            "score": {"kind": "cp", "value": 520},
+                            "wdl": [930, 69, 1],
+                            "pv": ["e2e4", "h7g8", "e4c6"],
+                            "stable": True,
+                        }
+                    ],
                 },
             },
         )
@@ -128,27 +139,29 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert position_review["topic"] == {"id": "double-attack", "name": "Double attack"}
         assert position_review["engine"] == "Stockfish 18 lite"
         assert position_review["score"]["value"] == 520
-        assert position_review["hint"]["squares"] == ["h7", "c4"]
+        assert position_review["hint"]["squares"] == ["c6", "h7"]
+        assert position_review["schema_version"] == "position-analysis-2"
         assert position_review["explanation"][0]["arrows"][0] == {
             "from_square": "e2",
             "to_square": "e4",
             "kind": "move",
         }
-        forced_mate_response = client.post(
-            "/api/position-reviews",
-            json={
-                "fen": "7k/5Q2/6K1/8/8/8/8/8 w - - 0 1",
-                "line": {
-                    "depth": 245,
-                    "score": {"kind": "mate", "value": 1},
-                    "pv": ["f7f8"],
-                },
-            },
+        review_id = position_review["review_id"]
+        assert len(review_id) == 32
+        stored_review = client.get(f"/api/position-reviews/{review_id}")
+        assert stored_review.status_code == 200
+        assert stored_review.json() == position_review
+        rating = client.post(
+            f"/api/position-reviews/{review_id}/feedback",
+            json={"rating": "unhelpful", "reason": "irrelevant_topic"},
         )
-        assert forced_mate_response.status_code == 200, forced_mate_response.text
-        forced_mate = forced_mate_response.json()
-        assert forced_mate["best_move"] == {"uci": "f7f8", "san": "Qf8#"}
-        assert forced_mate["score"] == {"kind": "mate", "value": 1, "bound": None}
+        assert rating.status_code == 200
+        assert len(rating.json()["feedback_id"]) == 32
+        invalid_rating = client.post(
+            f"/api/position-reviews/{review_id}/feedback",
+            json={"rating": "helpful", "reason": "incorrect_chess"},
+        )
+        assert invalid_rating.status_code == 422
 
         with sqlite3.connect(settings.data_dir / "chess-scan.sqlite3") as connection:
             connection.execute(

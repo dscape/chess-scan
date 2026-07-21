@@ -13,6 +13,7 @@ from chess_scan.classifier import ModelManager
 from chess_scan.config import Settings
 from chess_scan.database import Database
 from chess_scan.errors import ScanExpiredError, StoredDataIntegrityError
+from chess_scan.schemas import PositionReviewRequest
 from chess_scan.service import ScannerService
 
 
@@ -47,6 +48,49 @@ def test_review_position_rejects_an_invalid_stored_fen(tmp_path: Path) -> None:
 
     with pytest.raises(StoredDataIntegrityError, match="Stored review data is invalid"):
         service.review_position("invalid-feedback")
+
+
+def test_position_review_preserves_the_confirmed_en_passant_fen(tmp_path: Path) -> None:
+    service, database, settings = _service(tmp_path)
+    _create_scan_files(database, settings, scan_id="en-passant-review")
+    feedback_id = "a" * 32
+    fen = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"
+    database.confirm_scan(
+        feedback_id=feedback_id,
+        scan_id="en-passant-review",
+        labels=[0] * 64,
+        orientation="white",
+        side_to_move="b",
+        castling="KQkq",
+        en_passant="e3",
+        full_fen=fen,
+        consent_training=False,
+        client_session_id=None,
+    )
+    request = PositionReviewRequest.model_validate(
+        {
+            "fen": fen,
+            "feedback_id": feedback_id,
+            "analysis": {
+                "score_pov": "side_to_move",
+                "lines": [
+                    {
+                        "rank": 1,
+                        "depth": 18,
+                        "score": {"kind": "cp", "value": 20},
+                        "wdl": [350, 400, 250],
+                        "pv": ["e7e5", "g1f3"],
+                        "stable": True,
+                    }
+                ],
+            },
+        }
+    )
+
+    review = service.create_position_review(request)
+
+    assert review.fen == fen
+    assert database.position_review_run(review.review_id or "")["fen"] == fen
 
 
 def test_cleanup_reconciles_confirmed_and_orphaned_files(tmp_path: Path) -> None:

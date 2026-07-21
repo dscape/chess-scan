@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import sqlite3
 from pathlib import Path
 
@@ -187,6 +188,95 @@ def test_confirmed_feedback_is_immutable_and_counted(tmp_path: Path) -> None:
     assert database.feedback_split_assignments() == {"feedback": "gate"}
     with pytest.raises(ValueError):
         database.save_feedback_split_assignments({"feedback": "train"})
+
+    stored_response = {"schema_version": "position-analysis-2", "review_id": "review"}
+    database.save_position_review(
+        review_id="review",
+        feedback_id="feedback",
+        fen="k7/8/8/8/8/8/8/8 w - - 0 1",
+        schema_version="position-analysis-2",
+        engine="Deterministic rules",
+        request={"fen": "k7/8/8/8/8/8/8/8 w - - 0 1"},
+        response=stored_response,
+    )
+    assert database.position_review_run("review") == stored_response
+    with pytest.raises(KeyError, match="Unknown position review"):
+        database.append_position_review_feedback(
+            feedback_id="orphan-review-feedback",
+            review_id="missing-review",
+            rating="unhelpful",
+            reason="incorrect_chess",
+            detail=None,
+        )
+    database.append_position_review_feedback(
+        feedback_id="review-feedback",
+        review_id="review",
+        rating="unhelpful",
+        reason="incorrect_chess",
+        detail="The stated relationship is wrong.",
+    )
+    with sqlite3.connect(database.path) as connection:
+        row = connection.execute(
+            "SELECT rating, reason FROM position_review_feedback WHERE id = ?",
+            ("review-feedback",),
+        ).fetchone()
+    assert row == ("unhelpful", "incorrect_chess")
+    review_feedback = list(database.iter_position_review_feedback())
+    assert len(review_feedback) == 1
+    assert review_feedback[0]["review_id"] == "review"
+    assert review_feedback[0]["response_json"] == json.dumps(
+        stored_response,
+        separators=(",", ":"),
+    )
+    assert list(database.iter_position_review_feedback(rating="helpful")) == []
+    assert len(list(database.iter_position_review_feedback(rating="unhelpful"))) == 1
+    with pytest.raises(ValueError, match="requires a regression fixture"):
+        database.append_position_review_adjudication(
+            adjudication_id="missing-fixture",
+            review_feedback_id="review-feedback",
+            reviewer="expert",
+            disposition="approved_fix",
+            notes="Verified the corrected explanation.",
+            regression_fixture=None,
+        )
+    with pytest.raises(KeyError, match="Unknown position review feedback"):
+        database.append_position_review_adjudication(
+            adjudication_id="orphan-adjudication",
+            review_feedback_id="missing-review-feedback",
+            reviewer="expert",
+            disposition="rejected",
+            notes="No matching feedback exists.",
+            regression_fixture=None,
+        )
+    database.append_position_review_adjudication(
+        adjudication_id="review-adjudication",
+        review_feedback_id="review-feedback",
+        reviewer="expert",
+        disposition="approved_fix",
+        notes="Verified the corrected explanation.",
+        regression_fixture=(
+            "tests/test_review.py::test_review_returns_the_compact_annotation_contract"
+        ),
+    )
+    adjudications = list(database.iter_position_review_adjudications())
+    assert len(adjudications) == 1
+    assert adjudications[0]["review_feedback_id"] == "review-feedback"
+    assert adjudications[0]["regression_fixture"].startswith("tests/")
+    export_adjudications = list(
+        database.iter_position_review_adjudications_for_export(rating="unhelpful")
+    )
+    assert [row["adjudication_id"] for row in export_adjudications] == ["review-adjudication"]
+    assert list(database.iter_position_review_adjudications_for_export(rating="helpful")) == []
+    with pytest.raises(ValueError, match="does not match"):
+        database.save_position_review(
+            review_id="wrong-fen",
+            feedback_id="feedback",
+            fen="8/8/8/8/8/8/8/8 w - - 0 1",
+            schema_version="position-analysis-2",
+            engine="test",
+            request={},
+            response={},
+        )
 
     candidate_path = tmp_path / "candidate.onnx"
     candidate_path.write_bytes(b"candidate")

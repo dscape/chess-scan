@@ -80,6 +80,22 @@ def test_print_regression_manifest_is_portable_and_complete() -> None:
     assert "/Users/" not in json.dumps(manifest)
 
 
+def test_lichess_puzzle_manifest_is_portable_balanced_and_disjoint() -> None:
+    manifest = json.loads((PROJECT_ROOT / "benchmarks" / "lichess-puzzle-corpus.json").read_text())
+
+    assert manifest["version"] == "lichess-puzzles-2026-07-05-v1"
+    assert manifest["source"]["license"] == "public-domain"
+    assert len(manifest["source"]["sha256"]) == 64
+    assert len(manifest["themes"]) == 10
+    assert manifest["selection"]["grouping"] == "lichess_game_id"
+    for split in ("development", "validation"):
+        record = manifest["splits"][split]
+        assert record["puzzles"] == 1_000
+        assert set(record["theme_counts"].values()) == {100}
+        assert len(record["sha256"]) == 64
+    assert "/Users/" not in json.dumps(manifest)
+
+
 def test_qa_results_match_v2_runtime_metadata() -> None:
     results = json.loads((PROJECT_ROOT / "benchmarks" / "qa-2026-07-18.json").read_text())
     metadata = json.loads((PROJECT_ROOT / "models" / "chess-steps-v2.json").read_text())

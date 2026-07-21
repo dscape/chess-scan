@@ -300,6 +300,208 @@ class Database:
             raise KeyError(f"Unknown review: {feedback_id}")
         return dict(row)
 
+    def save_position_review(
+        self,
+        *,
+        review_id: str,
+        feedback_id: str,
+        fen: str,
+        schema_version: str,
+        engine: str,
+        request: dict[str, Any],
+        response: dict[str, Any],
+    ) -> None:
+        with closing(self._connect()) as connection:
+            inserted = connection.execute(
+                """
+                INSERT INTO position_review_runs (
+                    id, feedback_id, created_at, schema_version, engine,
+                    request_json, response_json
+                )
+                SELECT ?, feedback.id, ?, ?, ?, ?, ?
+                FROM feedback_events feedback
+                WHERE feedback.id = ?
+                  AND feedback.event_type = 'confirmed'
+                  AND feedback.final_fen = ?
+                """,
+                (
+                    review_id,
+                    _now(),
+                    schema_version,
+                    engine,
+                    json.dumps(request, separators=(",", ":")),
+                    json.dumps(response, separators=(",", ":")),
+                    feedback_id,
+                    fen,
+                ),
+            )
+            if inserted.rowcount == 0:
+                feedback = connection.execute(
+                    "SELECT 1 FROM feedback_events WHERE id = ? AND event_type = 'confirmed'",
+                    (feedback_id,),
+                ).fetchone()
+                if feedback is None:
+                    raise KeyError(f"Unknown review feedback: {feedback_id}")
+                raise ValueError("Review FEN does not match the confirmed position")
+            connection.commit()
+
+    def position_review_run(self, review_id: str) -> dict[str, Any]:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT response_json FROM position_review_runs WHERE id = ?",
+                (review_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Unknown position review: {review_id}")
+        payload = json.loads(row["response_json"])
+        if not isinstance(payload, dict):
+            raise ValueError(f"Invalid stored position review: {review_id}")
+        return payload
+
+    def append_position_review_feedback(
+        self,
+        *,
+        feedback_id: str,
+        review_id: str,
+        rating: str,
+        reason: str,
+        detail: str | None,
+    ) -> None:
+        with closing(self._connect()) as connection:
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO position_review_feedback (
+                        id, review_id, created_at, rating, reason, detail
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (feedback_id, review_id, _now(), rating, reason, detail),
+                )
+            except sqlite3.IntegrityError as exc:
+                if _is_foreign_key_violation(exc):
+                    raise KeyError(f"Unknown position review: {review_id}") from exc
+                raise
+            connection.commit()
+
+    def append_position_review_adjudication(
+        self,
+        *,
+        adjudication_id: str,
+        review_feedback_id: str,
+        reviewer: str,
+        disposition: str,
+        notes: str,
+        regression_fixture: str | None,
+    ) -> None:
+        allowed = {"confirmed_issue", "rejected", "duplicate", "approved_fix"}
+        if disposition not in allowed:
+            raise ValueError(f"Unknown review adjudication disposition: {disposition}")
+        if not reviewer.strip() or not notes.strip():
+            raise ValueError("Review adjudication requires a reviewer and notes")
+        if disposition == "approved_fix" and not (regression_fixture or "").strip():
+            raise ValueError("An approved review fix requires a regression fixture")
+        with closing(self._connect()) as connection:
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO position_review_feedback_adjudications (
+                        id, review_feedback_id, created_at, reviewer,
+                        disposition, notes, regression_fixture
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        adjudication_id,
+                        review_feedback_id,
+                        _now(),
+                        reviewer,
+                        disposition,
+                        notes,
+                        regression_fixture,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                if _is_foreign_key_violation(exc):
+                    raise KeyError(
+                        f"Unknown position review feedback: {review_feedback_id}"
+                    ) from exc
+                raise
+            connection.commit()
+
+    def iter_position_review_feedback(
+        self,
+        *,
+        rating: str | None = None,
+    ) -> Iterator[dict[str, Any]]:
+        predicate = "" if rating is None else "WHERE feedback.rating = ?"
+        parameters = () if rating is None else (rating,)
+        yield from self._iter_rows(
+            f"""
+            SELECT
+                feedback.id AS review_feedback_id,
+                feedback.created_at,
+                feedback.rating,
+                feedback.reason,
+                feedback.detail,
+                run.id AS review_id,
+                run.feedback_id AS position_feedback_id,
+                run.schema_version,
+                run.engine,
+                run.request_json,
+                run.response_json
+            FROM position_review_feedback feedback
+            JOIN position_review_runs run ON run.id = feedback.review_id
+            {predicate}
+            ORDER BY feedback.created_at, feedback.id
+            """,
+            parameters,
+        )
+
+    def iter_position_review_adjudications_for_export(
+        self,
+        *,
+        rating: str | None = None,
+    ) -> Iterator[dict[str, Any]]:
+        predicate = "" if rating is None else "AND feedback.rating = ?"
+        parameters = () if rating is None else (rating,)
+        yield from self._iter_rows(
+            f"""
+            SELECT
+                adjudication.id AS adjudication_id,
+                adjudication.review_feedback_id,
+                adjudication.created_at,
+                adjudication.reviewer,
+                adjudication.disposition,
+                adjudication.notes,
+                adjudication.regression_fixture
+            FROM position_review_feedback feedback
+            JOIN position_review_feedback_adjudications adjudication
+              ON adjudication.review_feedback_id = feedback.id
+            WHERE 1 = 1 {predicate}
+            ORDER BY feedback.created_at, feedback.id,
+                     adjudication.created_at, adjudication.id
+            """,
+            parameters,
+        )
+
+    def iter_position_review_adjudications(self) -> Iterator[dict[str, Any]]:
+        yield from self._iter_rows(
+            """
+            SELECT
+                adjudication.id AS adjudication_id,
+                adjudication.review_feedback_id,
+                adjudication.created_at,
+                adjudication.reviewer,
+                adjudication.disposition,
+                adjudication.notes,
+                adjudication.regression_fixture,
+                feedback.review_id
+            FROM position_review_feedback_adjudications adjudication
+            JOIN position_review_feedback feedback
+              ON feedback.id = adjudication.review_feedback_id
+            ORDER BY adjudication.created_at, adjudication.id
+            """
+        )
+
     def get_active_model(self) -> dict[str, Any]:
         with closing(self._connect()) as connection:
             row = connection.execute(
@@ -1097,9 +1299,13 @@ class Database:
             raise KeyError(f"Unknown scan: {scan_id}")
         return dict(row)
 
-    def _iter_rows(self, query: str) -> Iterator[dict[str, Any]]:
+    def _iter_rows(
+        self,
+        query: str,
+        parameters: tuple[object, ...] = (),
+    ) -> Iterator[dict[str, Any]]:
         with closing(self._connect()) as connection:
-            cursor = connection.execute(query)
+            cursor = connection.execute(query, parameters)
             while rows := cursor.fetchmany(100):
                 yield from (dict(row) for row in rows)
 
@@ -1109,6 +1315,10 @@ class Database:
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA journal_mode = WAL")
         return connection
+
+
+def _is_foreign_key_violation(error: sqlite3.IntegrityError) -> bool:
+    return getattr(error, "sqlite_errorname", None) == "SQLITE_CONSTRAINT_FOREIGNKEY"
 
 
 def _limited_feedback_ids(
@@ -1280,6 +1490,46 @@ CREATE TABLE IF NOT EXISTS feedback_learning_pool (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS position_review_runs (
+    id TEXT PRIMARY KEY,
+    feedback_id TEXT NOT NULL REFERENCES feedback_events(id),
+    created_at TEXT NOT NULL,
+    schema_version TEXT NOT NULL,
+    engine TEXT NOT NULL,
+    request_json TEXT NOT NULL,
+    response_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS position_review_feedback (
+    id TEXT PRIMARY KEY,
+    review_id TEXT NOT NULL REFERENCES position_review_runs(id),
+    created_at TEXT NOT NULL,
+    rating TEXT NOT NULL CHECK (rating IN ('helpful', 'unhelpful')),
+    reason TEXT NOT NULL CHECK (
+        reason IN (
+            'correct', 'incorrect_chess', 'irrelevant_topic', 'unclear',
+            'equivalent_move_rejected', 'too_verbose', 'missing_detail', 'other'
+        )
+    ),
+    detail TEXT
+);
+
+CREATE TABLE IF NOT EXISTS position_review_feedback_adjudications (
+    id TEXT PRIMARY KEY,
+    review_feedback_id TEXT NOT NULL REFERENCES position_review_feedback(id),
+    created_at TEXT NOT NULL,
+    reviewer TEXT NOT NULL,
+    disposition TEXT NOT NULL CHECK (
+        disposition IN ('confirmed_issue', 'rejected', 'duplicate', 'approved_fix')
+    ),
+    notes TEXT NOT NULL,
+    regression_fixture TEXT,
+    CHECK (
+        disposition != 'approved_fix'
+        OR (regression_fixture IS NOT NULL AND length(trim(regression_fixture)) > 0)
+    )
+);
+
 CREATE TABLE IF NOT EXISTS shadow_evaluations (
     cycle_id TEXT NOT NULL REFERENCES learning_cycles(id),
     feedback_id TEXT NOT NULL REFERENCES feedback_events(id),
@@ -1303,4 +1553,13 @@ ON feedback_adjudications(feedback_id, created_at, id);
 
 CREATE INDEX IF NOT EXISTS idx_learning_cycles_active
 ON learning_cycles(state, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_position_review_feedback_id
+ON position_review_runs(feedback_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_position_review_ratings
+ON position_review_feedback(review_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_position_review_adjudications
+ON position_review_feedback_adjudications(review_feedback_id, created_at);
 """

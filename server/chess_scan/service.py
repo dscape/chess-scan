@@ -28,11 +28,16 @@ from chess_scan.geometry import (
     rectify_board,
 )
 from chess_scan.image_io import decode_uploaded_image, write_jpeg
+from chess_scan.review import build_position_review
 from chess_scan.schemas import (
     BoardDetectionResponse,
     ConfirmRequest,
     ConfirmResponse,
     LearningStatusResponse,
+    PositionReviewFeedbackRequest,
+    PositionReviewFeedbackResponse,
+    PositionReviewRequest,
+    PositionReviewResponse,
     ReviewPositionResponse,
     ScanResponse,
 )
@@ -252,6 +257,47 @@ class ScannerService:
             changed_squares=int(review["changed_squares"]),
             lichess_url=lichess_analysis_url(full_fen, orientation=orientation),
         )
+
+    def create_position_review(self, request: PositionReviewRequest) -> PositionReviewResponse:
+        if request.feedback_id is None:
+            raise ValueError("A confirmed feedback ID is required")
+        review_id = uuid.uuid4().hex
+        response = build_position_review(request, review_id=review_id)
+        self.database.save_position_review(
+            review_id=review_id,
+            feedback_id=request.feedback_id,
+            fen=response.fen,
+            schema_version=response.schema_version,
+            engine=response.engine,
+            request=request.model_dump(mode="json"),
+            response=response.model_dump(mode="json"),
+        )
+        return response
+
+    def get_position_review(self, review_id: str) -> PositionReviewResponse:
+        try:
+            return PositionReviewResponse.model_validate(
+                self.database.position_review_run(review_id)
+            )
+        except ValueError as exc:
+            raise StoredDataIntegrityError(
+                f"Stored position review is invalid: {review_id}"
+            ) from exc
+
+    def add_position_review_feedback(
+        self,
+        review_id: str,
+        request: PositionReviewFeedbackRequest,
+    ) -> PositionReviewFeedbackResponse:
+        feedback_id = uuid.uuid4().hex
+        self.database.append_position_review_feedback(
+            feedback_id=feedback_id,
+            review_id=review_id,
+            rating=request.rating,
+            reason=request.reason,
+            detail=request.detail,
+        )
+        return PositionReviewFeedbackResponse(feedback_id=feedback_id)
 
     def source_path(self, scan_id: str) -> Path:
         return self.database.source_image_path(scan_id)
