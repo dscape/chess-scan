@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from chess_scan.board import build_full_fen, labels_to_board_fen, lichess_analysis_url
+import pytest
+
+from chess_scan.board import (
+    build_full_fen,
+    labels_to_board_fen,
+    lichess_analysis_url,
+    validate_full_fen,
+)
 
 
 def test_labels_to_board_fen() -> None:
@@ -22,3 +29,11 @@ def test_full_fen_and_lichess_url() -> None:
     assert lichess_analysis_url(fen, orientation="white") == (
         "https://lichess.org/analysis/4k3/8/8/8/8/8/8/4K3_b_-_-_0_1?color=white"
     )
+
+
+def test_validate_full_fen_rejects_an_invalid_position() -> None:
+    board = validate_full_fen("4k3/8/8/8/8/8/8/4K3 w - - 0 1")
+    assert board.fen() == "4k3/8/8/8/8/8/8/4K3 w - - 0 1"
+
+    with pytest.raises(ValueError, match="Expected exactly one white king; found 2"):
+        validate_full_fen("2R1K1nr/pp3ppp/q1n1p3/2bpP3/P7/1PP2N2/2Q2PPP/RNB1K2R w - - 0 1")

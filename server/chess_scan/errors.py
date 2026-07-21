@@ -15,6 +15,10 @@ class ScanExpiredError(ScanStateError):
     pass
 
 
+class StoredDataIntegrityError(RuntimeError):
+    """Persisted immutable data cannot be interpreted safely."""
+
+
 class ModelArtifactError(ValueError):
     """A registered model artifact does not match its integrity metadata."""
 

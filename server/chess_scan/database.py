@@ -286,6 +286,20 @@ class Database:
             "rectified_image_path": str(scan["rectified_image_path"]),
         }
 
+    def review_position(self, feedback_id: str) -> dict[str, Any]:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT id AS feedback_id, final_fen, orientation, changed_squares
+                FROM feedback_events
+                WHERE id = ? AND event_type = 'confirmed'
+                """,
+                (feedback_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Unknown review: {feedback_id}")
+        return dict(row)
+
     def get_active_model(self) -> dict[str, Any]:
         with closing(self._connect()) as connection:
             row = connection.execute(

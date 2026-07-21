@@ -12,7 +12,7 @@ import pytest
 from chess_scan.classifier import ModelManager
 from chess_scan.config import Settings
 from chess_scan.database import Database
-from chess_scan.errors import ScanExpiredError
+from chess_scan.errors import ScanExpiredError, StoredDataIntegrityError
 from chess_scan.service import ScannerService
 
 
@@ -27,6 +27,26 @@ def test_scan_rejects_an_image_without_a_complete_aligned_grid(tmp_path: Path) -
 
     assert not list((settings.data_dir / "source-temp").iterdir())
     assert not list((settings.data_dir / "rectified").iterdir())
+
+
+def test_review_position_rejects_an_invalid_stored_fen(tmp_path: Path) -> None:
+    service, database, settings = _service(tmp_path)
+    _create_scan_files(database, settings, scan_id="invalid-review")
+    database.confirm_scan(
+        feedback_id="invalid-feedback",
+        scan_id="invalid-review",
+        labels=[0] * 64,
+        orientation="white",
+        side_to_move="w",
+        castling="-",
+        en_passant="-",
+        full_fen="8/8/8/8/8/8/8/8 w - - 0 1",
+        consent_training=False,
+        client_session_id=None,
+    )
+
+    with pytest.raises(StoredDataIntegrityError, match="Stored review data is invalid"):
+        service.review_position("invalid-feedback")
 
 
 def test_cleanup_reconciles_confirmed_and_orphaned_files(tmp_path: Path) -> None:

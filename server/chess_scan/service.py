@@ -14,10 +14,11 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from chess_scan.board import build_full_fen, fen_warnings, lichess_analysis_url, validate_full_fen
+from chess_scan.board import build_full_fen, lichess_analysis_url, validate_full_fen
 from chess_scan.classifier import BoardPrediction, ModelManager
 from chess_scan.config import Settings
 from chess_scan.database import Database
+from chess_scan.errors import StoredDataIntegrityError
 from chess_scan.geometry import (
     DETECTION_MAX_DIMENSION,
     board_grid_fits,
@@ -32,6 +33,7 @@ from chess_scan.schemas import (
     ConfirmRequest,
     ConfirmResponse,
     LearningStatusResponse,
+    ReviewPositionResponse,
     ScanResponse,
 )
 
@@ -230,7 +232,25 @@ class ScannerService:
             full_fen=full_fen,
             lichess_url=lichess_analysis_url(full_fen, orientation=request.orientation),
             changed_squares=int(confirmed["changed_squares"]),
-            warnings=fen_warnings(full_fen),
+            warnings=[],
+        )
+
+    def review_position(self, feedback_id: str) -> ReviewPositionResponse:
+        review = self.database.review_position(feedback_id)
+        try:
+            orientation = str(review["orientation"])
+            if orientation not in {"white", "black"}:
+                raise ValueError(f"Invalid stored review orientation: {orientation}")
+            full_fen = str(review["final_fen"])
+            validate_full_fen(full_fen)
+        except ValueError as exc:
+            raise StoredDataIntegrityError(f"Stored review data is invalid: {feedback_id}") from exc
+        return ReviewPositionResponse(
+            feedback_id=str(review["feedback_id"]),
+            full_fen=full_fen,
+            orientation=orientation,
+            changed_squares=int(review["changed_squares"]),
+            lichess_url=lichess_analysis_url(full_fen, orientation=orientation),
         )
 
     def source_path(self, scan_id: str) -> Path:

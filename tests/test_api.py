@@ -4,6 +4,7 @@ import asyncio
 import io
 import json
 import shutil
+import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -59,11 +60,11 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert client.get(restored["source_image_url"]).status_code == 200
         assert client.get(restored["rectified_image_url"]).status_code == 200
 
-        labels = scan["labels"]
+        predicted_labels = scan["labels"]
         invalid_confirm = client.post(
             f"/api/scans/{scan['scan_id']}/confirm",
             json={
-                "labels": labels,
+                "labels": predicted_labels,
                 "orientation": "white",
                 "side_to_move": "w",
                 "castling": "KK",
@@ -72,6 +73,20 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         )
         assert invalid_confirm.status_code == 422
 
+        invalid_position = client.post(
+            f"/api/scans/{scan['scan_id']}/confirm",
+            json={
+                "labels": [0] * 64,
+                "orientation": "white",
+                "side_to_move": "w",
+            },
+        )
+        assert invalid_position.status_code == 409
+        assert "Expected exactly one white king" in invalid_position.json()["detail"]
+
+        labels = [0] * 64
+        labels[4] = 12
+        labels[60] = 6
         confirm_response = client.post(
             f"/api/scans/{scan['scan_id']}/confirm",
             json={
@@ -83,7 +98,84 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
             },
         )
         assert confirm_response.status_code == 200, confirm_response.text
-        assert confirm_response.json()["changed_squares"] == 0
+        confirmation = confirm_response.json()
+        assert confirmation["warnings"] == []
+        assert confirmation["changed_squares"] == sum(
+            predicted != corrected
+            for predicted, corrected in zip(predicted_labels, labels, strict=True)
+        )
+
+        review_position = client.get(f"/api/reviews/{confirmation['feedback_id']}")
+        assert review_position.status_code == 200, review_position.text
+        assert review_position.json()["full_fen"] == confirmation["full_fen"]
+        assert review_position.json()["orientation"] == "white"
+        assert client.get("/api/reviews/missing").status_code == 404
+
+        topics_response = client.get("/api/review-topics")
+        assert topics_response.status_code == 200
+        topic_registry = topics_response.json()
+        assert topic_registry["version"] == "chess-scan-curriculum-1"
+        assert len(topic_registry["topics"]) == 144
+        assert all("handler" not in topic for topic in topic_registry["topics"])
+
+        lesson_response = client.post(
+            "/api/position-reviews",
+            json={
+                "fen": "8/7k/8/8/2r5/8/4Q3/4K3 w - - 0 1",
+                "study_level": 2,
+                "mode": "mix",
+                "lines": [
+                    {
+                        "multipv": 1,
+                        "depth": 18,
+                        "score": {"kind": "cp", "value": 520},
+                        "wdl": [930, 69, 1],
+                        "pv": ["e2e4", "h7g8", "e4c4"],
+                    }
+                ],
+            },
+        )
+        assert lesson_response.status_code == 200, lesson_response.text
+        lesson = lesson_response.json()
+        assert lesson["best_move"] == {"uci": "e2e4", "san": "Qe4+"}
+        assert lesson["primary_finding"]["topic"] == "Double attack: queen"
+        assert lesson["engine"] == "Stockfish 18 lite"
+        assert lesson["lines"][0]["score"]["bound"] is None
+        assert lesson["lines"][0]["wdl"] == [930, 69, 1]
+        assert lesson["verbalizer"] == "mock"
+        assert "orientation_prompt" not in lesson
+        assert "hints" not in lesson
+
+        forced_mate_response = client.post(
+            "/api/position-reviews",
+            json={
+                "fen": "7k/5Q2/6K1/8/8/8/8/8 w - - 0 1",
+                "study_level": 2,
+                "mode": "general",
+                "lines": [
+                    {
+                        "multipv": 1,
+                        "depth": 245,
+                        "score": {"kind": "mate", "value": 1},
+                        "pv": ["f7f8"],
+                    }
+                ],
+            },
+        )
+        assert forced_mate_response.status_code == 200, forced_mate_response.text
+        assert forced_mate_response.json()["best_move"] == {"uci": "f7f8", "san": "Qf8#"}
+        assert forced_mate_response.json()["lines"][0]["wdl"] is None
+
+        with sqlite3.connect(settings.data_dir / "chess-scan.sqlite3") as connection:
+            connection.execute(
+                "UPDATE feedback_events SET final_fen = ? WHERE id = ?",
+                ("8/8/8/8/8/8/8/8 w - - 0 1", confirmation["feedback_id"]),
+            )
+            connection.commit()
+        invalid_stored_review = client.get(f"/api/reviews/{confirmation['feedback_id']}")
+        assert invalid_stored_review.status_code == 500
+        assert invalid_stored_review.json()["detail"] == "Stored review data is invalid"
+
         source_path = settings.data_dir / "source-temp" / f"{scan['scan_id']}.jpg"
         assert not source_path.exists()
         assert (settings.data_dir / "rectified" / f"{scan['scan_id']}.jpg").exists()
@@ -119,6 +211,7 @@ def test_request_limit_and_api_fallback(tmp_path: Path) -> None:
         assert oversized.status_code == 413
         assert client.get("/api/not-a-route").status_code == 404
         assert client.get("/some/client/route").text == "<html>app</html>"
+        assert client.get("/reviews/0123456789abcdef0123456789abcdef").text == "<html>app</html>"
 
 
 def test_unknown_length_body_is_bounded_and_busy_upload_is_rejected_before_reading() -> None:
