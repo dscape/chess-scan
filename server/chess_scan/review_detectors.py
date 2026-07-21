@@ -11,8 +11,6 @@ from dataclasses import dataclass
 
 import chess
 
-from chess_scan.review_topics import REVIEW_TOPICS, TopicCapability
-
 PIECE_VALUES = {
     chess.PAWN: 1,
     chess.KNIGHT: 3,
@@ -1182,9 +1180,7 @@ POSITION_EVALUATORS: tuple[Callable[[ReviewContext], DetectedSubject | None], ..
     _signature_evaluator("queen_endgame", {chess.QUEEN}, both_sides=chess.QUEEN),
 )
 
-# The registry distinguishes automatic evidence, guided teaching policies, history-dependent
-# subjects, and deliberate abstentions that this single-position review cannot yet prove.
-AUTOMATIC_HANDLERS = {
+DETECTABLE_HANDLERS = {
     "activity",
     "blocking",
     "breakthrough",
@@ -1226,40 +1222,6 @@ AUTOMATIC_HANDLERS = {
     "wrong_bishop",
     "xray",
 }
-POLICY_HANDLERS = {
-    "board_vision",
-    "chess_problem",
-    "mixed_review",
-    "notation",
-    "route_planner",
-    "rules",
-    "thinking_ahead",
-}
-HISTORY_HANDLERS = {"opening_history"}
-UNSUPPORTED_HANDLERS = {
-    "bishop_knight",
-    "bishop_pawn_endgame",
-    "bishops",
-    "endgame_strategy",
-    "key_square",
-    "mini_plan",
-    "pawn_structure",
-    "rook_pawn_endgame",
-    "strategy",
-    "vulnerability",
-    "zugzwang",
-}
-
-
-def registry_handlers_are_complete() -> bool:
-    by_capability = {
-        TopicCapability.DETECTOR: AUTOMATIC_HANDLERS,
-        TopicCapability.EVALUATOR: AUTOMATIC_HANDLERS,
-        TopicCapability.POLICY: POLICY_HANDLERS,
-        TopicCapability.HISTORY_REQUIRED: HISTORY_HANDLERS,
-        TopicCapability.UNSUPPORTED: UNSUPPORTED_HANDLERS,
-    }
-    return all(topic.handler in by_capability[topic.capability] for topic in REVIEW_TOPICS)
 
 
 SUBJECT_PRIORITY = {

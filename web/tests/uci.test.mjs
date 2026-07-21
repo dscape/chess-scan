@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  isStablePrimary,
+  isMatchingPrimary,
   parseBestMove,
   parseInfoLine,
   parseUciMove,
 } from "../src/engine/uci.ts";
 
-test("parses a complete MultiPV line without conflating score and WDL", () => {
+test("parses a complete engine line and ignores optional WDL output", () => {
   const line = parseInfoLine(
     "info depth 24 seldepth 31 multipv 2 score cp -137 nodes 456789 wdl 12 341 647 pv e2e4 e7e5 g1f3",
   );
@@ -17,7 +17,6 @@ test("parses a complete MultiPV line without conflating score and WDL", () => {
     multipv: 2,
     depth: 24,
     score: { kind: "cp", value: -137 },
-    wdl: [12, 341, 647],
     pv: ["e2e4", "e7e5", "g1f3"],
   });
 });
@@ -34,12 +33,11 @@ test("preserves mate scores and bound status", () => {
   );
 });
 
-test("rejects incomplete info and invalid WDL while bounding the PV", () => {
+test("rejects incomplete info while bounding the principal variation", () => {
   assert.equal(parseInfoLine("info depth 12 nodes 42"), null);
   const moves = Array.from({ length: 30 }, (_, index) => index % 2 === 0 ? "e2e4" : "e7e5");
   const line = parseInfoLine(`info depth 12 score cp 10 wdl 1 2 3 pv ${moves.join(" ")}`);
 
-  assert.equal(line?.wdl, undefined);
   assert.equal(line?.pv.length, 24);
 });
 
@@ -52,17 +50,15 @@ test("rejects malformed PV moves and explicit invalid MultiPV indexes", () => {
   assert.equal(parseInfoLine("info depth 12 multipv 6 score cp 10 pv e2e4"), null);
 });
 
-test("requires repeated exact principal moves before teaching from a line", () => {
+test("requires the final principal line to match the engine's best move", () => {
   const primary = parseInfoLine("info depth 18 score cp 42 pv e2e4 e7e5");
 
-  assert.equal(isStablePrimary("e2e4", primary, ["e2e4", "e2e4", "e2e4"]), true);
-  assert.equal(isStablePrimary("e2e4", primary, ["d2d4", "e2e4"]), false);
-  assert.equal(isStablePrimary("d2d4", primary, ["d2d4", "d2d4"]), false);
+  assert.equal(isMatchingPrimary("e2e4", primary), true);
+  assert.equal(isMatchingPrimary("d2d4", primary), false);
   assert.equal(
-    isStablePrimary(
+    isMatchingPrimary(
       "e2e4",
       parseInfoLine("info depth 19 score cp 50 upperbound pv e2e4 e7e5"),
-      ["e2e4", "e2e4"],
     ),
     false,
   );

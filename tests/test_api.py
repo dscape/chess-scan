@@ -111,60 +111,51 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert review_position.json()["orientation"] == "white"
         assert client.get("/api/reviews/missing").status_code == 404
 
-        topics_response = client.get("/api/review-topics")
-        assert topics_response.status_code == 200
-        topic_registry = topics_response.json()
-        assert topic_registry["version"] == "chess-scan-curriculum-1"
-        assert len(topic_registry["topics"]) == 144
-        assert all("handler" not in topic for topic in topic_registry["topics"])
+        assert client.get("/api/review-topics").status_code == 404
 
-        lesson_response = client.post(
+        review_response = client.post(
             "/api/position-reviews",
             json={
                 "fen": "8/7k/8/8/2r5/8/4Q3/4K3 w - - 0 1",
-                "study_level": 2,
-                "mode": "mix",
-                "lines": [
-                    {
-                        "multipv": 1,
-                        "depth": 18,
-                        "score": {"kind": "cp", "value": 520},
-                        "wdl": [930, 69, 1],
-                        "pv": ["e2e4", "h7g8", "e4c4"],
-                    }
-                ],
+                "line": {
+                    "multipv": 1,
+                    "depth": 18,
+                    "score": {"kind": "cp", "value": 520},
+                    "pv": ["e2e4", "h7g8", "e4c4"],
+                },
             },
         )
-        assert lesson_response.status_code == 200, lesson_response.text
-        lesson = lesson_response.json()
-        assert lesson["best_move"] == {"uci": "e2e4", "san": "Qe4+"}
-        assert lesson["primary_finding"]["topic"] == "Double attack: queen"
-        assert lesson["engine"] == "Stockfish 18 lite"
-        assert lesson["lines"][0]["score"]["bound"] is None
-        assert lesson["lines"][0]["wdl"] == [930, 69, 1]
-        assert lesson["verbalizer"] == "mock"
-        assert "orientation_prompt" not in lesson
-        assert "hints" not in lesson
+        assert review_response.status_code == 200, review_response.text
+        position_review = review_response.json()
+        assert position_review["best_move"] == {"uci": "e2e4", "san": "Qe4+"}
+        assert position_review["topic"] == {"id": "double-attack", "name": "Double attack"}
+        assert position_review["engine"] == "Stockfish 18 lite"
+        assert position_review["score"]["value"] == 520
+        assert position_review["hint"]["squares"] == ["h7", "c4"]
+        assert position_review["explanation"][0]["arrows"][0] == {
+            "from_square": "e2",
+            "to_square": "e4",
+            "kind": "move",
+        }
+        assert "lines" not in position_review
+        assert "verbalizer" not in position_review
 
         forced_mate_response = client.post(
             "/api/position-reviews",
             json={
                 "fen": "7k/5Q2/6K1/8/8/8/8/8 w - - 0 1",
-                "study_level": 2,
-                "mode": "general",
-                "lines": [
-                    {
-                        "multipv": 1,
-                        "depth": 245,
-                        "score": {"kind": "mate", "value": 1},
-                        "pv": ["f7f8"],
-                    }
-                ],
+                "line": {
+                    "multipv": 1,
+                    "depth": 245,
+                    "score": {"kind": "mate", "value": 1},
+                    "pv": ["f7f8"],
+                },
             },
         )
         assert forced_mate_response.status_code == 200, forced_mate_response.text
-        assert forced_mate_response.json()["best_move"] == {"uci": "f7f8", "san": "Qf8#"}
-        assert forced_mate_response.json()["lines"][0]["wdl"] is None
+        forced_mate = forced_mate_response.json()
+        assert forced_mate["best_move"] == {"uci": "f7f8", "san": "Qf8#"}
+        assert forced_mate["score"] == {"kind": "mate", "value": 1, "bound": None}
 
         with sqlite3.connect(settings.data_dir / "chess-scan.sqlite3") as connection:
             connection.execute(

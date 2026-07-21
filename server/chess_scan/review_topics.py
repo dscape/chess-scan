@@ -1,239 +1,250 @@
-"""Versioned learning-topic registry for position reviews.
-
-The registry uses general chess terminology and an independent Chess Scan taxonomy. Every
-curriculum entry is classified explicitly so that non-detectable lesson formats never become
-fabricated detector findings.
-"""
+# ruff: noqa: E501
+"""Human-authored copy for topics a single position can prove."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
-
-
-class TopicCapability(StrEnum):
-    DETECTOR = "detector"
-    EVALUATOR = "evaluator"
-    POLICY = "policy"
-    HISTORY_REQUIRED = "history_required"
-    UNSUPPORTED = "unsupported"
-
-
-TOPIC_REGISTRY_VERSION = "chess-scan-curriculum-1"
-
-
-class Course(StrEnum):
-    BASIC = "basic"
-    PLUS = "plus"
 
 
 @dataclass(frozen=True, slots=True)
 class ReviewTopic:
     id: str
     name: str
-    level: int
-    course: Course
-    capability: TopicCapability
-    handler: str
+    hint: str
+    idea: str
 
 
-def topics_for_level(level: int, *, include_plus: bool = True) -> tuple[ReviewTopic, ...]:
-    if level not in range(1, 7):
-        raise ValueError("Study level must be between 1 and 6")
-    return tuple(
-        topic
-        for topic in REVIEW_TOPICS
-        if topic.level <= level and (include_plus or topic.course is Course.BASIC)
-    )
+_TOPIC_COPY = {
+    "activity": (
+        "Piece activity",
+        "Look for the piece that can join the game with tempo or reach a more useful square.",
+        "Active pieces create threats and restrict replies. The move improves a piece while making the opponent react.",
+    ),
+    "blocking": (
+        "Blocking",
+        "Find the important line between the attacking piece and its target. Can anything step into it?",
+        "The move interrupts a line of attack. Once the route is blocked, the opponent's pieces stop working together.",
+    ),
+    "breakthrough": (
+        "Breakthrough",
+        "The position is closed for now. Look for a forcing move that opens one route through it.",
+        "The move gives up stability to open a file, rank, or diagonal that matters more than the material invested.",
+    ),
+    "chasing_targeting": (
+        "Chasing a target",
+        "Which enemy piece has the fewest comfortable squares? Gain time by making it move again.",
+        "The target is forced away while the attacking piece improves. That extra tempo is the point of the move.",
+    ),
+    "check": (
+        "Answer the check",
+        "Your king is under attack, so solve that first. Compare moving, capturing, and blocking.",
+        "A legal answer to check must move the king, capture the checking piece, or block the line of attack.",
+    ),
+    "clearing": (
+        "Clearance",
+        "One of your own pieces is occupying a useful line or square. Ask where it could move with tempo.",
+        "The first piece moves away so another piece can use the line or square it leaves behind.",
+    ),
+    "defence": (
+        "Defence",
+        "Before attacking, identify what is already under threat and find the least passive way to save it.",
+        "The move meets the immediate threat without surrendering the initiative, often by creating a threat in return.",
+    ),
+    "discovered_attack": (
+        "Discovered attack",
+        "Two of your pieces are lined up. Can the front piece move with tempo and uncover the one behind it?",
+        "Moving the front piece releases a hidden line of attack, so one move creates pressure from two pieces.",
+    ),
+    "double_attack": (
+        "Double attack",
+        "Look for one move that asks two questions at once. Checks are useful because they force the first answer.",
+        "The move attacks two important targets at the same time. The forced reply leaves too little time to save both.",
+    ),
+    "draw": (
+        "Drawing resource",
+        "Do not assume the position must be won or lost. Check stalemate, repetition, and forcing exchanges.",
+        "The position contains a concrete resource that removes the opponent's winning chances.",
+    ),
+    "eliminate_defence": (
+        "Remove the defender",
+        "A target looks protected. Identify the piece doing the protecting and ask whether it can be exchanged or driven away.",
+        "The first move removes a key defender, and the formerly protected target can no longer be held.",
+    ),
+    "interference": (
+        "Interference",
+        "Find two enemy pieces that depend on the same line. Can you place something between them?",
+        "The move cuts the connection between two defending pieces, leaving one of their jobs uncovered.",
+    ),
+    "intermediate_move": (
+        "In-between move",
+        "Before making the obvious recapture, look for a check, capture, or threat that the opponent must answer first.",
+        "Instead of completing the expected exchange, the move inserts a more urgent threat and changes the move order.",
+    ),
+    "king_attack": (
+        "King attack",
+        "Count the attackers and defenders around the king, then look for a way to bring in one more piece with tempo.",
+        "The move increases the number or quality of attackers around the king faster than the defence can reorganise.",
+    ),
+    "luring": (
+        "Luring",
+        "Is a defender safe only because it stands on the right square? Look for a forcing offer that draws it away.",
+        "The opponent is tempted or forced onto a square where a second tactical idea becomes possible.",
+    ),
+    "magnet": (
+        "Magnet",
+        "Can a forcing offer pull the king onto a less safe square? Calculate the checks that follow.",
+        "The offered piece acts like a magnet, drawing the king onto the exact square needed for the follow-up.",
+    ),
+    "mate": (
+        "Checkmate",
+        "The king has fewer safe squares than it appears. Start with forcing checks and test every capture and block.",
+        "The move closes the king's remaining escape route while keeping every answer covered.",
+    ),
+    "mate_technique": (
+        "Mating technique",
+        "Keep the enemy king boxed in and bring your pieces closer without allowing stalemate.",
+        "The move reduces the king's available space and keeps the mating net under control.",
+    ),
+    "material": (
+        "Winning material",
+        "Look for loose pieces and forcing captures. Count what is taken, what can recapture, and what remains attacked.",
+        "The sequence wins material because the opponent cannot restore the balance after the forcing moves.",
+    ),
+    "material_advantage": (
+        "Use the extra material",
+        "When ahead, reduce counterplay. Look for a safe exchange or a way to make every piece useful.",
+        "The move turns an existing material edge into a simpler position with fewer chances for the opponent.",
+    ),
+    "mobility": (
+        "Mobility",
+        "Compare which pieces have useful squares and which are boxed in. Improve the least effective piece.",
+        "The move increases useful choices while taking squares away from the opponent's pieces.",
+    ),
+    "open_file": (
+        "Open file",
+        "Find the file with no pawn blocking it. Which heavy piece can claim it or enter the opponent's position?",
+        "A rook or queen uses the open file as an entry route, creating pressure that pawns cannot easily chase away.",
+    ),
+    "opening": (
+        "Development",
+        "Improve an undeveloped piece, contest the centre, or make the king safer—preferably two of those at once.",
+        "Several pieces are still on their starting squares, so development and king safety frame the choice. First deal with anything urgent, then improve the least useful piece.",
+    ),
+    "passed_pawn": (
+        "Passed pawn",
+        "Find the pawn with no enemy pawn in front of it or on a neighbouring file. Can it advance with tempo?",
+        "The passed pawn creates a promotion threat that forces enemy pieces into a passive defensive role.",
+    ),
+    "pawn_endgame": (
+        "Pawn ending",
+        "King activity comes first. Calculate opposition, pawn races, and whether each pawn move can be taken back.",
+        "In a pawn ending, one king step or pawn tempo can decide who reaches the critical square first.",
+    ),
+    "pawn_race": (
+        "Pawn race",
+        "Count both races all the way to promotion, including checks after a new queen appears.",
+        "The move wins the race because promotion arrives with the right tempo or because the new queen gives check.",
+    ),
+    "pawn_square": (
+        "The pawn's square",
+        "Picture the pawn's square to see whether the king can catch it without calculating every step.",
+        "The king's route and the pawn's promotion race are decided by whether the king can enter the pawn's square.",
+    ),
+    "pin": (
+        "Pin",
+        "Look along files, ranks, and diagonals for a piece that cannot move without exposing something more valuable.",
+        "The pinned piece is not free to move, so it can be attacked again or treated as an unreliable defender.",
+    ),
+    "promotion": (
+        "Promotion",
+        "A pawn is close to the back rank. Check every promotion piece—not only the queen—and note any forcing check.",
+        "Promotion changes the material immediately, and the choice of piece can create the exact check or defence required.",
+    ),
+    "queen_endgame": (
+        "Queen ending",
+        "Keep checking distance, king safety, and passed pawns in view. A forcing check can change everything.",
+        "Queen endings revolve around checks and tempo; the move improves the position while limiting counterchecks.",
+    ),
+    "queen_pawn": (
+        "Queen against pawn",
+        "Use checks to approach the pawn and force the king in front of it before bringing your own king closer.",
+        "The queen gains time through checks, then blocks the pawn so the king can finish the job.",
+    ),
+    "rook_endgame": (
+        "Rook ending",
+        "Activate the rook. Checks from the side or behind a passed pawn are usually more useful than passive defence.",
+        "The rook becomes active behind or beside the pawns, where it can attack and check at the same time.",
+    ),
+    "rook_pawn": (
+        "Rook pawn",
+        "The edge of the board changes the geometry. Check whether the king has enough room to support promotion.",
+        "A rook pawn has fewer neighbouring squares, so king placement and the corner square become decisive.",
+    ),
+    "seventh_rank": (
+        "The seventh rank",
+        "Look for an entry onto the opponent's second rank, where pawns and the king can be attacked from the side.",
+        "A heavy piece on the seventh rank attacks several targets at once and restricts the enemy king.",
+    ),
+    "strong_square": (
+        "Strong square",
+        "Find a square in enemy territory that cannot be challenged by a pawn. Which piece would be hardest to remove there?",
+        "The piece occupies a stable outpost where it controls important squares without being chased by a pawn.",
+    ),
+    "threat": (
+        "Create a threat",
+        "If no forcing move works immediately, find a move that makes one unavoidable on the next turn.",
+        "The move creates a concrete next-move threat, forcing the opponent to abandon their own plan.",
+    ),
+    "trapping": (
+        "Trap a piece",
+        "Which enemy piece is short of safe squares? Cover its exits before trying to attack it directly.",
+        "The move removes an escape square, and the target no longer has a safe route out.",
+    ),
+    "weak_pawn": (
+        "Weak pawn",
+        "Find the pawn that cannot be defended by another pawn. Can you pile up on it without creating a weakness of your own?",
+        "The move fixes a pawn as a long-term target and brings another attacker into the pressure.",
+    ),
+    "wrong_bishop": (
+        "Wrong bishop",
+        "Compare the bishop's colour with the pawn's promotion corner before assuming the extra pawn wins.",
+        "The bishop cannot control the rook pawn's promotion corner, which gives the defending king a drawing fortress.",
+    ),
+    "xray": (
+        "X-ray",
+        "Look through the first piece on a file, rank, or diagonal. What becomes exposed if that piece moves?",
+        "The long-range piece attacks through an intervening piece, so moving or exchanging the blocker reveals the target behind it.",
+    ),
+}
 
+REVIEW_TOPICS = {
+    handler: ReviewTopic(handler.replace("_", "-"), *copy) for handler, copy in _TOPIC_COPY.items()
+}
 
-def topic_by_id(topic_id: str) -> ReviewTopic:
-    try:
-        return TOPICS_BY_ID[topic_id]
-    except KeyError as exc:
-        raise KeyError(f"Unknown review topic: {topic_id}") from exc
+FORK_TOPICS = {
+    "two_targets_knight": ReviewTopic(
+        "knight-fork",
+        "Knight fork",
+        "Look for a checking jump that also attacks a valuable piece. The check may make the second target impossible to save.",
+        "The knight lands with two attacks at once. Because one target is the king, the other target must wait.",
+    ),
+    "two_targets_pawn": ReviewTopic(
+        "pawn-fork",
+        "Pawn fork",
+        "A pawn attack can be easy to overlook. Find an advance that attacks two pieces from its new square.",
+        "The pawn advances with tempo and attacks two pieces at once, so at least one target is lost.",
+    ),
+}
 
-
-def _topic(
-    level: int,
-    course: Course,
-    slug: str,
-    name: str,
-    capability: TopicCapability,
-    handler: str,
-) -> ReviewTopic:
-    return ReviewTopic(
-        id=f"level-{level}.{course.value}.{slug}",
-        name=name,
-        level=level,
-        course=course,
-        capability=capability,
-        handler=handler,
-    )
-
-
-D = TopicCapability.DETECTOR
-E = TopicCapability.EVALUATOR
-P = TopicCapability.POLICY
-H = TopicCapability.HISTORY_REQUIRED
-U = TopicCapability.UNSUPPORTED
-B = Course.BASIC
-X = Course.PLUS
-
-REVIEW_TOPICS = (
-    # Level 1 — rules, board vision, one-move material, mate, and defence.
-    _topic(1, B, "board-and-pieces", "The board and the pieces", P, "rules"),
-    _topic(1, B, "piece-movement", "How the pieces move", P, "rules"),
-    _topic(1, B, "attack-and-capture", "Attack and capture", D, "material"),
-    _topic(1, B, "pawn", "The pawn", P, "rules"),
-    _topic(1, B, "defending", "Defending", D, "defence"),
-    _topic(1, B, "check", "Check", E, "check"),
-    _topic(1, B, "mate-one", "Mate in one", D, "mate"),
-    _topic(1, B, "mate-two", "Mate patterns", D, "mate"),
-    _topic(1, B, "castling", "Castling", P, "rules"),
-    _topic(1, B, "profitable-exchange", "The profitable exchange", D, "material"),
-    _topic(1, B, "twofold-attack", "The twofold attack", D, "double_attack"),
-    _topic(1, B, "draws", "Draws", E, "draw"),
-    _topic(1, B, "mating-with-queen", "Mating with the queen", E, "mate_technique"),
-    _topic(1, B, "en-passant", "Capturing en passant", P, "rules"),
-    _topic(1, B, "notation", "Notation", P, "notation"),
-    _topic(1, X, "winning-material", "Winning material", D, "material"),
-    _topic(1, X, "defending", "Defending", D, "defence"),
-    _topic(1, X, "mate", "Mate", D, "mate"),
-    _topic(1, X, "board-vision", "Board vision", P, "board_vision"),
-    _topic(1, X, "defending-against-mate", "Defending against mate", D, "defence"),
-    _topic(1, X, "draws", "Draws", E, "draw"),
-    _topic(1, X, "creating-mate", "Creating mate", D, "mate"),
-    _topic(1, X, "passed-pawn", "The passed pawn", E, "passed_pawn"),
-    # Level 2 — targets and the foundational tactical building blocks.
-    _topic(2, B, "activity", "Activity", E, "activity"),
-    _topic(2, B, "double-attack-one", "Double attack: queen", D, "double_attack"),
-    _topic(2, B, "double-attack-two", "Double attack: knight", D, "double_attack"),
-    _topic(2, B, "pin", "The pin", D, "pin"),
-    _topic(2, B, "eliminating-defence", "Eliminating the defence", D, "eliminate_defence"),
-    _topic(2, B, "golden-rules", "The opening rules", E, "opening"),
-    _topic(2, B, "mate-in-two", "Mate in two", D, "mate"),
-    _topic(2, B, "double-attack-pieces", "Double attack: pieces", D, "double_attack"),
-    _topic(2, B, "mating-with-rook", "Mating with the rook", E, "mate_technique"),
-    _topic(2, B, "discovered-attack", "Discovered attack", D, "discovered_attack"),
-    _topic(2, B, "defending-against-mate", "Defending against mate", D, "defence"),
-    _topic(2, B, "intermediate-move", "The intermediate move", D, "intermediate_move"),
-    _topic(2, B, "solving-tests", "Solving mixed positions", P, "mixed_review"),
-    _topic(2, X, "mate", "Mate", D, "mate"),
-    _topic(2, X, "pawn-endings", "Pawn endings", E, "pawn_endgame"),
-    _topic(2, X, "opening", "The opening", H, "opening_history"),
-    _topic(2, X, "defending", "Defending", D, "defence"),
-    _topic(2, X, "route-planner", "Route planner", P, "route_planner"),
-    _topic(2, X, "working-out-mate", "Working out mate", P, "thinking_ahead"),
-    _topic(2, X, "stalemate", "Stalemate", E, "draw"),
-    _topic(2, X, "winning-material", "Winning material", D, "material"),
-    _topic(2, X, "playing-rules", "Playing rules", P, "rules"),
-    # Level 3 — tactical characteristics, defence, plans, and elementary endings.
-    _topic(3, B, "completing-opening", "Completing the opening", E, "opening"),
-    _topic(3, B, "discovered-double-check", "Discovered and double check", D, "discovered_attack"),
-    _topic(3, B, "attacking-pinned-piece", "Attacking a pinned piece", D, "pin"),
-    _topic(3, B, "mate-access", "Mate after gaining access", D, "mate"),
-    _topic(3, B, "square-of-pawn", "The square of the pawn", E, "pawn_square"),
-    _topic(3, B, "eliminating-defence", "Eliminating the defence", D, "eliminate_defence"),
-    _topic(3, B, "defending-double-attack", "Defending against a double attack", D, "defence"),
-    _topic(3, B, "mini-plans", "Mini-plans", U, "mini_plan"),
-    _topic(3, B, "draws", "Draws", E, "draw"),
-    _topic(3, B, "x-ray", "X-ray", D, "xray"),
-    _topic(3, B, "opening", "The opening", H, "opening_history"),
-    _topic(3, B, "defending-pin", "Defending against a pin", D, "defence"),
-    _topic(3, B, "mobility", "Mobility", E, "mobility"),
-    _topic(3, B, "key-squares-one", "Key squares", U, "key_square"),
-    _topic(3, B, "pinned-pieces", "Pinned pieces", D, "pin"),
-    _topic(3, B, "threats", "Threats", D, "threat"),
-    _topic(3, B, "key-squares-two", "Key squares: applying the method", U, "key_square"),
-    _topic(3, X, "x-ray-effect", "The X-ray effect", D, "xray"),
-    _topic(3, X, "pinned-pieces", "Pinned pieces", D, "pin"),
-    _topic(3, X, "rook-pawn", "The rook pawn", E, "rook_pawn"),
-    _topic(3, X, "intermediate-move", "The intermediate move", D, "intermediate_move"),
-    _topic(3, X, "opening-vulnerability", "Vulnerability in the opening", H, "opening_history"),
-    _topic(3, X, "mini-plans", "Mini-plans", U, "mini_plan"),
-    _topic(3, X, "mate", "Mate", D, "mate"),
-    _topic(3, X, "elimination-defence", "Elimination of the defence", D, "eliminate_defence"),
-    _topic(3, X, "underpromotion", "Underpromotion", D, "promotion"),
-    _topic(3, X, "development", "Development", E, "opening"),
-    _topic(3, X, "pinning", "Pinning", D, "pin"),
-    _topic(3, X, "defending-mate", "Defending against mate", D, "defence"),
-    _topic(3, X, "square-of-pawn", "The square of the pawn", E, "pawn_square"),
-    _topic(3, X, "discovered-attack", "The discovered attack", D, "discovered_attack"),
-    # Level 4 — preparatory moves, attack, positional targets, and endgame strategy.
-    _topic(4, B, "opening-advantage", "Opening advantage", H, "opening_history"),
-    _topic(4, B, "interfering", "Interfering", D, "interference"),
-    _topic(4, B, "luring", "Luring", D, "luring"),
-    _topic(4, B, "blocking", "Blocking", D, "blocking"),
-    _topic(4, B, "thinking-ahead", "Thinking ahead", P, "thinking_ahead"),
-    _topic(4, B, "pin-luring", "The pin: luring", D, "pin"),
-    _topic(4, B, "passed-pawn", "The passed pawn", E, "passed_pawn"),
-    _topic(4, B, "eliminating-defence", "Eliminating the defence", D, "eliminate_defence"),
-    _topic(4, B, "magnet", "The magnet", D, "magnet"),
-    _topic(4, B, "weak-pawns", "Weak pawns", E, "weak_pawn"),
-    _topic(4, B, "material-advantage", "Material advantage", E, "material_advantage"),
-    _topic(4, B, "chasing-targeting", "Chasing and targeting", D, "chasing_targeting"),
-    _topic(4, B, "attacking-king", "Attacking the king", E, "king_attack"),
-    _topic(4, B, "seventh-rank", "The seventh rank", E, "seventh_rank"),
-    _topic(4, B, "endgame-strategy", "Endgame strategy", U, "endgame_strategy"),
-    _topic(4, B, "clearing", "Clearing", D, "clearing"),
-    _topic(4, B, "queen-against-pawn", "Queen against pawn", E, "queen_pawn"),
-    _topic(4, X, "attacking-king", "Attacking the king", E, "king_attack"),
-    _topic(4, X, "opening-vulnerability", "Vulnerability in the opening", H, "opening_history"),
-    _topic(4, X, "interfering", "Interfering", D, "interference"),
-    _topic(4, X, "blocking", "Blocking", D, "blocking"),
-    _topic(4, X, "draws", "Draws", E, "draw"),
-    _topic(4, X, "trapping", "Trapping", D, "trapping"),
-    _topic(4, X, "mini-plans", "Mini-plans", U, "mini_plan"),
-    _topic(4, X, "pawn-endings", "Pawn endings", E, "pawn_endgame"),
-    _topic(4, X, "discovered-attack", "The discovered attack", D, "discovered_attack"),
-    _topic(4, X, "endgame-technique", "Endgame technique", U, "endgame_strategy"),
-    _topic(4, X, "chess-problems", "Chess problems", P, "chess_problem"),
-    # Level 5 — strategic subjects and more advanced endings.
-    _topic(5, B, "material-and-time", "Material and time", E, "material_advantage"),
-    _topic(5, B, "mate", "Mate", D, "mate"),
-    _topic(5, B, "breakthrough", "Breakthrough", D, "breakthrough"),
-    _topic(5, B, "using-pawns", "How to use pawns", U, "pawn_structure"),
-    _topic(5, B, "pawn-race", "Pawn race", E, "pawn_race"),
-    _topic(5, B, "seventh-rank", "The seventh rank", E, "seventh_rank"),
-    _topic(5, B, "discovered-attack", "Discovered attack", D, "discovered_attack"),
-    _topic(5, B, "pin", "The pin", D, "pin"),
-    _topic(5, B, "opening", "The opening", H, "opening_history"),
-    _topic(5, B, "rook-against-pawn", "Rook against pawn", U, "rook_pawn_endgame"),
-    _topic(5, B, "strong-square", "Strong square", E, "strong_square"),
-    _topic(5, B, "defending", "Defending", D, "defence"),
-    _topic(5, B, "rook-ending", "Rook ending", E, "rook_endgame"),
-    _topic(5, B, "attacking-king", "Attacking the king", E, "king_attack"),
-    _topic(5, B, "open-file", "Open file", E, "open_file"),
-    _topic(5, B, "draws", "Draws", E, "draw"),
-    _topic(5, X, "activity", "Activity", E, "activity"),
-    _topic(5, X, "pawn-endings", "Pawn endings", E, "pawn_endgame"),
-    _topic(5, X, "king-middle", "King in the middle", E, "king_attack"),
-    _topic(5, X, "wrong-bishop", "The wrong bishop", E, "wrong_bishop"),
-    _topic(5, X, "vulnerability", "Vulnerability", U, "vulnerability"),
-    _topic(5, X, "queen-endings", "Queen endings", E, "queen_endgame"),
-    _topic(5, X, "defending", "Defending", D, "defence"),
-    _topic(5, X, "eternal-pins", "Eternal pins", D, "pin"),
-    _topic(5, X, "bishop-pawns", "Bishop against pawns", U, "bishop_pawn_endgame"),
-    _topic(5, X, "zugzwang", "Zugzwang", U, "zugzwang"),
-    # Level 6 — independent study across advanced strategy and endings.
-    _topic(6, B, "king-middle", "King in the middle", E, "king_attack"),
-    _topic(6, B, "passed-pawn", "The passed pawn", E, "passed_pawn"),
-    _topic(6, B, "strategy", "Strategy", U, "strategy"),
-    _topic(6, B, "mobility", "Mobility", E, "mobility"),
-    _topic(6, B, "draws", "Draws", E, "draw"),
-    _topic(6, B, "opening", "The opening", H, "opening_history"),
-    _topic(6, B, "tactics", "Tactics", P, "mixed_review"),
-    _topic(6, B, "pawn-endings", "Pawn endings", E, "pawn_endgame"),
-    _topic(6, B, "bishop-or-knight", "Bishop or knight", U, "bishop_knight"),
-    _topic(6, B, "attacking-king", "Attacking the king", E, "king_attack"),
-    _topic(6, B, "endgame-advantage", "Endgame advantage", U, "endgame_strategy"),
-    _topic(6, B, "bishops", "Bishops", U, "bishops"),
-    _topic(6, B, "defending", "Defending", D, "defence"),
-    _topic(6, B, "rook-endings", "Rook endings", E, "rook_endgame"),
+DEFAULT_TOPIC = ReviewTopic(
+    "position",
+    "Find the best move",
+    "Start with checks, captures, and direct threats, then compare the opponent's strongest reply.",
+    "The engine prefers this move, but the checked line does not prove one of the supported tactical labels.",
 )
 
-TOPICS_BY_ID = {topic.id: topic for topic in REVIEW_TOPICS}
 
-if len(TOPICS_BY_ID) != len(REVIEW_TOPICS):
-    raise RuntimeError("Review topic IDs must be unique")
+def topic_for(handler: str, evidence_kind: str = "") -> ReviewTopic:
+    if handler == "double_attack" and evidence_kind in FORK_TOPICS:
+        return FORK_TOPICS[evidence_kind]
+    return REVIEW_TOPICS.get(handler, DEFAULT_TOPIC)

@@ -1,5 +1,5 @@
 import {
-  isStablePrimary,
+  isMatchingPrimary,
   parseBestMove,
   parseInfoLine,
   type EngineLine,
@@ -7,20 +7,19 @@ import {
 
 export type AnalysisOptions = {
   budgetMs?: number;
-  multiPv?: number;
   signal?: AbortSignal;
-  onUpdate?: (lines: EngineLine[]) => void;
+  onUpdate?: (line: EngineLine) => void;
 };
 
 export type AnalysisResult = {
-  lines: EngineLine[];
+  line: EngineLine | null;
 };
 
 type WorkerLike = Pick<Worker, "postMessage" | "terminate" | "onmessage" | "onerror">;
 type ActiveAnalysis = {
-  lines: Map<number, EngineLine>;
-  primaryMoves: Map<number, string>;
-  onUpdate?: (lines: EngineLine[]) => void;
+  line: EngineLine | null;
+  linesByMove: Map<string, EngineLine>;
+  onUpdate?: (line: EngineLine) => void;
   resolve: (result: AnalysisResult) => void;
   reject: (reason: unknown) => void;
   drained: Promise<void>;
@@ -57,15 +56,13 @@ export default class StockfishClient {
 
   async analyze(fen: string, options: AnalysisOptions = {}): Promise<AnalysisResult> {
     const budgetMs = Math.min(Math.max(options.budgetMs ?? 1800, 250), 10_000);
-    const multiPv = Math.min(Math.max(options.multiPv ?? 3, 1), 5);
     await this.ready;
     this.assertAvailable();
     await this.stop();
     if (options.signal?.aborted) throw abortError();
 
     this.send("ucinewgame");
-    this.send(`setoption name MultiPV value ${multiPv}`);
-    this.send("setoption name UCI_ShowWDL value true");
+    this.send("setoption name MultiPV value 1");
     this.send(`position fen ${fen}`);
 
     let drain = () => {};
@@ -75,8 +72,8 @@ export default class StockfishClient {
         if (this.active) this.fatal(new Error("Stockfish analysis timed out."));
       }, budgetMs + 5000);
       this.active = {
-        lines: new Map(),
-        primaryMoves: new Map(),
+        line: null,
+        linesByMove: new Map(),
         onUpdate: options.onUpdate,
         resolve,
         reject,
@@ -150,13 +147,18 @@ export default class StockfishClient {
       const active = this.active;
       if (!active) continue;
       const info = parseInfoLine(line);
-      if (info) {
-        const previous = active.lines.get(info.multipv);
-        if (!previous || info.depth >= previous.depth) active.lines.set(info.multipv, info);
-        if (info.multipv === 1 && !info.score.bound && info.pv[0]) {
-          active.primaryMoves.set(info.depth, info.pv[0]);
+      if (info?.multipv === 1 && !info.score.bound) {
+        if (!active.line || info.depth >= active.line.depth) {
+          active.line = info;
+          active.onUpdate?.(info);
         }
-        active.onUpdate?.(orderedLines(active.lines));
+        const firstMove = info.pv[0];
+        if (firstMove) {
+          const previous = active.linesByMove.get(firstMove);
+          if (!previous || info.depth >= previous.depth) {
+            active.linesByMove.set(firstMove, info);
+          }
+        }
         continue;
       }
       const bestMove = parseBestMove(line);
@@ -168,30 +170,23 @@ export default class StockfishClient {
     if (this.active !== active) return;
     window.clearTimeout(active.timeout);
     this.active = null;
-    const allLines = orderedLines(active.lines);
-    const primaryDepth = allLines.find((line) => line.multipv === 1)?.depth ?? 0;
-    const lines = allLines.filter(
-      (line) => line.depth >= primaryDepth - 2 && !line.score.bound,
-    );
     active.drain();
     if (active.stopping) {
       active.reject(abortError());
       return;
     }
     if (bestMove === "(none)") {
-      active.resolve({ lines: [] });
+      active.resolve({ line: null });
       return;
     }
-    const primary = lines.find((line) => line.multipv === 1);
-    const recentPrimaryMoves = [...active.primaryMoves.entries()]
-      .sort(([left], [right]) => right - left)
-      .slice(0, 3)
-      .map(([, move]) => move);
-    if (!isStablePrimary(bestMove, primary, recentPrimaryMoves)) {
-      active.reject(new Error("Stockfish did not return a stable principal variation."));
+    const line = isMatchingPrimary(bestMove, active.line)
+      ? active.line
+      : active.linesByMove.get(bestMove);
+    if (!line) {
+      active.reject(new Error("Stockfish did not return a matching principal variation."));
       return;
     }
-    active.resolve({ lines });
+    active.resolve({ line });
   }
 
   private send(command: string): void {
@@ -225,10 +220,6 @@ export default class StockfishClient {
       this.active = null;
     }
   }
-}
-
-function orderedLines(lines: Map<number, EngineLine>): EngineLine[] {
-  return [...lines.values()].sort((left, right) => left.multipv - right.multipv);
 }
 
 function abortError(): DOMException {

@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { fenError, pieceDisplay } from "../src/board.ts";
 
-test("accepts a FEN that can be loaded into a lesson", () => {
+test("accepts a FEN that can be loaded into a review", () => {
   assert.equal(fenError("4k3/8/8/8/8/8/8/4K3 w - - 0 1"), null);
 });
 

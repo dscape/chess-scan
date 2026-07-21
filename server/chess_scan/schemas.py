@@ -5,10 +5,9 @@ from __future__ import annotations
 from typing import Literal
 
 import chess
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from chess_scan.board import SQUARE_COUNT, validate_labels
-from chess_scan.review_topics import Course, TopicCapability
 
 
 class ReprocessRequest(BaseModel):
@@ -97,10 +96,9 @@ class EngineScore(BaseModel):
 
 
 class EngineLineInput(BaseModel):
-    multipv: int = Field(ge=1, le=5)
+    multipv: Literal[1] = 1
     depth: int = Field(ge=1)
     score: EngineScore
-    wdl: list[int] | None = Field(default=None, min_length=3, max_length=3)
     pv: list[str] = Field(min_length=1, max_length=24)
 
     @field_validator("pv")
@@ -110,21 +108,12 @@ class EngineLineInput(BaseModel):
             raise ValueError("Principal variation contains an invalid UCI move")
         return moves
 
-    @field_validator("wdl")
-    @classmethod
-    def validate_wdl(cls, wdl: list[int] | None) -> list[int] | None:
-        if wdl is not None and (
-            any(value < 0 or value > 1000 for value in wdl) or sum(wdl) != 1000
-        ):
-            raise ValueError("WDL values must be non-negative and total 1000")
-        return wdl
-
 
 class PositionReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     fen: str = Field(min_length=1, max_length=120)
-    study_level: int = Field(default=2, ge=1, le=6)
-    mode: Literal["general", "mix", "thinking_ahead"] = "general"
-    lines: list[EngineLineInput] = Field(max_length=5)
+    line: EngineLineInput | None = None
 
 
 class ReviewMove(BaseModel):
@@ -132,52 +121,33 @@ class ReviewMove(BaseModel):
     san: str
 
 
-class ReviewLine(BaseModel):
-    multipv: int
-    depth: int
-    score: EngineScore
-    wdl: list[int] | None
-    moves: list[ReviewMove]
+class ReviewArrow(BaseModel):
+    from_square: str
+    to_square: str
+    kind: Literal["move", "idea"] = "idea"
 
 
-class ReviewEvidence(BaseModel):
-    kind: str
-    summary: str
+class ReviewAnnotation(BaseModel):
+    label: str
+    text: str
     squares: list[str] = Field(default_factory=list)
-    moves: list[str] = Field(default_factory=list)
+    arrows: list[ReviewArrow] = Field(default_factory=list)
 
 
-class TopicFindingResponse(BaseModel):
-    topic_id: str
-    topic: str
-    level: int
-    confidence: float
-    evidence: list[ReviewEvidence]
+class PositionTopicResponse(BaseModel):
+    id: str
+    name: str
 
 
 class PositionReviewResponse(BaseModel):
     fen: str
     engine: str
     evaluation: str
+    score: EngineScore | None
     best_move: ReviewMove | None
-    lines: list[ReviewLine]
-    primary_finding: TopicFindingResponse | None
-    findings: list[TopicFindingResponse]
-    explanation: str
-    verbalizer: Literal["mock"] = "mock"
-
-
-class ReviewTopicResponse(BaseModel):
-    id: str
-    name: str
-    level: int
-    course: Course
-    capability: TopicCapability
-
-
-class ReviewTopicRegistryResponse(BaseModel):
-    version: str
-    topics: list[ReviewTopicResponse]
+    topic: PositionTopicResponse
+    hint: ReviewAnnotation
+    explanation: list[ReviewAnnotation]
 
 
 class LearningStatusResponse(BaseModel):

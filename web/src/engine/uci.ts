@@ -10,7 +10,6 @@ export type EngineLine = {
   multipv: number;
   depth: number;
   score: EngineScore;
-  wdl?: [number, number, number];
   pv: string[];
 };
 
@@ -48,9 +47,6 @@ export function parseInfoLine(message: string): EngineLine | null {
     return null;
   }
   const multipv = parsedMultiPv ?? 1;
-  const wdlIndex = tokens.indexOf("wdl");
-  const wdl = wdlIndex >= 0 ? parseWdl(tokens.slice(wdlIndex + 1, wdlIndex + 4)) : undefined;
-
   const boundToken = tokens[scoreIndex + 3];
   const bound = boundToken === "lowerbound"
     ? "lower"
@@ -62,21 +58,17 @@ export function parseInfoLine(message: string): EngineLine | null {
     multipv,
     depth,
     score: { kind: scoreKind, value: scoreValue, ...(bound ? { bound } : {}) },
-    ...(wdl ? { wdl } : {}),
     pv,
   };
 }
 
-export function isStablePrimary(
+export function isMatchingPrimary(
   bestMove: string,
-  primary: EngineLine | undefined,
-  recentPrimaryMoves: string[],
+  primary: EngineLine | null | undefined,
 ): primary is EngineLine {
-  return primary !== undefined
+  return primary != null
     && primary.score.bound == null
-    && primary.pv[0] === bestMove
-    && recentPrimaryMoves.length >= 2
-    && recentPrimaryMoves.every((move) => move === bestMove);
+    && primary.pv[0] === bestMove;
 }
 
 export function parseBestMove(message: string): string | null {
@@ -105,13 +97,4 @@ function integerAfter(tokens: string[], key: string): number | null {
   if (index < 0) return null;
   const value = Number(tokens[index + 1]);
   return Number.isInteger(value) && value >= 0 ? value : null;
-}
-
-function parseWdl(tokens: string[]): [number, number, number] | undefined {
-  if (tokens.length !== 3) return undefined;
-  const values = tokens.map(Number);
-  if (!values.every((value) => Number.isInteger(value) && value >= 0)) return undefined;
-  const total = values[0]! + values[1]! + values[2]!;
-  if (total !== 1000) return undefined;
-  return [values[0]!, values[1]!, values[2]!];
 }

@@ -22,7 +22,6 @@ from chess_scan.classifier import ModelManager
 from chess_scan.config import Settings
 from chess_scan.errors import ScanStateError, StoredDataIntegrityError
 from chess_scan.review import build_position_review
-from chess_scan.review_topics import REVIEW_TOPICS, TOPIC_REGISTRY_VERSION
 from chess_scan.schemas import (
     BoardDetectionResponse,
     ConfirmRequest,
@@ -32,8 +31,6 @@ from chess_scan.schemas import (
     PositionReviewResponse,
     ReprocessRequest,
     ReviewPositionResponse,
-    ReviewTopicRegistryResponse,
-    ReviewTopicResponse,
     ScanResponse,
 )
 from chess_scan.service import ScannerService
@@ -215,22 +212,6 @@ def _register_api_routes(application: FastAPI) -> None:
             return build_position_review(body)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
-
-    @application.get("/api/review-topics", response_model=ReviewTopicRegistryResponse)
-    def review_topics() -> ReviewTopicRegistryResponse:
-        return ReviewTopicRegistryResponse(
-            version=TOPIC_REGISTRY_VERSION,
-            topics=[
-                ReviewTopicResponse(
-                    id=topic.id,
-                    name=topic.name,
-                    level=topic.level,
-                    course=topic.course,
-                    capability=topic.capability,
-                )
-                for topic in REVIEW_TOPICS
-            ],
-        )
 
     @application.get("/api/learning/status", response_model=LearningStatusResponse)
     def learning_status(request: Request) -> LearningStatusResponse:

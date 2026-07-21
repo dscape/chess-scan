@@ -14,7 +14,7 @@ import BoardEditor from "./components/BoardEditor";
 import CapturePanel from "./components/CapturePanel";
 import CornerEditor from "./components/CornerEditor";
 import RecognitionSuccess from "./components/RecognitionSuccess";
-import PositionLesson from "./components/PositionLesson";
+import PositionReview from "./components/PositionReview";
 import type {
   Orientation,
   Point,
@@ -103,7 +103,7 @@ export default function App() {
           if (generation !== requestGeneration.current) return;
           const validationError = fenError(result.full_fen);
           if (validationError) {
-            throw new Error(`This lesson cannot be opened. ${validationError}`);
+            throw new Error(`This review cannot be opened. ${validationError}`);
           }
           setReviewPosition(result);
         });
@@ -300,7 +300,7 @@ export default function App() {
   async function handleConfirm() {
     if (!scan) return;
     if (positionErrors.length > 0) {
-      setError("Correct the invalid position before starting a lesson.");
+      setError("Correct the invalid position before opening the review.");
       return;
     }
     const generation = ++requestGeneration.current;
@@ -426,10 +426,14 @@ export default function App() {
                 </button>
               </div>
             </div>
-          ) : route.page === "review" ? "Loading lesson…" : "Loading board…"}
+          ) : route.page === "review" ? "Loading review…" : "Loading board…"}
         </main>
       ) : route.page === "review" && reviewPosition ? (
-        <PositionLesson position={reviewPosition} onScanAnother={reset} />
+        <PositionReview
+          key={reviewPosition.feedback_id}
+          position={reviewPosition}
+          onScanAnother={reset}
+        />
       ) : route.page === "home" || !scan ? (
         <CapturePanel busy={busy === "scan"} onImage={handleImage} />
       ) : !reviewReady ? (
@@ -444,7 +448,7 @@ export default function App() {
             <i />
             <span className="is-current"><b>2</b> Check</span>
             <i />
-            <span><b>3</b> Lesson</span>
+            <span><b>3</b> Review</span>
           </nav>
 
           <header className="review-heading">
@@ -604,7 +608,7 @@ export default function App() {
                   ? "Saving…"
                   : positionErrors.length > 0
                     ? "Correct position to continue"
-                    : "Save & start position lesson"}
+                    : "Save & review position"}
               </span>
               <span aria-hidden="true">→</span>
             </button>
