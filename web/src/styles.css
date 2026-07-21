@@ -1966,6 +1966,7 @@ button:disabled,
   aspect-ratio: 1;
   display: grid;
   grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, minmax(0, 1fr));
   overflow: hidden;
   border: 6px solid #e8dfc9;
   border-radius: 4px;
