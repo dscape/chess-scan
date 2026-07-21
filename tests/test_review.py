@@ -19,7 +19,6 @@ def _request(
         {
             "fen": fen,
             "line": {
-                "multipv": 1,
                 "depth": 18,
                 "score": {"kind": "cp", "value": 520},
                 "pv": moves,
@@ -77,14 +76,20 @@ def test_position_subjects_highlight_own_pieces_without_drawing_attack_arrows() 
     assert [arrow.kind for arrow in review.explanation[0].arrows] == ["move"]
 
 
-def test_review_has_no_course_or_candidate_line_setup() -> None:
+def test_review_returns_the_compact_annotation_contract() -> None:
     payload = build_position_review(_request()).model_dump()
 
-    assert "lines" not in payload
-    assert "findings" not in payload
-    assert "primary_finding" not in payload
-    assert "verbalizer" not in payload
-    assert "level" not in payload["topic"]
+    assert set(payload) == {
+        "fen",
+        "engine",
+        "evaluation",
+        "score",
+        "best_move",
+        "topic",
+        "hint",
+        "explanation",
+    }
+    assert set(payload["topic"]) == {"id", "name"}
 
 
 def test_review_rejects_missing_or_illegal_engine_analysis() -> None:
@@ -140,10 +145,9 @@ def test_review_checks_a_short_fixed_prefix_for_grounded_topics() -> None:
     assert "gains about" in review.explanation[1].text
 
 
-def test_removed_study_controls_are_rejected() -> None:
+def test_review_request_rejects_unknown_fields() -> None:
     payload = _request().model_dump()
-    payload["study_level"] = 2
-    payload["mode"] = "general"
+    payload["unexpected"] = True
 
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         PositionReviewRequest.model_validate(payload)
@@ -161,6 +165,6 @@ def test_review_request_bounds_untrusted_engine_payload() -> None:
         PositionReviewRequest.model_validate(payload)
 
     payload = _request().model_dump()
-    payload["line"]["multipv"] = 2
-    with pytest.raises(ValidationError, match="Input should be 1"):
+    payload["line"]["unexpected"] = True
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         PositionReviewRequest.model_validate(payload)

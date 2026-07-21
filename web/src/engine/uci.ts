@@ -7,7 +7,6 @@ export type EngineScore = {
 };
 
 export type EngineLine = {
-  multipv: number;
   depth: number;
   score: EngineScore;
   pv: string[];
@@ -41,12 +40,6 @@ export function parseInfoLine(message: string): EngineLine | null {
   if (pvTokens.length === 0 || pvTokens.some((move) => !isUciMove(move))) return null;
   const pv = pvTokens.slice(0, 24);
 
-  const multiPvIndex = tokens.indexOf("multipv");
-  const parsedMultiPv = integerAfter(tokens, "multipv");
-  if (multiPvIndex >= 0 && (parsedMultiPv === null || parsedMultiPv < 1 || parsedMultiPv > 5)) {
-    return null;
-  }
-  const multipv = parsedMultiPv ?? 1;
   const boundToken = tokens[scoreIndex + 3];
   const bound = boundToken === "lowerbound"
     ? "lower"
@@ -55,7 +48,6 @@ export function parseInfoLine(message: string): EngineLine | null {
       : undefined;
 
   return {
-    multipv,
     depth,
     score: { kind: scoreKind, value: scoreValue, ...(bound ? { bound } : {}) },
     pv,

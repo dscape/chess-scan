@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "chess-scan"
 version = "0.1.0"
-description = "Photograph a chess diagram, correct it, and study the position in-app"
+description = "Photograph a chess diagram, correct it, and review it on an interactive board"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 license = "MIT"

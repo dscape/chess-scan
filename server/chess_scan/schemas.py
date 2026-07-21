@@ -96,7 +96,8 @@ class EngineScore(BaseModel):
 
 
 class EngineLineInput(BaseModel):
-    multipv: Literal[1] = 1
+    model_config = ConfigDict(extra="forbid")
+
     depth: int = Field(ge=1)
     score: EngineScore
     pv: list[str] = Field(min_length=1, max_length=24)

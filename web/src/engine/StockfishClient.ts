@@ -62,7 +62,6 @@ export default class StockfishClient {
     if (options.signal?.aborted) throw abortError();
 
     this.send("ucinewgame");
-    this.send("setoption name MultiPV value 1");
     this.send(`position fen ${fen}`);
 
     let drain = () => {};
@@ -147,7 +146,7 @@ export default class StockfishClient {
       const active = this.active;
       if (!active) continue;
       const info = parseInfoLine(line);
-      if (info?.multipv === 1 && !info.score.bound) {
+      if (info && !info.score.bound) {
         if (!active.line || info.depth >= active.line.depth) {
           active.line = info;
           active.onUpdate?.(info);

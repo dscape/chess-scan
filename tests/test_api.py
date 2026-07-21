@@ -111,14 +111,11 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert review_position.json()["orientation"] == "white"
         assert client.get("/api/reviews/missing").status_code == 404
 
-        assert client.get("/api/review-topics").status_code == 404
-
         review_response = client.post(
             "/api/position-reviews",
             json={
                 "fen": "8/7k/8/8/2r5/8/4Q3/4K3 w - - 0 1",
                 "line": {
-                    "multipv": 1,
                     "depth": 18,
                     "score": {"kind": "cp", "value": 520},
                     "pv": ["e2e4", "h7g8", "e4c4"],
@@ -137,15 +134,11 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
             "to_square": "e4",
             "kind": "move",
         }
-        assert "lines" not in position_review
-        assert "verbalizer" not in position_review
-
         forced_mate_response = client.post(
             "/api/position-reviews",
             json={
                 "fen": "7k/5Q2/6K1/8/8/8/8/8 w - - 0 1",
                 "line": {
-                    "multipv": 1,
                     "depth": 245,
                     "score": {"kind": "mate", "value": 1},
                     "pv": ["f7f8"],

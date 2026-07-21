@@ -919,7 +919,7 @@
     },
     {
       "id": "en-en_gs_1e",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "en",
       "url": "https://www.stappenmethode.nl/en/gs/en_gs_1e.pdf",
       "sha256": "90a4a26dbba58f7914d857f967b23a1161275e260b2a27f03501d04befa52d97",
@@ -927,7 +927,7 @@
     },
     {
       "id": "en-en_gs_1m",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "en",
       "url": "https://www.stappenmethode.nl/en/gs/en_gs_1m.pdf",
       "sha256": "af80f108f8079b410674944bec53ac4a9aa0b635b395ecd91c832b89e2239837",
@@ -935,7 +935,7 @@
     },
     {
       "id": "en-en_gs_2e",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "en",
       "url": "https://www.stappenmethode.nl/en/gs/en_gs_2e.pdf",
       "sha256": "98ab4c877db4868d13e6d2ff8abc90ec9e35dedaa5725421c1cd0c4752c15ec8",
@@ -943,7 +943,7 @@
     },
     {
       "id": "en-en_gs_2m",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "en",
       "url": "https://www.stappenmethode.nl/en/gs/en_gs_2m.pdf",
       "sha256": "16414279dec82b5a228d6f3cad544b470ab2f1f3863bcdae052d6c658464eeec",
@@ -951,7 +951,7 @@
     },
     {
       "id": "en-en_gs_2p",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "en",
       "url": "https://www.stappenmethode.nl/en/gs/en_gs_2p.pdf",
       "sha256": "897dd3c16d770aed41764e2b4a81adcfafb9f14cdb7b91bf45ab90993c93cbf4",
@@ -959,7 +959,7 @@
     },
     {
       "id": "en-en_gs_2vd",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "en",
       "url": "https://www.stappenmethode.nl/en/gs/en_gs_2vd.pdf",
       "sha256": "41342d1c09810eb1b5c18dac2e46d27599e93e9dd9c452cbbc3ffdff1af5d211",
@@ -967,7 +967,7 @@
     },
     {
       "id": "en-en_gs_3",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "en",
       "url": "https://www.stappenmethode.nl/en/gs/en_gs_3.pdf",
       "sha256": "626f9b7e0c332e47d4b34226cabf4fa9c45502568008938871a785af2133815f",
@@ -975,7 +975,7 @@
     },
     {
       "id": "en-en_gs_3e",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "en",
       "url": "https://www.stappenmethode.nl/en/gs/en_gs_3e.pdf",
       "sha256": "65541efafa1cd0282262b2383ed0ce0aeb2c2b552792c044f59a7ce5afe99666",
@@ -983,7 +983,7 @@
     },
     {
       "id": "en-en_gs_3p",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "en",
       "url": "https://www.stappenmethode.nl/en/gs/en_gs_3p.pdf",
       "sha256": "e9f0ec9d7244451bd3e27c8962a808195342d2b76fee93084b4a1d6e83db0141",
@@ -991,7 +991,7 @@
     },
     {
       "id": "en-en_gs_3vd",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "en",
       "url": "https://www.stappenmethode.nl/en/gs/en_gs_3vd.pdf",
       "sha256": "186d5958b61295932950140a4c08f1e2c55aaf0acbc883939c126a9f6f91ae98",
@@ -999,7 +999,7 @@
     },
     {
       "id": "en-en_gs_4",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "en",
       "url": "https://www.stappenmethode.nl/en/gs/en_gs_4.pdf",
       "sha256": "8d0293235db79ba2de88649c41f5ad118d3273b26c2e07e642968b6048c86457",
@@ -1007,7 +1007,7 @@
     },
     {
       "id": "en-en_gs_4e",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "en",
       "url": "https://www.stappenmethode.nl/en/gs/en_gs_4e.pdf",
       "sha256": "df326c9c726213c91ab9498989ecd18291da55139656f7927dff3c28ce85d93b",
@@ -1015,7 +1015,7 @@
     },
     {
       "id": "en-en_gs_4p",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "en",
       "url": "https://www.stappenmethode.nl/en/gs/en_gs_4p.pdf",
       "sha256": "b831fead091d35d4eb063aba24efeac2c3ade36c0186ed67c99742217f6af72f",
@@ -1023,7 +1023,7 @@
     },
     {
       "id": "en-en_gs_5",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "en",
       "url": "https://www.stappenmethode.nl/en/gs/en_gs_5.pdf",
       "sha256": "9cd10c492d6fb599fa20dd61410ea287164dbcb731200365a5b4566708e2e3c7",
@@ -1031,7 +1031,7 @@
     },
     {
       "id": "en-en_gs_5e",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "en",
       "url": "https://www.stappenmethode.nl/en/gs/en_gs_5e.pdf",
       "sha256": "b42a6ef097a7c6601b82419a4a6ea1d04dd29697f5b577c292cde61872b3fabd",
@@ -1039,7 +1039,7 @@
     },
     {
       "id": "en-en_gs_5p",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "en",
       "url": "https://www.stappenmethode.nl/en/gs/en_gs_5p.pdf",
       "sha256": "a77d16e88ab887a1d71a62ccb7c9882f41e4047fff8b3d55e9b27584d64bfba9",
@@ -1047,7 +1047,7 @@
     },
     {
       "id": "en-en_gs_6",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "en",
       "url": "https://www.stappenmethode.nl/en/gs/en_gs_6.pdf",
       "sha256": "e93213d2c0cbbf630153249e2e3e1207dd6f069dc45dfab655ceffb825c2c0f2",
@@ -1103,7 +1103,7 @@
     },
     {
       "id": "nl-nl_gs_1e",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "nl",
       "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_1e.pdf",
       "sha256": "90f70171b6bdc4665cfcdb7e0ffcf3cee65d26c522882c5251c5427d31b9286f",
@@ -1111,7 +1111,7 @@
     },
     {
       "id": "nl-nl_gs_1m",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "nl",
       "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_1m.pdf",
       "sha256": "2ca21fe4dc8371d460216dd3336f7b97d8fd7c183cb047e672d274b184bbb67e",
@@ -1119,7 +1119,7 @@
     },
     {
       "id": "nl-nl_gs_2e",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "nl",
       "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_2e.pdf",
       "sha256": "5a7965276e4874da41eba3a12f5992c6103e8389f304414843272f4378268019",
@@ -1127,7 +1127,7 @@
     },
     {
       "id": "nl-nl_gs_2m",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "nl",
       "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_2m.pdf",
       "sha256": "18a32ea0f0dd3d00797222a1e078b7862367c4d86071a191ff830ec4bd9a7ee4",
@@ -1135,7 +1135,7 @@
     },
     {
       "id": "nl-nl_gs_2p",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "nl",
       "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_2p.pdf",
       "sha256": "46d64285df6406052f82ced28ed29a4e858ca001fe43cad1203f99622475f275",
@@ -1143,7 +1143,7 @@
     },
     {
       "id": "nl-nl_gs_2vd",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "nl",
       "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_2vd.pdf",
       "sha256": "86b2aa2e5fd6867c8924cf4a7d9f6664c3870ec452dacea503ac0b33624234d8",
@@ -1151,7 +1151,7 @@
     },
     {
       "id": "nl-nl_gs_3",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "nl",
       "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_3.pdf",
       "sha256": "ab17228f16f8fc7ba5e5847d916fca4b9f0673dfc819de65ae5194636c3b5429",
@@ -1159,7 +1159,7 @@
     },
     {
       "id": "nl-nl_gs_3e",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "nl",
       "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_3e.pdf",
       "sha256": "f870264866912cdebe3cf7cb335d977a90e948150b038058316a92602a0417b2",
@@ -1167,7 +1167,7 @@
     },
     {
       "id": "nl-nl_gs_3p",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "nl",
       "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_3p.pdf",
       "sha256": "b70984280912bf29c1c4220ee94cf25a1e80fff193b51d9c35c3224fd0522f12",
@@ -1175,7 +1175,7 @@
     },
     {
       "id": "nl-nl_gs_3vd",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "nl",
       "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_3vd.pdf",
       "sha256": "196fbb1538a05223033c45e59352d30752b8ca195c7c8b628e442a4ab7984f68",
@@ -1183,7 +1183,7 @@
     },
     {
       "id": "nl-nl_gs_4",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "nl",
       "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_4.pdf",
       "sha256": "2692b9aa09cdae9a36a3bdeec33bfc1e38ae8b4a11d561a8e667ea0e42de7623",
@@ -1191,7 +1191,7 @@
     },
     {
       "id": "nl-nl_gs_4e",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "nl",
       "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_4e.pdf",
       "sha256": "8081505818767795cba4844bbc0bfaf5ba7ada4700baa7dd02f32ee32e06fd45",
@@ -1199,7 +1199,7 @@
     },
     {
       "id": "nl-nl_gs_4p",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "nl",
       "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_4p.pdf",
       "sha256": "6c804061f8692b3d3e72698c7c85534f616da488ff25782c42f428ec770e50f8",
@@ -1207,7 +1207,7 @@
     },
     {
       "id": "nl-nl_gs_5",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "nl",
       "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_5.pdf",
       "sha256": "a035d08d1bda7e7fc83b9ee768183569c73ca40c27dc9a4318527c3e7fbf1e21",
@@ -1215,7 +1215,7 @@
     },
     {
       "id": "nl-nl_gs_5e",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "nl",
       "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_5e.pdf",
       "sha256": "8040fbbd8b55b597b4ee7591f492e95a772826a30e604112131f395342b9e878",
@@ -1223,7 +1223,7 @@
     },
     {
       "id": "nl-nl_gs_5p",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "nl",
       "url": "https://www.stappenmethode.nl/nl/gs/nl_gs_5p.pdf",
       "sha256": "ab4c19a66f20f5f727e86df993dee93aefa85267d20349eea0fba2b936f73c95",
@@ -1279,7 +1279,7 @@
     },
     {
       "id": "de-de_gs_1e",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "de",
       "url": "https://www.stappenmethode.nl/de/gs/de_gs_1e.pdf",
       "sha256": "eb4fc9f7f2390bd20327cb3d7588a66ac6bb6368440dc60c979c1941d7f9663a",
@@ -1287,7 +1287,7 @@
     },
     {
       "id": "de-de_gs_1m",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "de",
       "url": "https://www.stappenmethode.nl/de/gs/de_gs_1m.pdf",
       "sha256": "28ee879cba9bb295ad449b72e262b77098df3992b3b0a71cf8e5637496150c1e",
@@ -1295,7 +1295,7 @@
     },
     {
       "id": "de-de_gs_2e",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "de",
       "url": "https://www.stappenmethode.nl/de/gs/de_gs_2e.pdf",
       "sha256": "7661fedd2450c6715967800258ae6e377462d4f1f87e1cca5ced7ad008fc7f86",
@@ -1303,7 +1303,7 @@
     },
     {
       "id": "de-de_gs_2p",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "de",
       "url": "https://www.stappenmethode.nl/de/gs/de_gs_2p.pdf",
       "sha256": "997dfd04dc77ace7a63d3e3f7c731e3a4d90368dd2ea2324c2b78ca6115614b8",
@@ -1311,7 +1311,7 @@
     },
     {
       "id": "de-de_gs_2vd",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "de",
       "url": "https://www.stappenmethode.nl/de/gs/de_gs_2vd.pdf",
       "sha256": "1a1c35f81e610023f2971745d7d205b4c08a174e5f4cf59cc8f89d6492de91e1",
@@ -1319,7 +1319,7 @@
     },
     {
       "id": "de-de_gs_3",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "de",
       "url": "https://www.stappenmethode.nl/de/gs/de_gs_3.pdf",
       "sha256": "ddab0a645b86f59c85d09350384ecd67e0de2874bcd452af9216b348a8d1fb66",
@@ -1327,7 +1327,7 @@
     },
     {
       "id": "de-de_gs_3e",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "de",
       "url": "https://www.stappenmethode.nl/de/gs/de_gs_3e.pdf",
       "sha256": "9eeac3b94ba4419ec4cba067de9c5bf6a35f8342f32c0bbd8e0476368faacbeb",
@@ -1335,7 +1335,7 @@
     },
     {
       "id": "de-de_gs_3p",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "de",
       "url": "https://www.stappenmethode.nl/de/gs/de_gs_3p.pdf",
       "sha256": "b69e89faff3e11e171a7efeae914de13743da3926cb0ad4bdfa9800fa7e84f2c",
@@ -1343,7 +1343,7 @@
     },
     {
       "id": "de-de_gs_3vd",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "de",
       "url": "https://www.stappenmethode.nl/de/gs/de_gs_3vd.pdf",
       "sha256": "a19dc399320c1195aa47cb28f99ad7c0f4526e54013f74432f42fc9986fc06a8",
@@ -1351,7 +1351,7 @@
     },
     {
       "id": "de-de_gs_4",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "de",
       "url": "https://www.stappenmethode.nl/de/gs/de_gs_4.pdf",
       "sha256": "77692a2daad9514040136e9176a4cfb8c2530d708fffcd7991a333f52432d471",
@@ -1359,7 +1359,7 @@
     },
     {
       "id": "de-de_gs_4e",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "de",
       "url": "https://www.stappenmethode.nl/de/gs/de_gs_4e.pdf",
       "sha256": "3a4fb24e2354f2a6428e2af740bfcc172d567b3b798f89c61eb2f4b623e8f415",
@@ -1367,7 +1367,7 @@
     },
     {
       "id": "de-de_gs_4p",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "de",
       "url": "https://www.stappenmethode.nl/de/gs/de_gs_4p.pdf",
       "sha256": "f52a3beb90cd4a61596fd3aebf7f9a7c68ad0cee85cba8f2d061f25dc5876599",
@@ -1375,7 +1375,7 @@
     },
     {
       "id": "de-de_gs_5",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "de",
       "url": "https://www.stappenmethode.nl/de/gs/de_gs_5.pdf",
       "sha256": "21ba785b666633013ceb54ec98b2703d7294b07d29af5beb9d8f5ffd27da993f",
@@ -1383,7 +1383,7 @@
     },
     {
       "id": "de-de_gs_5e",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "de",
       "url": "https://www.stappenmethode.nl/de/gs/de_gs_5e.pdf",
       "sha256": "591870a8dd51aea535fa7be9fd68b416dc4fd7e4d46df1b3a51eb97239e7adbc",
@@ -1391,7 +1391,7 @@
     },
     {
       "id": "de-de_gs_5p",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "de",
       "url": "https://www.stappenmethode.nl/de/gs/de_gs_5p.pdf",
       "sha256": "2cd549947b0783cfda5a77587f0ccf24a0c424c866640a18867fe8bf20fd9c73",
@@ -1399,7 +1399,7 @@
     },
     {
       "id": "de-de_gs_6",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "de",
       "url": "https://www.stappenmethode.nl/de/gs/de_gs_6.pdf",
       "sha256": "3a6e25a0378d8278420946a64db5d4ff7a231073c390ccc766671438be2ed617",
@@ -1455,7 +1455,7 @@
     },
     {
       "id": "fr-fr_gs_1e",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "fr",
       "url": "https://www.stappenmethode.nl/fr/gs/fr_gs_1e.pdf",
       "sha256": "27b0ca98ddedb3249326cc56209727b92fd4c5960ae59082d086784f514d6e02",
@@ -1463,7 +1463,7 @@
     },
     {
       "id": "fr-fr_gs_2e",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "fr",
       "url": "https://www.stappenmethode.nl/fr/gs/fr_gs_2e.pdf",
       "sha256": "851b4bd8762da9f7d44814522bd51110a87a25bac1f861d3504be5ba8f022ad8",
@@ -1471,7 +1471,7 @@
     },
     {
       "id": "fr-fr_gs_2p",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "fr",
       "url": "https://www.stappenmethode.nl/fr/gs/fr_gs_2p.pdf",
       "sha256": "750b73cd8645906418cf0a1003fa2f99d15dcb1bde9c2692256bf2fa94d27c17",
@@ -1479,7 +1479,7 @@
     },
     {
       "id": "fr-fr_gs_3",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "fr",
       "url": "https://www.stappenmethode.nl/fr/gs/fr_gs_3.pdf",
       "sha256": "26b5526168956631f23d897a2bb7d4bf6141c20316d07633e71961462203db02",
@@ -1487,7 +1487,7 @@
     },
     {
       "id": "fr-fr_gs_3e",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "fr",
       "url": "https://www.stappenmethode.nl/fr/gs/fr_gs_3e.pdf",
       "sha256": "ff6f60036db47a3e1bbd464201a1fe6132251735c5cb27865469d4831a5ca3b1",
@@ -1495,7 +1495,7 @@
     },
     {
       "id": "fr-fr_gs_3p",
-      "kind": "lesson_reminder_pdf",
+      "kind": "instructional_pdf",
       "language": "fr",
       "url": "https://www.stappenmethode.nl/fr/gs/fr_gs_3p.pdf",
       "sha256": "4092d13b8d8682fcaa681d9193519d4506a5280ff9d649c78fa6b6dd520501d5",

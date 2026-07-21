@@ -21,7 +21,7 @@ def test_online_source_inventory_is_complete_and_portable() -> None:
         "interactive_position_set": 17,
         "german_manual_sample_pdf": 6,
         "official_manual_sample_pdf": 18,
-        "lesson_reminder_pdf": 55,
+        "instructional_pdf": 55,
     }
     assert sum(source.get("positions", 0) for source in sources) == 204
     assert len(assets) == 12

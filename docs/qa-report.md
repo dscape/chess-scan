@@ -31,7 +31,7 @@ No official source image is stored in the repository. The QA corpus was download
 | Interactive positions absent from adaptation data | 191 | Direct-label novel-position subset |
 | Reproducible German manual sample PDFs | 6 | 67 diagrams extracted; 63 standard positions |
 | German manual positions absent from adaptation data | 63 | All distinct from the localized and interactive position sets |
-| Additional manual and lesson-reminder PDFs | 73 | 2,634 diagrams; 1,632 unique after prior-corpus deduplication |
+| Additional instructional PDFs | 73 | 2,634 diagrams; 1,632 unique after prior-corpus deduplication |
 | Additional two-king reminder/manual diagrams | 1,376 | Broad glyph/notation stress slice |
 | Nonstandard grids with exercise marks or missing kings | 85 | Reported separately; not treated as ordinary FEN positions |
 | Ambiguous or non-grid extractions rejected from those slices | 17 | Excluded by checkerboard-grid scoring |
@@ -62,7 +62,7 @@ Translated copies were not allowed to inflate the result: 1,944 localized board 
 
 The interactive examples use the FEN embedded in the official exercise JavaScript and the official 40 px piece assets, so this slice does not depend on template labels. The German manual slice uses the audited glyph templates; its sole model/template disagreement was visually confirmed as a white queen correctly read by the model. The model retained the prior independent results: 12/12 manually audited king positions, 12/12 manually audited full boards, and 1,064/1,064 exact positions in the English official corpus after adjudication.
 
-### Expanded manuals and lesson reminders
+### Expanded instructional PDFs
 
 The broader 73-PDF crawl produced 1,376 unique new diagrams with one template king of each color. Inspection of every disagreement excluded ten instructional-symbol or malformed extraction cases. On the remaining 1,366 diagrams:
 
