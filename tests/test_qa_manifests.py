@@ -67,6 +67,19 @@ def test_platform_training_manifest_is_portable_and_complete() -> None:
     assert "/Users/" not in json.dumps(manifest)
 
 
+def test_print_regression_manifest_is_portable_and_complete() -> None:
+    manifest = json.loads(
+        (PROJECT_ROOT / "benchmarks" / "print-regression-corpus.json").read_text()
+    )
+
+    assert manifest["version"] == "print-regressions-v1"
+    assert manifest["boards"] == manifest["groups"] == 1
+    assert manifest["source_images_redistributed"] is False
+    assert len(manifest["records_sha256"]) == 64
+    assert all(len(record["sha256"]) == 64 for record in manifest["files"])
+    assert "/Users/" not in json.dumps(manifest)
+
+
 def test_qa_results_match_v2_runtime_metadata() -> None:
     results = json.loads((PROJECT_ROOT / "benchmarks" / "qa-2026-07-18.json").read_text())
     metadata = json.loads((PROJECT_ROOT / "models" / "chess-steps-v2.json").read_text())

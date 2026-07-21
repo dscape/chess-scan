@@ -1,0 +1,19 @@
+{
+  "version": "print-regressions-v1",
+  "created_at": "2026-07-21T00:00:00+00:00",
+  "boards": 1,
+  "groups": 1,
+  "records_sha256": "499ac1d0665ae11e7c8b935a03966965ac0dcb5f9fca7d1440b4b097643813fe",
+  "files": [
+    {
+      "path": "boards/chess-steps-reference-911b4f19.jpg",
+      "bytes": 82947,
+      "sha256": "bead69f8a0f8945b77b86fe15c58c67c69944a39788522b2ccc3fde9413b4dd2"
+    }
+  ],
+  "source_images_redistributed": false,
+  "notes": [
+    "Only a consented rectified board crop is retained; the full photograph is not copied into this corpus.",
+    "The source image is an operator-supplied Chess Steps workbook reference and is not redistributed in Git."
+  ]
+}

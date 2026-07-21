@@ -18,7 +18,14 @@ from chess_scan.errors import (
 
 @pytest.mark.parametrize(
     "base_version",
-    ["argus-v2r5", "chess-steps-v1", "chess-steps-v1r1", "chess-steps-v2", "chess-steps-v3"],
+    [
+        "argus-v2r5",
+        "chess-steps-v1",
+        "chess-steps-v1r1",
+        "chess-steps-v2",
+        "chess-steps-v3",
+        "chess-steps-v4",
+    ],
 )
 def test_bootstrap_replaces_old_base_but_preserves_newer_candidate(
     tmp_path: Path,
@@ -40,9 +47,9 @@ def test_bootstrap_replaces_old_base_but_preserves_newer_candidate(
     )
 
     database = initialize_database(settings)
-    assert database.get_active_model()["version"] == "chess-steps-v4"
+    assert database.get_active_model()["version"] == "chess-steps-v5"
 
-    candidate_path = settings.model_dir / "chess-steps-v4.onnx"
+    candidate_path = settings.model_dir / "chess-steps-v5.onnx"
     database.register_candidate(
         version="feedback-candidate",
         artifact_path=candidate_path,
@@ -65,7 +72,7 @@ def test_bootstrap_falls_back_from_legacy_candidate_without_artifact_hash(
         cors_origins=(),
     )
     database = initialize_database(settings)
-    candidate_path = settings.model_dir / "chess-steps-v4.onnx"
+    candidate_path = settings.model_dir / "chess-steps-v5.onnx"
     database.register_candidate(
         version="legacy-candidate",
         artifact_path=candidate_path,
@@ -80,7 +87,7 @@ def test_bootstrap_falls_back_from_legacy_candidate_without_artifact_hash(
 
     database = initialize_database(settings)
 
-    assert database.get_active_model()["version"] == "chess-steps-v4"
+    assert database.get_active_model()["version"] == "chess-steps-v5"
 
 
 def test_registering_new_base_does_not_replace_promoted_candidate(tmp_path: Path) -> None:

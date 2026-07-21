@@ -9,7 +9,7 @@ from chess_scan.classifier import read_model_metadata
 from chess_scan.config import Settings
 from chess_scan.database import Database
 
-BASE_MODEL_VERSION = "chess-steps-v4"
+BASE_MODEL_VERSION = "chess-steps-v5"
 logger = logging.getLogger(__name__)
 _REPLACED_BASE_MODEL_VERSIONS = {
     "argus-v2r5",
@@ -17,6 +17,7 @@ _REPLACED_BASE_MODEL_VERSIONS = {
     "chess-steps-v1r1",
     "chess-steps-v2",
     "chess-steps-v3",
+    "chess-steps-v4",
 }
 
 

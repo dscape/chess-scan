@@ -36,7 +36,7 @@ def test_split_and_preprocess_board() -> None:
 
 def test_classifier_accepts_batched_preprocessed_boards() -> None:
     classifier = DiagramClassifier(
-        PROJECT_ROOT / "models" / "chess-steps-v4.onnx",
+        PROJECT_ROOT / "models" / "chess-steps-v5.onnx",
         version="test",
     )
     inputs = np.zeros((128, 3, 64, 64), dtype=np.float32)
@@ -120,8 +120,36 @@ def test_platform_model_passed_recorded_gates() -> None:
     )
 
 
+def test_print_recovery_model_passed_recorded_gates() -> None:
+    model_path = PROJECT_ROOT / "models" / "chess-steps-v5.onnx"
+    checkpoint_path = PROJECT_ROOT / "models" / "chess-steps-v5.pt"
+    metadata = json.loads((PROJECT_ROOT / "models" / "chess-steps-v5.json").read_text())
+
+    assert hashlib.sha256(model_path.read_bytes()).hexdigest() == metadata["artifact_sha256"]
+    assert hashlib.sha256(checkpoint_path.read_bytes()).hexdigest() == metadata["checkpoint_sha256"]
+    assert metadata["eligible_for_promotion"] is True
+    assert metadata["gates"]["print_reference"]["candidate_correct_squares"] == 64
+    assert metadata["gates"]["print_reference"]["candidate_exact_robustness_variants"] == 8
+    assert (
+        metadata["gates"]["platform_clean"]["candidate_exact_boards"]
+        > metadata["gates"]["platform_clean"]["base_exact_boards"]
+    )
+    assert (
+        metadata["gates"]["platform_camera"]["candidate_correct_squares"]
+        >= metadata["gates"]["platform_camera"]["base_correct_squares"]
+    )
+    assert (
+        metadata["gates"]["chess_positions_candidate_correct"]
+        > metadata["gates"]["chess_positions_base_correct"]
+    )
+    assert (
+        metadata["gates"]["synthetic_replay_candidate_correct"]
+        > metadata["gates"]["synthetic_replay_base_correct"]
+    )
+
+
 def test_model_manager_reloads_promoted_model(tmp_path: Path) -> None:
-    base_path = PROJECT_ROOT / "models" / "chess-steps-v4.onnx"
+    base_path = PROJECT_ROOT / "models" / "chess-steps-v5.onnx"
     candidate_path = tmp_path / "candidate.onnx"
     shutil.copyfile(base_path, candidate_path)
     database = Database(tmp_path / "db.sqlite3")

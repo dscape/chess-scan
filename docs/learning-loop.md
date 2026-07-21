@@ -71,9 +71,11 @@ The adapted weights moved from 9/1,064 to 1,064/1,064 exact king locations on st
 
 `chess-steps-v3` restored representative Argus coverage. It starts from v2, performs class-weighted supervised recovery over all 80,000 external `chess_positions/train` boards, and retains v2 behavior by distilling augmented official training boards.
 
-`chess-steps-v4` is the active registry revision. It expands the classifier from 315 KB to 2.6 MB after the smaller network demonstrably underfit clear platform glyphs. A domain-balanced external corpus covers 38 Chess.com, 40 Lichess, and five Take Take Take visible piece styles, with 12 globally unseen positions per style. V4 reaches 99.97% square accuracy, 99.90% occupied-square accuracy, and 982/996 exact boards on clean platform holdouts. A deterministic camera/display gate reaches 980/996 exact boards. It remains exact on every official print/photo gate, improves held-out Argus without regressing any class, preserves synthetic replay, classifies two real Take Take Take app holdouts exactly, and classifies the latest corrected Chess.com Glass board exactly. Intentionally concealed themes are excluded because the required identity or color is absent from the pixels.
+`chess-steps-v4` expanded the classifier from 315 KB to 2.6 MB after the smaller network demonstrably underfit clear platform glyphs. A domain-balanced external corpus covers 38 Chess.com, 40 Lichess, and five Take Take Take visible piece styles, with 12 globally unseen positions per style.
 
-The external corpora are hash-described by `benchmarks/argus-training-corpus.json` and `benchmarks/platform-training-corpus.json`, mounted read-only in production, and never stored in Git. Every future feedback candidate interleaves labeled Argus and platform replay with user-feedback training and must not regress on either paired gate. Bootstrap upgrades obsolete base registrations through `chess-steps-v3`; feedback-promoted candidates remain active.
+A real workbook photograph later exposed a v4 gap that the synthetic photo gate missed: v4 read the black rook on c8 and black king on e8 as white pieces, producing 62/64 squares while v1–v3 were exact. The synthetic gate modeled perspective and halftone degradation but not that photograph's sharp paper texture closely enough. `chess-steps-v5` is the active registry revision. It fine-tunes all wide-model feature blocks from v4 against one consented rectified crop while interleaving platform, official-print, Argus, and synthetic replay. V5 restores the reference to 64/64 across eight degradation variants, improves clean platform exact boards from 982 to 987, retains 980 camera/display exact boards while gaining one square, and improves both held-out Argus and synthetic replay. Every official online/photo and real-platform gate remains exact.
+
+The external corpora are hash-described by the Argus, platform, and photographed-print manifests under `benchmarks/`, mounted read-only in production, and never stored in Git. Every future feedback candidate interleaves labeled Argus and platform replay with user-feedback training and must also remain exact on the photographed-print regression. Bootstrap upgrades obsolete base registrations through `chess-steps-v4`; feedback-promoted candidates remain active.
 
 ## Continuous improvement, not per-request online learning
 
@@ -83,7 +85,7 @@ The application collects feedback continuously and advances one automatic learni
 2. Snapshot accepted replay feedback plus the new pending batch.
 3. Split at image and installation level, never randomly by square.
 4. Initialize from the active ONNX artifact and fine-tune with extra weight on explicitly corrected squares.
-5. Reject candidates that regress on the grouped feedback gate, held-out Argus/platform gates, or immutable official online/photo gates.
+5. Reject candidates that regress on the grouped feedback gate, held-out Argus/platform gates, the photographed-print regression, or immutable official online/photo gates.
 6. Keep a passing candidate hidden and evaluate it on confirmations created only after training.
 7. Score the active and candidate models against the same final labels.
 8. Promote automatically only when the candidate saves a meaningful number of square errors while exact boards and occupied-square errors do not regress.
@@ -105,6 +107,7 @@ The primary product metric is **whole-board exact match**. Square accuracy can c
 - exact passage of the fixed online examples, king slices, and photo/geometry stress gates
 - no overall, occupied-square, or per-class regression on held-out `chess_positions`, and no synthetic replay regression
 - no clean or camera/display regression for Chess.com, Lichess, or Take Take Take
+- exact passage of every consented photographed-print regression board
 - a verified immutable artifact hash
 
 Candidates retain the active classifier architecture and ONNX runtime. The active wide model remains only 2.6 MB, and immutable replay gates bound later feedback training independently of public labels.

@@ -24,7 +24,7 @@ from image_augmentation import jpeg_round_trip, resize_round_trip
 from qa_common import write_json
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_MODEL = PROJECT_ROOT / "models" / "chess-steps-v4.onnx"
+DEFAULT_MODEL = PROJECT_ROOT / "models" / "chess-steps-v5.onnx"
 _VARIANTS = ("clean", "camera", "faded", "low-resolution")
 
 

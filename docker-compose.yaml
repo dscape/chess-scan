@@ -15,6 +15,7 @@ services:
     environment:
       CHESS_SCAN_ARGUS_DATA_DIR: /app/training-data/argus-2026-03-29
       CHESS_SCAN_PLATFORM_DATA_DIR: /app/training-data/platforms-v1
+      CHESS_SCAN_PRINT_DATA_DIR: /app/training-data/print-regressions-v1
     volumes:
       - chess-scan-data:/app/data
       - ${CHESS_SCAN_TRAINING_DATA_DIR:-~/chess-scan-training}:/app/training-data:ro
@@ -28,6 +29,7 @@ services:
     environment:
       CHESS_SCAN_ARGUS_DATA_DIR: /app/training-data/argus-2026-03-29
       CHESS_SCAN_PLATFORM_DATA_DIR: /app/training-data/platforms-v1
+      CHESS_SCAN_PRINT_DATA_DIR: /app/training-data/print-regressions-v1
     volumes:
       - chess-scan-data:/app/data
       - ${CHESS_SCAN_TRAINING_DATA_DIR:-~/chess-scan-training}:/app/training-data:ro

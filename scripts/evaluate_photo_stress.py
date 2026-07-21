@@ -22,7 +22,7 @@ from qa_common import download_verified, labels_from_fen, write_json
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_BENCHMARK = PROJECT_ROOT / "benchmarks" / "chess-steps-step2.json"
-DEFAULT_MODEL = PROJECT_ROOT / "models" / "chess-steps-v4.onnx"
+DEFAULT_MODEL = PROJECT_ROOT / "models" / "chess-steps-v5.onnx"
 _PRINTED_CORNERS = np.float32([[170, 116], [890, 19], [953, 812], [81, 817]])
 
 

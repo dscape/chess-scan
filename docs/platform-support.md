@@ -1,6 +1,6 @@
 # Platform model and external corpus
 
-`chess-steps-v4` targets normal visible board themes from Chess.com, Lichess, and Take Take Take. It does not claim to infer information deliberately removed by accessibility or novelty themes.
+`chess-steps-v5` retains v4's normal visible board-theme coverage for Chess.com, Lichess, and Take Take Take while recovering a real photographed-workbook regression. It does not claim to infer information deliberately removed by accessibility or novelty themes.
 
 ## External corpus
 
@@ -16,7 +16,11 @@ Production uses:
 /opt/s46/chess/src/training-data/platforms-v1
 ```
 
-The corpus contains 3,984 generated FEN-labelled boards:
+The consented photographed-print regression corpus lives alongside it as
+`~/chess-scan-training/print-regressions-v1` locally and
+`/opt/s46/chess/src/training-data/print-regressions-v1` in production. It retains only rectified crops and is verified against `benchmarks/print-regression-corpus.json`.
+
+The platform corpus contains 3,984 generated FEN-labelled boards:
 
 | Platform | Piece styles | Train boards | Test boards |
 |---|---:|---:|---:|
@@ -42,8 +46,10 @@ The committed manifest's style counts are authoritative. Use `--allow-inventory-
 ```bash
 make prepare-platform-data
 make train-platform-model
+make train-print-recovery
 make qa-platform
 make qa-argus
+make qa-print
 make qa-online
 make qa-stress
 ```
@@ -54,7 +60,7 @@ Pass `--variant` more than once to evaluate several platform variants in one ver
 
 ```bash
 python scripts/evaluate_platforms.py \
-  --baseline models/chess-steps-v3.onnx \
+  --baseline models/chess-steps-v4.onnx \
   --variant clean \
   --variant camera
 ```
@@ -63,21 +69,23 @@ MPS optimization is not byte deterministic. A reproduction must pass every gate 
 
 ## Promotion results
 
-The promoted artifact is `models/chess-steps-v4.onnx`.
+The promoted artifact is `models/chess-steps-v5.onnx`.
 
-| Gate | v3 | v4 |
+| Gate | v4 | v5 |
 |---|---:|---:|
-| Clean platform squares | 59,613 / 63,744 | 63,724 / 63,744 |
-| Clean platform occupied | 15,540 / 19,671 | 19,651 / 19,671 |
-| Clean platform exact boards | 319 / 996 | 982 / 996 |
-| Camera/display exact boards | 444 / 996 | 980 / 996 |
-| Argus held-out squares | 4,482 / 4,500 | 4,495 / 4,500 |
-| Synthetic replay | 19,378 / 19,500 | 19,378 / 19,500 |
+| Reference workbook photograph | 62 / 64 | 64 / 64 |
+| Clean platform squares | 63,724 / 63,744 | 63,729 / 63,744 |
+| Clean platform occupied | 19,651 / 19,671 | 19,656 / 19,671 |
+| Clean platform exact boards | 982 / 996 | 987 / 996 |
+| Camera/display squares | 63,704 / 63,744 | 63,705 / 63,744 |
+| Camera/display exact boards | 980 / 996 | 980 / 996 |
+| Argus held-out squares | 4,495 / 4,500 | 4,496 / 4,500 |
+| Synthetic replay | 19,378 / 19,500 | 19,382 / 19,500 |
 | Official online boards | 267 / 267 | 267 / 267 |
-| Real Take Take Take holdouts | not gated | 2 / 2 |
-| Latest Chess.com Glass board | 58 / 64 | 64 / 64 |
+| Real Take Take Take holdouts | 2 / 2 | 2 / 2 |
+| Latest Chess.com Glass board | 64 / 64 | 64 / 64 |
 
-Clean per-platform exact-board results are 454/456 Chess.com, 468/480 Lichess, and 60/60 Take Take Take. Every included style reaches at least 8/12 exact clean boards; the remaining errors are concentrated in Chess.com Metal and Lichess Chess7, Governor, Icpieces, and Pirouetti. All remain represented and measured rather than silently excluded.
+V5's clean per-platform exact-board results are 454/456 Chess.com, 473/480 Lichess, and 60/60 Take Take Take. Every included style remains represented and measured rather than silently excluded.
 
 ## Automatic learning
 
@@ -85,8 +93,8 @@ The production learner mounts the corpus read-only. Feedback candidates:
 
 1. Load the active wide checkpoint next to its ONNX artifact.
 2. Interleave platform and Argus replay with grouped feedback training.
-3. Run paired clean and camera platform evaluations.
-4. Reject any platform, exact-board, occupied-square, Argus, synthetic, or official regression.
+3. Run paired clean and camera platform evaluations and the immutable photographed-print regression.
+4. Reject any print, platform, exact-board, occupied-square, Argus, synthetic, or official regression.
 5. Continue to fresh shadow feedback only after all immutable gates pass.
 
 Predictions remain raw model outputs. No platform-specific chess-rule repair is applied.

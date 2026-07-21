@@ -79,7 +79,7 @@ The app checks the SQLite model registry on each scan and atomically reloads a n
 
 ## Base-model adaptation
 
-The active `chess-steps-v4` model uses a 2.6 MB square CNN trained for standard Lichess, Chess.com, and Take Take Take artwork. Its external `platforms-v1` corpus contains 3,984 FEN-labelled boards spanning 83 visible piece styles, with the final 12 positions per style held out. Intentionally concealed themes—Chess.com Blindfold and Lichess Mono/Disguised—are excluded because their missing pixel information cannot be classified.
+The active `chess-steps-v5` model uses the 2.6 MB v4 square CNN, then recovers a diagnosed regression on a real photographed Chess Steps workbook. Its external `platforms-v1` corpus contains 3,984 FEN-labelled boards spanning 83 visible piece styles, with the final 12 positions per style held out. The separately grouped `print-regressions-v1` corpus retains one consented rectified crop—not the full photograph—and is now an immutable promotion gate. Intentionally concealed themes—Chess.com Blindfold and Lichess Mono/Disguised—are excluded because their missing pixel information cannot be classified.
 
 The labeled image corpora are deliberately outside Git. Prepare or sync the verified copies, then reproduce the model and run every gate:
 
@@ -87,17 +87,19 @@ The labeled image corpora are deliberately outside Git. Prepare or sync the veri
 make prepare-argus-data     # ~/chess-scan-training/argus-2026-03-29
 make prepare-platform-data  # ~/chess-scan-training/platforms-v1 after acquiring assets
 make train-platform-model
+make train-print-recovery
 make qa-argus
 make qa-platform
+make qa-print
 make qa-online
 make qa-stress
 ```
 
-Set `CHESS_SCAN_ARGUS_DATA_DIR` and `CHESS_SCAN_PLATFORM_DATA_DIR` to use other external locations. [`benchmarks/argus-training-corpus.json`](benchmarks/argus-training-corpus.json) and [`benchmarks/platform-training-corpus.json`](benchmarks/platform-training-corpus.json) hash-describe both corpora without redistributing source images. Production mounts a read-only server copy for automatic replay and gating; `s46-infra/hetzner/scripts/sync-chess-training-data.sh` explicitly pushes or pulls it with rsync.
+Set `CHESS_SCAN_ARGUS_DATA_DIR`, `CHESS_SCAN_PLATFORM_DATA_DIR`, and `CHESS_SCAN_PRINT_DATA_DIR` to use other external locations. The manifests under [`benchmarks/`](benchmarks/) hash-describe all three corpora without redistributing source images. Production mounts read-only server copies for automatic replay and gating; `s46-infra/hetzner/scripts/sync-chess-training-data.sh` explicitly pushes or pulls them with rsync.
 
-V4 reaches 99.97% square and 99.90% occupied-square accuracy across the grouped clean platform holdout, with 982/996 exact boards. Its deterministic camera/display gate reaches 99.94% square and 99.80% occupied-square accuracy with 980/996 exact boards. Chess.com is 454/456 exact, Lichess 468/480, and Take Take Take 60/60 on clean captures. Two separate real Take Take Take app boards remain exactly held out. The latest confirmed Chess.com Glass board is 64/64 after entering the immutable training pool.
+V5 fixes the reference workbook from 62/64 to 64/64 squares and stays exact across eight fixed degradation variants. On the grouped clean platform holdout it improves v4 from 982 to 987 exact boards and from 63,724 to 63,729 correct squares. The deterministic camera/display gate retains 980/996 exact boards while improving by one square. Clean Chess.com is 454/456 exact, Lichess improves to 473/480, and Take Take Take remains 60/60. Two separate real Take Take Take app boards and the latest Chess.com Glass board remain exact.
 
-Official source files are downloaded during training or QA and are not redistributed. V4 remains exact on all 267 reproducible online boards and every enforced print/photo gate, improves the Argus held-out sample from v3's 4,482/4,500 to 4,495/4,500 without regressing any class, and preserves synthetic replay at 19,378/19,500.
+Official source files are downloaded during training or QA and are not redistributed. V5 remains exact on all 267 reproducible online boards and every enforced print/photo gate, improves the Argus held-out sample from 4,495/4,500 to 4,496/4,500 without regressing any class, and improves synthetic replay from 19,378/19,500 to 19,382/19,500. The diagnosis and full gate comparison are recorded in [`docs/print-regression-v5.md`](docs/print-regression-v5.md).
 
 ## Learning loop
 
@@ -132,7 +134,7 @@ See [`docs/learning-loop.md`](docs/learning-loop.md) for the distinction between
 
 ## Model provenance
 
-`models/argus-v2r5.onnx` is the MIT-licensed Argus overlay square classifier. `models/chess-steps-v1.onnx` is the original print adaptation, `chess-steps-v2.onnx` is the queen-color revision, `chess-steps-v3.onnx` restores Argus coverage, and `chess-steps-v4.onnx` is the active multi-platform model. Trainable checkpoints and metadata are stored alongside the immutable weight artifacts.
+`models/argus-v2r5.onnx` is the MIT-licensed Argus overlay square classifier. `models/chess-steps-v1.onnx` is the original print adaptation, `chess-steps-v2.onnx` is the queen-color revision, `chess-steps-v3.onnx` restores Argus coverage, `chess-steps-v4.onnx` adds multi-platform coverage, and `chess-steps-v5.onnx` restores real photographed-workbook coverage without regressing those domains. Trainable checkpoints and metadata are stored alongside the immutable weight artifacts.
 
 Recorded king-location results:
 

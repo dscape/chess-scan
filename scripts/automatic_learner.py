@@ -357,9 +357,11 @@ def run_fixed_qa(
     }
     platform_data_dir = os.getenv("CHESS_SCAN_PLATFORM_DATA_DIR")
     argus_data_dir = os.getenv("CHESS_SCAN_ARGUS_DATA_DIR")
-    if not platform_data_dir or not argus_data_dir:
+    print_data_dir = os.getenv("CHESS_SCAN_PRINT_DATA_DIR")
+    if not platform_data_dir or not argus_data_dir or not print_data_dir:
         raise BenchmarkUnavailableError(
-            "CHESS_SCAN_PLATFORM_DATA_DIR and CHESS_SCAN_ARGUS_DATA_DIR are required"
+            "CHESS_SCAN_PLATFORM_DATA_DIR, CHESS_SCAN_ARGUS_DATA_DIR, and "
+            "CHESS_SCAN_PRINT_DATA_DIR are required"
         )
     commands["platform"] = [
         sys.executable,
@@ -384,6 +386,16 @@ def run_fixed_qa(
         str(baseline_model_path),
         "--data-dir",
         argus_data_dir,
+    ]
+    commands["print"] = [
+        sys.executable,
+        str(scripts / "evaluate_print_regressions.py"),
+        "--model",
+        str(model_path),
+        "--baseline",
+        str(baseline_model_path),
+        "--data-dir",
+        print_data_dir,
     ]
     metrics: dict[str, Any] = {"passed": True}
     for name, command in commands.items():
@@ -410,7 +422,7 @@ def run_fixed_qa(
 def _qa_summary(name: str, payload: dict[str, Any]) -> dict[str, Any]:
     if name == "online":
         return dict(payload["combined"])
-    if name == "argus" or name.startswith("platform-"):
+    if name in {"argus", "print"} or name.startswith("platform-"):
         return payload
     return {
         "classifier": payload.get("classifier"),
