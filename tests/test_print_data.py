@@ -5,12 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from chess_scan.print_data import (
-    print_pair_decision,
-    read_records,
-    sha256_file,
-    verify_data_manifest,
-)
+from chess_scan.model_artifact import sha256_file
+from chess_scan.print_data import print_pair_decision, read_records, verify_data_manifest
 
 
 def test_print_manifest_verifies_every_rectified_board(tmp_path: Path) -> None:

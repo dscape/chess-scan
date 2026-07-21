@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from pathlib import Path
 from typing import Any
 
 from chess_scan.board import labels_to_board_fen, validate_labels
+from chess_scan.model_artifact import sha256_file
 
 _MANIFEST_NAME = "print-regression-corpus.json"
 
@@ -121,14 +121,6 @@ def print_pair_decision(
         if candidate["robustness_correct_squares"] < active["robustness_correct_squares"]:
             reasons.append("photographed-print robustness square accuracy regressed")
     return not reasons, reasons
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        while chunk := handle.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _validate_record(record: dict[str, Any], *, path: Path, line_number: int) -> None:

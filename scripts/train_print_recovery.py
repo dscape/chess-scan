@@ -15,10 +15,11 @@ import cv2
 import numpy as np
 import torch
 import torch.nn.functional as functional
+from torch.utils.data import DataLoader, Dataset, get_worker_info
 
 from chess_scan.argus_data import default_data_dir as default_argus_data_dir
 from chess_scan.argus_data import verify_data_manifest as verify_argus_data_manifest
-from chess_scan.classifier import DiagramClassifier, preprocess_board, preprocess_square_crops
+from chess_scan.classifier import DiagramClassifier, preprocess_board
 from chess_scan.model_artifact import model_version, sha256_file
 from chess_scan.platform_data import default_data_dir as default_platform_data_dir
 from chess_scan.platform_data import load_records as load_platform_records
@@ -28,20 +29,137 @@ from chess_scan.print_data import load_records as load_print_records
 from chess_scan.print_data import verify_data_manifest as verify_print_data_manifest
 from evaluate_photo_stress import make_halftone_screen, rectify_printed_photo
 from evaluate_platforms import transform_board
-from image_augmentation import jpeg_round_trip, resize_round_trip
+from image_augmentation import contrast_brightness, jpeg_round_trip, resize_round_trip
 from square_model import export_onnx, load_fused_wide_onnx, verify_model_matches_onnx
 from train_argus_recovery import prepare_official_retention_data
-from training_utils import ArgusReplayDataset, distillation_loss, resolve_device
+from training_utils import (
+    REPLAY_WORKERS,
+    ArgusReplayDataset,
+    collate_replay_batch,
+    distillation_loss,
+    resolve_device,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_BASE_MODEL = PROJECT_ROOT / "models" / "chess-steps-v4.onnx"
 DEFAULT_OFFICIAL_DIR = Path.home() / "chess-scan-training" / "chess-steps-official-v1"
 
+RecoveryBatch = tuple[
+    tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+    tuple[torch.Tensor, torch.Tensor],
+    tuple[torch.Tensor, torch.Tensor],
+    tuple[torch.Tensor, torch.Tensor],
+]
+
+
+class PlatformBoardDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
+    def __init__(
+        self,
+        root: Path,
+        records: list[dict[str, Any]],
+        *,
+        seed: int,
+    ) -> None:
+        self.root = root
+        self.records = records
+        self.seed = seed
+        self._rng: random.Random | None = None
+
+    def __len__(self) -> int:
+        return len(self.records)
+
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+        record = self.records[index]
+        board = _read_board(self.root / record["path"])
+        rng = self._random()
+        if rng.randrange(3) > 0:
+            board = transform_board(board, "camera", rng.randrange(1_000_000))
+        return (
+            torch.from_numpy(preprocess_board(board).copy()),
+            torch.tensor(record["labels"], dtype=torch.long),
+        )
+
+    def _random(self) -> random.Random:
+        if self._rng is None:
+            self._rng = _worker_random(self.seed)
+        return self._rng
+
+
+class RecoveryBatchCollator:
+    def __init__(
+        self,
+        *,
+        print_examples: list[dict[str, Any]],
+        official_rows: list[dict[str, Any]],
+        argus: ArgusReplayDataset,
+        seed: int,
+    ) -> None:
+        self.print_examples = print_examples
+        self.official_rows = official_rows
+        self.argus = argus
+        self.seed = seed
+        self.halftone_screen = make_halftone_screen(1024)
+        self._rng: random.Random | None = None
+
+    def __call__(
+        self,
+        platform_examples: list[tuple[torch.Tensor, torch.Tensor]],
+    ) -> RecoveryBatch:
+        platform_inputs, platform_labels = zip(*platform_examples, strict=True)
+        return (
+            self._target_batch(2),
+            (torch.cat(platform_inputs), torch.cat(platform_labels)),
+            self._official_batch(4),
+            self._argus_batch(256),
+        )
+
+    def _target_batch(self, count: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        inputs = []
+        labels = []
+        weights = []
+        rng = self._random()
+        for _ in range(count):
+            example = rng.choice(self.print_examples)
+            inputs.append(preprocess_board(_augment_print(example["board"], rng)))
+            labels.append(example["labels"])
+            weights.append(example["weights"])
+        return (
+            torch.from_numpy(np.concatenate(inputs).copy()),
+            torch.from_numpy(np.concatenate(labels)).long(),
+            torch.from_numpy(np.concatenate(weights)).float(),
+        )
+
+    def _official_batch(self, count: int) -> tuple[torch.Tensor, torch.Tensor]:
+        inputs = []
+        labels = []
+        rng = self._random()
+        for record in rng.sample(self.official_rows, count):
+            board = _augment_official(
+                _read_board(Path(record["path"])),
+                rng,
+                self.halftone_screen,
+            )
+            inputs.append(preprocess_board(board))
+            labels.extend(record["labels"])
+        return (
+            torch.from_numpy(np.concatenate(inputs).copy()),
+            torch.tensor(labels, dtype=torch.long),
+        )
+
+    def _argus_batch(self, count: int) -> tuple[torch.Tensor, torch.Tensor]:
+        rng = self._random()
+        examples = [self.argus[rng.randrange(len(self.argus))] for _ in range(count)]
+        return collate_replay_batch(examples)
+
+    def _random(self) -> random.Random:
+        if self._rng is None:
+            self._rng = _worker_random(self.seed)
+        return self._rng
+
 
 class PrintRecoveryTrainer:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
-        self.rng = random.Random(args.seed)
         self.device = resolve_device(args.device)
         self.print_dir = args.print_data_dir.expanduser().resolve()
         self.platform_dir = args.platform_data_dir.expanduser().resolve()
@@ -58,8 +176,28 @@ class PrintRecoveryTrainer:
         self.official_rows = prepare_official_retention_data(
             args.official_dir.expanduser().resolve()
         )
-        self.argus = ArgusReplayDataset(self.argus_dir, source="all")
-        self.halftone_screen = make_halftone_screen(1024)
+        if not self.platform_records:
+            raise ValueError("The print recovery trainer requires platform records")
+        self.training_loader = DataLoader(
+            PlatformBoardDataset(
+                self.platform_dir,
+                self.platform_records,
+                seed=args.seed,
+            ),
+            batch_size=args.platform_batch_size,
+            shuffle=True,
+            drop_last=True,
+            num_workers=REPLAY_WORKERS,
+            persistent_workers=True,
+            prefetch_factor=2,
+            collate_fn=RecoveryBatchCollator(
+                print_examples=self.print_examples,
+                official_rows=self.official_rows,
+                argus=ArgusReplayDataset(self.argus_dir, source="all"),
+                seed=args.seed + 1,
+            ),
+            generator=torch.Generator().manual_seed(args.seed),
+        )
 
         self.model = load_fused_wide_onnx(args.base_model)
         self.teacher = copy.deepcopy(self.model).eval().to(self.device)
@@ -154,15 +292,13 @@ class PrintRecoveryTrainer:
         return metadata
 
     def _train_epoch(self) -> float:
-        order = list(self.platform_records)
-        self.rng.shuffle(order)
-        total_loss = 0.0
+        total_loss = torch.zeros((), device=self.device)
         steps = 0
-        for offset in range(
-            0, len(order) - self.args.platform_batch_size + 1, self.args.platform_batch_size
-        ):
+        for target, platform, official, argus in self.training_loader:
             self.model.train()
-            target_inputs, target_labels, target_weights = self._target_batch(2)
+            target_inputs, target_labels, target_weights = (
+                tensor.to(self.device) for tensor in target
+            )
             target_logits = self.model(target_inputs)
             target_loss = (
                 functional.cross_entropy(
@@ -173,90 +309,29 @@ class PrintRecoveryTrainer:
                 * target_weights
             ).sum() / target_weights.sum()
 
-            platform_loss = self._retention_loss(
-                *self._platform_batch(order[offset : offset + self.args.platform_batch_size]),
-                distillation_weight=5.0,
-            )
-            official_loss = self._retention_loss(
-                *self._official_batch(4),
-                distillation_weight=2.0,
-            )
-            argus_loss = self._retention_loss(
-                *self._argus_batch(256),
-                distillation_weight=3.0,
-            )
+            platform_loss = self._retention_loss(*platform, distillation_weight=5.0)
+            official_loss = self._retention_loss(*official, distillation_weight=2.0)
+            argus_loss = self._retention_loss(*argus, distillation_weight=3.0)
             loss = 2.0 * target_loss + 4.0 * platform_loss + 0.5 * official_loss + 0.25 * argus_loss
             self.optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), 2.0)
             self.optimizer.step()
-            total_loss += float(loss.detach())
+            total_loss += loss.detach()
             steps += 1
-        return total_loss / steps
-
-    def _target_batch(self, count: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        inputs = []
-        labels = []
-        weights = []
-        for _ in range(count):
-            example = self.rng.choice(self.print_examples)
-            inputs.append(preprocess_board(self._augment_print(example["board"])))
-            labels.append(example["labels"])
-            weights.append(example["weights"])
-        return (
-            torch.from_numpy(np.concatenate(inputs).copy()).to(self.device),
-            torch.from_numpy(np.concatenate(labels)).long().to(self.device),
-            torch.from_numpy(np.concatenate(weights)).float().to(self.device),
-        )
-
-    def _platform_batch(
-        self,
-        records: list[dict[str, Any]],
-    ) -> tuple[np.ndarray, np.ndarray]:
-        inputs = []
-        labels = []
-        for record in records:
-            board = _read_board(self.platform_dir / record["path"])
-            if self.rng.randrange(3) > 0:
-                board = transform_board(board, "camera", self.rng.randrange(1_000_000))
-            inputs.append(preprocess_board(board))
-            labels.extend(record["labels"])
-        return np.concatenate(inputs), np.asarray(labels, dtype=np.int64)
-
-    def _official_batch(self, count: int) -> tuple[np.ndarray, np.ndarray]:
-        inputs = []
-        labels = []
-        for record in self.rng.sample(self.official_rows, count):
-            board = _read_board(Path(record["path"]))
-            variant = self.rng.randrange(5)
-            if variant == 1:
-                board = resize_round_trip(board, 256, contrast=self.rng.uniform(0.3, 0.7))
-            elif variant == 2:
-                board = rectify_printed_photo(board, self.halftone_screen)
-            elif variant == 3:
-                board = cv2.GaussianBlur(board, (0, 0), self.rng.uniform(0.2, 0.8))
-            elif variant == 4:
-                board = resize_round_trip(board, self.rng.randrange(160, 420))
-            inputs.append(preprocess_board(board))
-            labels.extend(record["labels"])
-        return np.concatenate(inputs), np.asarray(labels, dtype=np.int64)
-
-    def _argus_batch(self, count: int) -> tuple[np.ndarray, np.ndarray]:
-        examples = [self.argus[self.rng.randrange(len(self.argus))] for _ in range(count)]
-        return (
-            preprocess_square_crops([image for image, _label in examples]),
-            np.asarray([label for _image, label in examples], dtype=np.int64),
-        )
+        if steps == 0:
+            raise RuntimeError("The print recovery trainer produced no platform batches")
+        return (total_loss / steps).item()
 
     def _retention_loss(
         self,
-        inputs: np.ndarray,
-        labels: np.ndarray,
+        inputs: torch.Tensor | np.ndarray,
+        labels: torch.Tensor | np.ndarray,
         *,
         distillation_weight: float,
     ) -> torch.Tensor:
-        images = torch.from_numpy(inputs.copy()).to(self.device)
-        targets = torch.from_numpy(labels).long().to(self.device)
+        images = torch.as_tensor(inputs).to(self.device)
+        targets = torch.as_tensor(labels, dtype=torch.long).to(self.device)
         logits = self.model(images)
         with torch.no_grad():
             teacher_logits = self.teacher(images)
@@ -279,37 +354,6 @@ class PrintRecoveryTrainer:
             weights[prediction != labels] = 32.0
             examples.append({"board": board, "labels": labels, "weights": weights})
         return examples
-
-    def _augment_print(self, board: np.ndarray) -> np.ndarray:
-        variant = self.rng.randrange(8)
-        if variant == 1:
-            return cv2.GaussianBlur(board, (0, 0), self.rng.uniform(0.2, 1.3))
-        if variant == 2:
-            return resize_round_trip(board, self.rng.randrange(128, 430))
-        if variant == 3:
-            return jpeg_round_trip(board, self.rng.randrange(45, 96))
-        if variant == 4:
-            return np.clip(
-                board.astype(np.float32) * self.rng.uniform(0.65, 1.35) + self.rng.uniform(-20, 20),
-                0,
-                255,
-            ).astype(np.uint8)
-        if variant == 5:
-            gray = cv2.cvtColor(board, cv2.COLOR_BGR2GRAY)
-            return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-        if variant == 6:
-            compressed = jpeg_round_trip(board, self.rng.randrange(55, 90))
-            return cv2.GaussianBlur(compressed, (0, 0), self.rng.uniform(0.2, 0.9))
-        if variant == 7:
-            hsv = cv2.cvtColor(board, cv2.COLOR_BGR2HSV).astype(np.float32)
-            hsv[:, :, 1] *= self.rng.uniform(0.3, 1.3)
-            hsv[:, :, 2] = np.clip(
-                hsv[:, :, 2] * self.rng.uniform(0.8, 1.15),
-                0,
-                255,
-            )
-            return cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
-        return board
 
     def _print_exact_boards(self, model_path: Path) -> int:
         classifier = DiagramClassifier(model_path, version=model_version(model_path))
@@ -342,6 +386,60 @@ def parse_args() -> argparse.Namespace:
     if args.epochs <= 0 or args.platform_batch_size <= 0:
         parser.error("epochs and platform batch size must be positive")
     return args
+
+
+def _augment_print(board: np.ndarray, rng: random.Random) -> np.ndarray:
+    variant = rng.randrange(8)
+    if variant == 1:
+        return cv2.GaussianBlur(board, (0, 0), rng.uniform(0.2, 1.3))
+    if variant == 2:
+        return resize_round_trip(board, rng.randrange(128, 430))
+    if variant == 3:
+        return jpeg_round_trip(board, rng.randrange(45, 96))
+    if variant == 4:
+        return contrast_brightness(
+            board,
+            contrast=rng.uniform(0.65, 1.35),
+            brightness=rng.uniform(-20, 20),
+        )
+    if variant == 5:
+        gray = cv2.cvtColor(board, cv2.COLOR_BGR2GRAY)
+        return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+    if variant == 6:
+        compressed = jpeg_round_trip(board, rng.randrange(55, 90))
+        return cv2.GaussianBlur(compressed, (0, 0), rng.uniform(0.2, 0.9))
+    if variant == 7:
+        hsv = cv2.cvtColor(board, cv2.COLOR_BGR2HSV).astype(np.float32)
+        hsv[:, :, 1] *= rng.uniform(0.3, 1.3)
+        hsv[:, :, 2] = np.clip(
+            hsv[:, :, 2] * rng.uniform(0.8, 1.15),
+            0,
+            255,
+        )
+        return cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+    return board
+
+
+def _augment_official(
+    board: np.ndarray,
+    rng: random.Random,
+    halftone_screen: np.ndarray,
+) -> np.ndarray:
+    variant = rng.randrange(5)
+    if variant == 1:
+        return resize_round_trip(board, 256, contrast=rng.uniform(0.3, 0.7))
+    if variant == 2:
+        return rectify_printed_photo(board, halftone_screen)
+    if variant == 3:
+        return cv2.GaussianBlur(board, (0, 0), rng.uniform(0.2, 0.8))
+    if variant == 4:
+        return resize_round_trip(board, rng.randrange(160, 420))
+    return board
+
+
+def _worker_random(seed: int) -> random.Random:
+    worker = get_worker_info()
+    return random.Random(seed if worker is None else seed + worker.seed)
 
 
 def _read_board(path: Path) -> np.ndarray:

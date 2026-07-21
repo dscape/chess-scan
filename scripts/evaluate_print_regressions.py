@@ -20,7 +20,7 @@ from chess_scan.print_data import (
     print_pair_decision,
     verify_data_manifest,
 )
-from image_augmentation import jpeg_round_trip, resize_round_trip
+from image_augmentation import contrast_brightness, jpeg_round_trip, resize_round_trip
 from qa_common import write_json
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -65,6 +65,7 @@ def evaluate_model(
     non_empty_correct = 0
     non_empty_total = 0
     exact_variants = 0
+    variant_count = 0
     variant_correct_squares = 0
     failures = []
     variant_failures = []
@@ -73,7 +74,9 @@ def evaluate_model(
         if board is None:
             raise ValueError(f"Cannot read photographed-print board: {record['path']}")
         expected = [int(label) for label in record["labels"]]
-        for variant, transformed in _robustness_variants(board).items():
+        variants = _robustness_variants(board)
+        variant_count += len(variants)
+        for variant, transformed in variants.items():
             prediction = classifier.predict(transformed)
             mismatches = _mismatches(expected, prediction.labels)
             variant_correct_squares += 64 - len(mismatches)
@@ -104,10 +107,10 @@ def evaluate_model(
         "total_squares": len(records) * 64,
         "non_empty_correct": non_empty_correct,
         "non_empty_total": non_empty_total,
-        "robustness_variants": len(records) * 8,
+        "robustness_variants": variant_count,
         "exact_robustness_variants": exact_variants,
         "robustness_correct_squares": variant_correct_squares,
-        "robustness_total_squares": len(records) * 8 * 64,
+        "robustness_total_squares": variant_count * 64,
         "failures": failures,
         "robustness_failures": variant_failures,
     }
@@ -121,8 +124,8 @@ def _robustness_variants(board: np.ndarray) -> dict[str, np.ndarray]:
         "blur-0.8": cv2.GaussianBlur(board, (0, 0), 0.8),
         "blur-1.4": cv2.GaussianBlur(board, (0, 0), 1.4),
         "resize-128": resize_round_trip(board, 128),
-        "faded": np.clip(board.astype(np.float32) * 0.55 + 85, 0, 255).astype(np.uint8),
-        "dark": np.clip(board.astype(np.float32) * 0.65, 0, 255).astype(np.uint8),
+        "faded": contrast_brightness(board, contrast=0.55, brightness=85),
+        "dark": contrast_brightness(board, contrast=0.65, brightness=0),
     }
 
 
