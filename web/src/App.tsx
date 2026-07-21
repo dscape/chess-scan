@@ -2,20 +2,23 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
   confirmScan,
+  getReviewedPosition,
   getScan,
+  isFeedbackId,
   isScanId,
   reprocessScan,
   scanImage,
 } from "./api";
-import { countKings, fullFen, predictionNeedsReview } from "./board";
+import { countKings, fenError, fullFen, predictionNeedsReview } from "./board";
 import BoardEditor from "./components/BoardEditor";
 import CapturePanel from "./components/CapturePanel";
 import CornerEditor from "./components/CornerEditor";
 import RecognitionSuccess from "./components/RecognitionSuccess";
+import PositionLesson from "./components/PositionLesson";
 import type {
-  ConfirmResult,
   Orientation,
   Point,
+  ReviewedPosition,
   ScanResult,
   SideToMove,
 } from "./types";
@@ -23,7 +26,8 @@ import type {
 type BusyAction = "scan" | "reprocess" | "confirm" | null;
 type AppRoute =
   | { page: "home"; error?: string }
-  | { page: "scan"; scanId: string };
+  | { page: "scan"; scanId: string }
+  | { page: "review"; feedbackId: string };
 
 interface ScanDraft {
   predictionRevision: string;
@@ -34,7 +38,6 @@ interface ScanDraft {
   castlingRights: string[];
   consentTraining: boolean;
   geometryOpen: boolean;
-  confirmation: ConfirmResult | null;
 }
 
 interface PendingScanDraft {
@@ -56,7 +59,7 @@ export default function App() {
   const [consentTraining, setConsentTraining] = useState(true);
   const [busy, setBusy] = useState<BusyAction>(null);
   const [error, setError] = useState<string | null>(null);
-  const [confirmation, setConfirmation] = useState<ConfirmResult | null>(null);
+  const [reviewPosition, setReviewPosition] = useState<ReviewedPosition | null>(null);
   const [reviewReady, setReviewReady] = useState(false);
   const [geometryOpen, setGeometryOpen] = useState(false);
   const [geometryMounted, setGeometryMounted] = useState(false);
@@ -65,7 +68,11 @@ export default function App() {
   const [clientSessionId] = useState(getClientSessionId);
   const requestGeneration = useRef(0);
   const pendingDraftRef = useRef<PendingScanDraft | null>(null);
-  const routeLoading = route.page === "scan" && scan?.scan_id !== route.scanId;
+  const routeLoading = (
+    route.page === "scan" && scan?.scan_id !== route.scanId
+  ) || (
+    route.page === "review" && reviewPosition?.feedback_id !== route.feedbackId
+  );
 
   useEffect(() => {
     const generation = ++requestGeneration.current;
@@ -78,33 +85,46 @@ export default function App() {
 
     setError(null);
     setRouteLoadError(null);
-    if (scan?.scan_id === route.scanId) return;
+    if (route.page === "scan" && scan?.scan_id === route.scanId) return;
+    if (
+      route.page === "review"
+      && reviewPosition?.feedback_id === route.feedbackId
+    ) return;
 
     clearBoard();
     const controller = new AbortController();
-    void getScan(route.scanId, controller.signal)
-      .then((result) => {
-        if (generation !== requestGeneration.current) return;
-        restoreScan(result);
-        setReviewReady(true);
-      })
-      .catch((cause: unknown) => {
-        if (
-          generation !== requestGeneration.current
-          || (cause instanceof DOMException && cause.name === "AbortError")
-        ) return;
-        if (cause instanceof ApiError && (cause.status === 404 || cause.status === 410)) {
-          navigate(
-            {
-              page: "home",
-              error: `${messageFrom(cause)}. This board is no longer available.`,
-            },
-            true,
-          );
-          return;
-        }
-        setRouteLoadError(`${messageFrom(cause)}. Check your connection and try again.`);
-      });
+    const load = route.page === "scan"
+      ? getScan(route.scanId, controller.signal).then((result) => {
+          if (generation !== requestGeneration.current) return;
+          restoreScan(result);
+          setReviewReady(true);
+        })
+      : getReviewedPosition(route.feedbackId, controller.signal).then((result) => {
+          if (generation !== requestGeneration.current) return;
+          const validationError = fenError(result.full_fen);
+          if (validationError) {
+            throw new Error(`This lesson cannot be opened. ${validationError}`);
+          }
+          setReviewPosition(result);
+        });
+    void load.catch((cause: unknown) => {
+      if (
+        generation !== requestGeneration.current
+        || (cause instanceof DOMException && cause.name === "AbortError")
+      ) return;
+      if (cause instanceof ApiError && (cause.status === 404 || cause.status === 410)) {
+        const item = route.page === "scan" ? "board" : "review";
+        navigate(
+          {
+            page: "home",
+            error: `${messageFrom(cause)}. This ${item} is no longer available.`,
+          },
+          true,
+        );
+        return;
+      }
+      setRouteLoadError(messageFrom(cause));
+    });
     return () => controller.abort();
   }, [route, routeLoadAttempt]);
 
@@ -177,14 +197,12 @@ export default function App() {
         castlingRights,
         consentTraining,
         geometryOpen,
-        confirmation,
       },
     };
     const timer = window.setTimeout(flushPendingDraft, 250);
     return () => window.clearTimeout(timer);
   }, [
     castlingRights,
-    confirmation,
     consentTraining,
     corners,
     geometryOpen,
@@ -197,6 +215,7 @@ export default function App() {
   const sourceImageUrl = sourceUrl ?? scan?.source_image_url ?? null;
   const castling = castlingRights.length > 0 ? "KQkq".split("").filter((right) => castlingRights.includes(right)).join("") : "-";
   const fen = scan ? fullFen(labels, orientation, sideToMove, castling) : "";
+  const fenValidationError = scan ? fenError(fen) : null;
   const changedSquares = labels.filter((label, index) => label !== scan?.labels[index]).length;
   const kings = countKings(labels);
   const confidence = scan
@@ -215,7 +234,7 @@ export default function App() {
   async function handleImage(file: File) {
     const generation = ++requestGeneration.current;
     setError(null);
-    setConfirmation(null);
+    setReviewPosition(null);
     setBusy("scan");
     setSourceFile(file);
     try {
@@ -257,14 +276,13 @@ export default function App() {
     setConsentTraining(draft?.consentTraining ?? true);
     setGeometryOpen(draft?.geometryOpen ?? false);
     setGeometryMounted(draft?.geometryOpen ?? false);
-    setConfirmation(predictionDraft?.confirmation ?? null);
   }
 
   async function handleReprocess() {
     if (!scan) return;
     const generation = ++requestGeneration.current;
     setError(null);
-    setConfirmation(null);
+    setReviewPosition(null);
     setBusy("reprocess");
     try {
       const result = await reprocessScan(scan.scan_id, corners);
@@ -281,15 +299,13 @@ export default function App() {
 
   async function handleConfirm() {
     if (!scan) return;
+    if (positionErrors.length > 0) {
+      setError("Correct the invalid position before starting a lesson.");
+      return;
+    }
     const generation = ++requestGeneration.current;
     setError(null);
     setBusy("confirm");
-    const lichessTab = window.open("about:blank", "_blank");
-    if (lichessTab) {
-      lichessTab.document.title = "Opening Lichess…";
-      lichessTab.document.body.textContent = "Saving the corrected position…";
-      lichessTab.opener = null;
-    }
     try {
       const result = await confirmScan(scan.scan_id, {
         labels,
@@ -300,15 +316,19 @@ export default function App() {
         consent_training: consentTraining,
         client_session_id: clientSessionId,
       });
-      if (generation !== requestGeneration.current) {
-        lichessTab?.close();
-        return;
-      }
-      setConfirmation(result);
-      if (lichessTab) lichessTab.location.replace(result.lichess_url);
-      else window.location.assign(result.lichess_url);
+      if (generation !== requestGeneration.current) return;
+      pendingDraftRef.current = null;
+      removeScanDraft(scan.scan_id);
+      setReviewPosition({
+        feedback_id: result.feedback_id,
+        full_fen: result.full_fen,
+        orientation,
+        changed_squares: result.changed_squares,
+        lichess_url: result.lichess_url,
+      });
+      setScan(null);
+      navigate({ page: "review", feedbackId: result.feedback_id });
     } catch (cause) {
-      lichessTab?.close();
       if (generation === requestGeneration.current) setError(messageFrom(cause));
     } finally {
       if (generation === requestGeneration.current) setBusy(null);
@@ -332,7 +352,7 @@ export default function App() {
     setSideToMove("w");
     setCastlingRights([]);
     setConsentTraining(true);
-    setConfirmation(null);
+    setReviewPosition(null);
     setReviewReady(false);
     setGeometryOpen(false);
     setGeometryMounted(false);
@@ -346,12 +366,13 @@ export default function App() {
     if (pendingDraftRef.current === pending) pendingDraftRef.current = null;
   }
 
-  const positionWarnings = useMemo(() => {
-    const warnings: string[] = [];
-    if (kings.white !== 1) warnings.push(`Expected one white king; found ${kings.white}.`);
-    if (kings.black !== 1) warnings.push(`Expected one black king; found ${kings.black}.`);
-    return warnings;
-  }, [kings.black, kings.white]);
+  const positionErrors = useMemo(() => {
+    const errors: string[] = [];
+    if (kings.white !== 1) errors.push(`Expected one white king; found ${kings.white}.`);
+    if (kings.black !== 1) errors.push(`Expected one black king; found ${kings.black}.`);
+    if (errors.length === 0 && fenValidationError) errors.push(fenValidationError);
+    return errors;
+  }, [fenValidationError, kings.black, kings.white]);
 
   const captureWarnings = useMemo(() => {
     if (!scan) return [];
@@ -371,7 +392,7 @@ export default function App() {
     }
     return warnings;
   }, [confidence, scan, uncertainPredictionCount]);
-  const reviewWarnings = [...captureWarnings, ...positionWarnings];
+  const reviewWarnings = [...captureWarnings, ...positionErrors];
 
   return (
     <div className="app-frame">
@@ -384,20 +405,31 @@ export default function App() {
       )}
 
       {routeLoading ? (
-        <main className="route-loading" aria-live="polite">
+        <main
+          className="route-loading"
+          aria-live={routeLoadError ? "assertive" : "polite"}
+          role={routeLoadError ? "alert" : undefined}
+        >
           {routeLoadError ? (
             <div className="route-loading__error">
               <p>{routeLoadError}</p>
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => setRouteLoadAttempt((attempt) => attempt + 1)}
-              >
-                Retry
-              </button>
+              <div className="route-loading__actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => setRouteLoadAttempt((attempt) => attempt + 1)}
+                >
+                  Retry
+                </button>
+                <button type="button" className="text-button" onClick={reset}>
+                  Scan another position
+                </button>
+              </div>
             </div>
-          ) : "Loading board…"}
+          ) : route.page === "review" ? "Loading lesson…" : "Loading board…"}
         </main>
+      ) : route.page === "review" && reviewPosition ? (
+        <PositionLesson position={reviewPosition} onScanAnother={reset} />
       ) : route.page === "home" || !scan ? (
         <CapturePanel busy={busy === "scan"} onImage={handleImage} />
       ) : !reviewReady ? (
@@ -412,19 +444,8 @@ export default function App() {
             <i />
             <span className="is-current"><b>2</b> Check</span>
             <i />
-            <span><b>3</b> Lichess</span>
+            <span><b>3</b> Lesson</span>
           </nav>
-
-          {confirmation && (
-            <section className="success-banner">
-              <span aria-hidden="true">✓</span>
-              <div>
-                <strong>Position saved.</strong>
-                <p>Lichess opened in a new tab. This board changed {confirmation.changed_squares} model prediction{confirmation.changed_squares === 1 ? "" : "s"}.</p>
-              </div>
-              <button type="button" className="secondary-button" disabled={busy !== null} onClick={reset}>Scan another</button>
-            </section>
-          )}
 
           <header className="review-heading">
             <div>
@@ -441,7 +462,11 @@ export default function App() {
             <aside className="quality-banner" role="status">
               <span aria-hidden="true">!</span>
               <div>
-                <strong>Give this scan a closer check</strong>
+                <strong>
+                  {positionErrors.length > 0
+                    ? "Correct this position before continuing"
+                    : "Give this scan a closer check"}
+                </strong>
                 {reviewWarnings.map((warning) => <p key={warning}>{warning}</p>)}
               </div>
             </aside>
@@ -559,7 +584,7 @@ export default function App() {
             </div>
             <div className="fen-slip__status">
               {changedSquares > 0 && <span className="correction-count">{changedSquares} corrected</span>}
-              {positionWarnings.map((warning) => <span key={warning} className="warning-chip">{warning}</span>)}
+              {positionErrors.map((positionError) => <span key={positionError} className="warning-chip">{positionError}</span>)}
             </div>
           </section>
 
@@ -573,9 +598,15 @@ export default function App() {
 
           <footer className="review-actions">
             <button type="button" className="text-button" disabled={busy !== null} onClick={reset}>Start over</button>
-            <button type="button" className="primary-button analyse-button" disabled={busy !== null || confirmation !== null} onClick={handleConfirm}>
-              <span>{busy === "confirm" ? "Saving…" : "Save & analyse on Lichess"}</span>
-              <span aria-hidden="true">↗</span>
+            <button type="button" className="primary-button analyse-button" disabled={busy !== null || positionErrors.length > 0} onClick={handleConfirm}>
+              <span>
+                {busy === "confirm"
+                  ? "Saving…"
+                  : positionErrors.length > 0
+                    ? "Correct position to continue"
+                    : "Save & start position lesson"}
+              </span>
+              <span aria-hidden="true">→</span>
             </button>
           </footer>
         </main>
@@ -596,7 +627,9 @@ function useAppRoute(): [AppRoute, (route: AppRoute, replace?: boolean) => void]
   function navigate(nextRoute: AppRoute, replace = false) {
     const path = nextRoute.page === "home"
       ? "/"
-      : `/scans/${encodeURIComponent(nextRoute.scanId)}`;
+      : nextRoute.page === "scan"
+        ? `/scans/${encodeURIComponent(nextRoute.scanId)}`
+        : `/reviews/${encodeURIComponent(nextRoute.feedbackId)}`;
     window.history[replace ? "replaceState" : "pushState"](null, "", path);
     setRoute(nextRoute);
   }
@@ -605,14 +638,19 @@ function useAppRoute(): [AppRoute, (route: AppRoute, replace?: boolean) => void]
 }
 
 function routeFromPath(pathname: string): AppRoute {
-  const match = pathname.match(/^\/scans\/([^/]+)\/?$/);
-  if (match?.[1]) {
-    try {
-      const scanId = decodeURIComponent(match[1]);
-      if (isScanId(scanId)) return { page: "scan", scanId };
-    } catch {
-      // Replace malformed routes with the capture screen below.
+  const reviewMatch = pathname.match(/^\/reviews\/([^/]+)\/?$/);
+  const scanMatch = pathname.match(/^\/scans\/([^/]+)\/?$/);
+  try {
+    if (reviewMatch?.[1]) {
+      const feedbackId = decodeURIComponent(reviewMatch[1]);
+      if (isFeedbackId(feedbackId)) return { page: "review", feedbackId };
     }
+    if (scanMatch?.[1]) {
+      const scanId = decodeURIComponent(scanMatch[1]);
+      if (isScanId(scanId)) return { page: "scan", scanId };
+    }
+  } catch {
+    // Replace malformed routes with the capture screen below.
   }
   if (pathname !== "/") window.history.replaceState(null, "", "/");
   return { page: "home" };
@@ -623,6 +661,14 @@ function saveScanDraft(scanId: string, draft: ScanDraft) {
     window.sessionStorage.setItem(`chess-scan:draft:${scanId}`, JSON.stringify(draft));
   } catch {
     // A scan can still be used when browser storage is unavailable.
+  }
+}
+
+function removeScanDraft(scanId: string) {
+  try {
+    window.sessionStorage.removeItem(`chess-scan:draft:${scanId}`);
+  } catch {
+    // Confirmation is already durable in the API.
   }
 }
 
@@ -651,8 +697,7 @@ function isScanDraft(value: unknown): value is ScanDraft {
       typeof right === "string" && "KQkq".includes(right)
     )
     && typeof draft.consentTraining === "boolean"
-    && typeof draft.geometryOpen === "boolean"
-    && (draft.confirmation === null || isConfirmation(draft.confirmation));
+    && typeof draft.geometryOpen === "boolean";
 }
 
 function isLabels(value: unknown): value is number[] {
@@ -669,17 +714,6 @@ function isCorners(value: unknown): value is Point[] {
       && point.length === 2
       && point.every((coordinate) => typeof coordinate === "number" && Number.isFinite(coordinate))
     );
-}
-
-function isConfirmation(value: unknown): value is ConfirmResult {
-  if (!value || typeof value !== "object") return false;
-  const confirmation = value as Record<string, unknown>;
-  return typeof confirmation.feedback_id === "string"
-    && typeof confirmation.full_fen === "string"
-    && typeof confirmation.lichess_url === "string"
-    && typeof confirmation.changed_squares === "number"
-    && Array.isArray(confirmation.warnings)
-    && confirmation.warnings.every((warning) => typeof warning === "string");
 }
 
 function minimumBoardEdge(corners: Point[]): number {

@@ -1,3 +1,4 @@
+import { validateFen, type Color, type PieceSymbol } from "chess.js";
 import type { Orientation, SideToMove } from "./types";
 
 export const pieceSymbols = ["·", "♙", "♘", "♗", "♖", "♕", "♔", "♟", "♞", "♝", "♜", "♛", "♚"] as const;
@@ -17,6 +18,22 @@ export const pieceNames = [
   "Black king",
 ] as const;
 const fenSymbols = ["", "P", "N", "B", "R", "Q", "K", "p", "n", "b", "r", "q", "k"] as const;
+const pieceOffsets: Record<PieceSymbol, number> = {
+  p: 1,
+  n: 2,
+  b: 3,
+  r: 4,
+  q: 5,
+  k: 6,
+};
+
+export function pieceDisplay(color: Color, type: PieceSymbol): { name: string; symbol: string } {
+  const index = pieceOffsets[type] + (color === "w" ? 0 : 6);
+  return {
+    name: pieceNames[index]!,
+    symbol: pieceSymbols[index]!,
+  };
+}
 
 export function labelsToBoardFen(labels: number[], orientation: Orientation): string {
   const canonical = orientation === "white" ? labels : [...labels].reverse();
@@ -47,6 +64,11 @@ export function fullFen(
   castling: string,
 ): string {
   return `${labelsToBoardFen(labels, orientation)} ${side} ${castling || "-"} - 0 1`;
+}
+
+export function fenError(fen: string): string | null {
+  const result = validateFen(fen);
+  return result.ok ? null : (result.error ?? "Invalid FEN");
 }
 
 export function squareName(index: number, orientation: Orientation): string {

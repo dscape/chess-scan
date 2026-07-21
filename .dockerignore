@@ -5,6 +5,7 @@ __pycache__
 .ruff_cache
 web/node_modules
 web/dist
+web/public/stockfish
 data
 artifacts
 datasets

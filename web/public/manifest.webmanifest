@@ -1,7 +1,7 @@
 {
   "name": "Chess Scan",
   "short_name": "Chess Scan",
-  "description": "Read a Chess Steps diagram and open it in Lichess.",
+  "description": "Read a chess diagram and study the corrected position in an in-app lesson.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f4eedf",

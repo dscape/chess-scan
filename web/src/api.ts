@@ -3,11 +3,14 @@ import type {
   ConfirmResult,
   Orientation,
   Point,
+  PositionReview,
+  PositionReviewRequest,
+  ReviewedPosition,
   ScanResult,
   SideToMove,
 } from "./types";
 
-const SCAN_ID_PATTERN = /^[0-9a-f]{32}$/;
+const RECORD_ID_PATTERN = /^[0-9a-f]{32}$/;
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {
@@ -16,9 +19,12 @@ export class ApiError extends Error {
   }
 }
 
-export function isScanId(value: string): boolean {
-  return SCAN_ID_PATTERN.test(value);
+function isRecordId(value: string): boolean {
+  return RECORD_ID_PATTERN.test(value);
 }
+
+export const isScanId = isRecordId;
+export const isFeedbackId = isRecordId;
 
 export async function detectBoard(image: Blob): Promise<BoardDetection> {
   const form = new FormData();
@@ -63,19 +69,50 @@ export async function confirmScan(
   });
 }
 
+export async function getReviewedPosition(
+  feedbackId: string,
+  signal?: AbortSignal,
+): Promise<ReviewedPosition> {
+  return request<ReviewedPosition>(`/api/reviews/${encodeURIComponent(feedbackId)}`, { signal });
+}
+
+export async function createPositionReview(
+  payload: PositionReviewRequest,
+  signal?: AbortSignal,
+): Promise<PositionReview> {
+  return request<PositionReview>("/api/position-reviews", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    signal,
+  });
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
     try {
-      const payload = (await response.json()) as { detail?: string };
-      if (payload.detail) message = payload.detail;
+      const payload = (await response.json()) as { detail?: unknown };
+      const detail = apiErrorDetail(payload.detail);
+      if (detail) message = detail;
     } catch {
       // Keep the status-based message when the response is not JSON.
     }
     throw new ApiError(message, response.status);
   }
   return (await response.json()) as T;
+}
+
+function apiErrorDetail(detail: unknown): string | null {
+  if (typeof detail === "string") return detail;
+  if (!Array.isArray(detail)) return null;
+  const messages = detail.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const message = (item as Record<string, unknown>).msg;
+    return typeof message === "string" ? [message] : [];
+  });
+  return messages.length > 0 ? messages.join(" ") : null;
 }
 
 function scanEndpoint(scanId: string, suffix = ""): string {

@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: install dev dev-api dev-web test lint format-check typecheck build check prepare-argus-data prepare-platform-data train-argus-recovery train-platform-model qa-argus qa-platform qa-online qa-stress docker-build
+.PHONY: install dev dev-api dev-web test web-test lint format-check typecheck build check prepare-argus-data prepare-platform-data train-argus-recovery train-platform-model qa-argus qa-platform qa-online qa-stress docker-build
 
 install:
 	uv sync --extra dev
@@ -18,6 +18,9 @@ dev-web:
 test:
 	uv run pytest
 
+web-test:
+	cd web && npm test
+
 lint:
 	uv run ruff check server scripts tests
 
@@ -30,7 +33,7 @@ typecheck:
 build:
 	cd web && npm run build
 
-check: lint format-check test typecheck build
+check: lint format-check test web-test typecheck build
 
 prepare-argus-data:
 	uv run python scripts/prepare_argus_training_data.py
@@ -45,10 +48,10 @@ train-platform-model:
 	uv run --extra ml --with 'pymupdf>=1.25,<2' python scripts/train_platform_model.py --architecture wide --trainable-blocks 6
 
 qa-argus:
-	uv run python scripts/evaluate_argus_replay.py --baseline models/chess-steps-v3.onnx
+	uv run python scripts/evaluate_argus_replay.py --baseline models/chess-steps-v4.onnx
 
 qa-platform:
-	uv run python scripts/evaluate_platforms.py --baseline models/chess-steps-v3.onnx --variant clean --variant camera
+	uv run python scripts/evaluate_platforms.py --baseline models/chess-steps-v4.onnx --variant clean --variant camera
 
 qa-online:
 	uv run --with 'pymupdf>=1.25,<2' python scripts/evaluate_online_examples.py --cache-dir data/qa-cache

@@ -1,8 +1,8 @@
 # Chess Scan
 
-Photograph one Chess Steps workbook diagram, correct the model's reading, and open the exact position in Lichess.
+Photograph one chess diagram, correct the model's reading, and study the exact position in an in-app lesson.
 
-Chess Scan extracts the useful single-image classifier from [Argus](https://github.com/dscape/argus) without carrying over its video, physical-board, or VLA pipelines. A small ONNX model reads 64 rectified squares on CPU. Human confirmation is stored as versioned training feedback.
+Chess Scan extracts the useful single-image classifier from [Argus](https://github.com/dscape/argus) without carrying over its video, physical-board, or VLA pipelines. A small ONNX model reads 64 rectified squares on CPU. Human confirmation is stored as versioned training feedback. Local Stockfish analysis and deterministic evidence evaluators turn one corrected position into an independently branded educational review; Lichess remains available for advanced analysis.
 
 ## Product flow
 
@@ -12,8 +12,10 @@ Chess Scan extracts the useful single-image classifier from [Argus](https://gith
 4. Adjust four corners if automatic detection was uncertain and heed low-resolution or king-count warnings.
 5. Correct any piece on an editable board.
 6. Select side to move and orientation.
-7. Save the confirmed position and open Lichess analysis.
-8. Use confirmed crops and labels in a gated model-learning cycle.
+7. Save the confirmed position and attempt a legal move.
+8. Review local Stockfish candidates, a grounded plain-text explanation, and the relevant study subject.
+9. Replay the variation, retry the position, or open advanced Lichess analysis.
+10. Use confirmed crops and labels in a gated model-learning cycle.
 
 ## Development
 
@@ -37,6 +39,22 @@ make qa-platform
 make qa-online
 make qa-stress
 ```
+
+## Position lessons
+
+The review pipeline keeps separate responsibilities:
+
+- [`chess.js`](https://github.com/jhlywa/chess.js) validates legal browser moves and variation playback.
+- Stockfish calculates MultiPV moves, scores, mates, and WDL locally in a browser Worker.
+- The API independently validates every engine move before deterministic detectors emit structured evidence.
+- The versioned `chess-scan-curriculum-1` registry classifies 144 study topics as a detector, position evaluator, guided policy, history-dependent topic, or explicit unsupported capability. Unsupported claims abstain instead of guessing.
+- A deterministic mock verbalizer renders only validated evidence. A future LLM may rephrase that evidence, but may not calculate from a raw FEN or invent chess facts.
+
+Chess Scan is independently branded and does not redistribute workbook text, diagrams, answer keys, logos, or trade dress. The current lesson reviews one corrected FEN; whole-game review requires move history and is intentionally out of scope.
+
+### Stockfish licensing
+
+Chess Scan remains MIT-licensed. `stockfish@18.0.8` is a separately distributed GPLv3 component: `web/scripts/copy-stockfish.mjs` copies its pinned lite single-thread Worker/WASM build into the generated `web/public/stockfish/` directory during development and production builds. The generated directory includes the complete GPLv3 license, source/build provenance, npm integrity, and SHA-256 hashes. It is excluded from Git because it is reproducibly sourced from the pinned package.
 
 ## Production
 
