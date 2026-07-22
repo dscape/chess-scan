@@ -75,6 +75,19 @@ export function latestExactLine(
   return !current || candidate.depth >= current.depth ? candidate : current;
 }
 
+export function oppositeScorePov(score: EngineScore): EngineScore {
+  if (score.bound === undefined) return { ...score, value: -score.value };
+  return {
+    ...score,
+    value: -score.value,
+    bound: score.bound === "lower"
+      ? "upper"
+      : score.bound === "upper"
+        ? "lower"
+        : score.bound,
+  };
+}
+
 export function isStableLine(
   expectedMove: string,
   line: EngineLine | undefined,

@@ -206,18 +206,71 @@ class ReviewMove(BaseModel):
         return uci
 
 
+ReviewArrowRole = Literal["played", "engine", "reply", "attack", "ray", "threat"]
+ReviewBadge = Literal[
+    "fork",
+    "pin",
+    "xray",
+    "trap",
+    "capture",
+    "clearance",
+    "discovery",
+    "interference",
+    "attraction",
+    "intermezzo",
+    "mate",
+    "engine",
+]
+ReviewMarkerRole = Literal["focus", "target", "danger", "vacated", "blocked"]
+
+
 class ReviewArrow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     from_square: str
     to_square: str
-    kind: Literal["move", "idea"] = "idea"
+    role: ReviewArrowRole
 
     @field_validator("from_square", "to_square")
     @classmethod
     def validate_square(cls, square: str) -> str:
         return _square_name(square)
 
+    @model_validator(mode="after")
+    def validate_arrow(self) -> ReviewArrow:
+        if self.from_square == self.to_square:
+            raise ValueError("Review arrows require distinct endpoint squares")
+        return self
+
+
+class ReviewSquareMarker(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    square: str
+    role: ReviewMarkerRole
+
+    @field_validator("square")
+    @classmethod
+    def validate_square(cls, square: str) -> str:
+        return _square_name(square)
+
+
+class ReviewDiagramBadge(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: ReviewBadge
+    square: str
+    role: ReviewArrowRole
+
+    @field_validator("square")
+    @classmethod
+    def validate_square(cls, square: str) -> str:
+        return _square_name(square)
+
 
 class ReviewAnnotation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     label: str
     text: str
     scope: Literal[
@@ -228,9 +281,20 @@ class ReviewAnnotation(BaseModel):
         "terminal",
     ] = "root"
     ply: int = Field(default=0, ge=0)
-    squares: list[str] = Field(default_factory=list)
-    arrows: list[ReviewArrow] = Field(default_factory=list)
+    markers: list[ReviewSquareMarker] = Field(default_factory=list, max_length=6)
+    arrows: list[ReviewArrow] = Field(default_factory=list, max_length=4)
+    badge: ReviewDiagramBadge | None = None
     evidence_ids: list[str] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_diagram(self) -> ReviewAnnotation:
+        marker_keys = {(marker.square, marker.role) for marker in self.markers}
+        if len(marker_keys) != len(self.markers):
+            raise ValueError("Review diagrams cannot repeat a square marker")
+        arrow_keys = {(arrow.from_square, arrow.to_square, arrow.role) for arrow in self.arrows}
+        if len(arrow_keys) != len(self.arrows):
+            raise ValueError("Review diagrams cannot repeat an arrow")
+        return self
 
 
 class PositionTopicResponse(BaseModel):
@@ -336,7 +400,7 @@ class ReviewAttemptResponse(BaseModel):
 
 
 class PositionReviewResponse(BaseModel):
-    schema_version: Literal["position-analysis-2"] = "position-analysis-2"
+    schema_version: Literal["position-analysis-3"] = "position-analysis-3"
     review_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
     fen: str
     engine: str
@@ -364,6 +428,7 @@ class PositionReviewResponse(BaseModel):
         if len(set(evidence_ids)) != len(evidence_ids):
             raise ValueError("Position review evidence IDs must be unique")
         known = set(evidence_ids)
+        evidence_by_id = {item.id: item for item in self.evidence}
         references = [
             *(evidence_id for finding in self.findings for evidence_id in finding.evidence_ids),
             *self.hint.evidence_ids,
@@ -375,6 +440,32 @@ class PositionReviewResponse(BaseModel):
         ]
         if not set(references) <= known:
             raise ValueError("Position review references unknown evidence")
+        for annotation in self.explanation:
+            if annotation.scope == "root":
+                continue
+            if any(
+                evidence_by_id[evidence_id].scope != annotation.scope
+                for evidence_id in annotation.evidence_ids
+            ):
+                raise ValueError("Position review diagram scope contradicts its evidence")
+        best_line_length = len(self.lines[0].moves) if self.lines else 0
+        attempt_line_length = len(self.attempt.line.moves) if self.attempt else 0
+        for annotation in (self.hint, *self.explanation):
+            line_length = {
+                "root": 0,
+                "terminal": 0,
+                "best_line": best_line_length,
+                "attempt_line": attempt_line_length,
+                "attempt_refutation": attempt_line_length,
+            }[annotation.scope]
+            if annotation.ply > line_length:
+                raise ValueError("Position review annotation exceeds its checked line")
+            _validate_annotation_evidence(
+                annotation,
+                evidence_by_id=evidence_by_id,
+                best_line=self.lines[0] if self.lines else None,
+                attempt_line=self.attempt.line if self.attempt else None,
+            )
         if self.score is None:
             if (
                 self.score_pov is not None
@@ -481,6 +572,83 @@ class LearningStatusResponse(BaseModel):
     learning_progress: int
     learning_target: int
     candidate_model: str | None
+
+
+def _validate_annotation_evidence(
+    annotation: ReviewAnnotation,
+    *,
+    evidence_by_id: dict[str, ReviewEvidenceResponse],
+    best_line: ReviewLineResponse | None,
+    attempt_line: ReviewLineResponse | None,
+) -> None:
+    evidence_items = [evidence_by_id[evidence_id] for evidence_id in annotation.evidence_ids]
+    finding_evidence = [
+        evidence
+        for evidence in evidence_items
+        if evidence.kind not in {"engine_candidate", "engine_comparison"}
+    ]
+    has_visuals = bool(annotation.markers or annotation.arrows or annotation.badge)
+    if (annotation.scope != "root" or has_visuals) and any(
+        evidence.ply != annotation.ply for evidence in finding_evidence
+    ):
+        raise ValueError("Position review diagram ply contradicts its evidence")
+
+    line = (
+        best_line
+        if annotation.scope == "best_line"
+        else attempt_line
+        if annotation.scope in {"attempt_line", "attempt_refutation"}
+        else None
+    )
+    supported_squares: set[str] = set()
+    evidence_moves: set[tuple[str, str]] = set()
+    relation_arrows: set[tuple[str, str]] = set()
+    for evidence in evidence_items:
+        if evidence.kind in {"engine_candidate", "engine_comparison"}:
+            if line is not None and annotation.ply < len(line.moves):
+                endpoints = _move_endpoints(line.moves[annotation.ply].uci)
+                evidence_moves.add(endpoints)
+                supported_squares.update(endpoints)
+            continue
+        supported_squares.update(evidence.squares)
+        if evidence.actor is not None:
+            supported_squares.add(evidence.actor.square)
+            relation_arrows.update(
+                (evidence.actor.square, target.square) for target in evidence.targets
+            )
+        supported_squares.update(target.square for target in evidence.targets)
+        if evidence.from_square is not None and evidence.to_square is not None:
+            evidence_moves.add((evidence.from_square, evidence.to_square))
+            supported_squares.update((evidence.from_square, evidence.to_square))
+        for uci in evidence.moves:
+            endpoints = _move_endpoints(uci)
+            evidence_moves.add(endpoints)
+            supported_squares.update(endpoints)
+
+    for arrow in annotation.arrows:
+        endpoints = (arrow.from_square, arrow.to_square)
+        if arrow.role in {"played", "engine", "reply"}:
+            if line is None or annotation.ply >= len(line.moves):
+                raise ValueError("Position review move arrow has no checked line move")
+            if endpoints != _move_endpoints(line.moves[annotation.ply].uci):
+                raise ValueError("Position review move arrow contradicts its checked line")
+            if endpoints not in evidence_moves:
+                raise ValueError("Position review move arrow is not supported by its evidence")
+        elif arrow.role in {"attack", "ray"}:
+            if endpoints not in relation_arrows:
+                raise ValueError("Position review relation arrow is not supported by its evidence")
+        elif endpoints not in evidence_moves:
+            raise ValueError("Position review threat arrow is not supported by its evidence")
+
+    if any(marker.square not in supported_squares for marker in annotation.markers):
+        raise ValueError("Position review marker is not supported by its evidence")
+    if annotation.badge is not None and annotation.badge.square not in supported_squares:
+        raise ValueError("Position review badge is not supported by its evidence")
+
+
+def _move_endpoints(uci: str) -> tuple[str, str]:
+    move = chess.Move.from_uci(uci)
+    return chess.square_name(move.from_square), chess.square_name(move.to_square)
 
 
 def _validate_review_line(fen: str, line: ReviewLineResponse) -> None:

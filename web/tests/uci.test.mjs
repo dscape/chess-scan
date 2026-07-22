@@ -5,6 +5,7 @@ import {
   contiguousRankedLines,
   isStableLine,
   latestExactLine,
+  oppositeScorePov,
   parseBestMove,
   parseInfoLine,
   parseUciMove,
@@ -33,6 +34,17 @@ test("preserves mate scores and bound status", () => {
       score: { kind: "mate", value: 4, bound: "lower" },
       pv: ["f7f8", "h8h7", "f8g7"],
     },
+  );
+});
+
+test("converts cached attempt scores to the child position point of view", () => {
+  assert.deepEqual(
+    oppositeScorePov({ kind: "cp", value: 137, bound: "lower" }),
+    { kind: "cp", value: -137, bound: "upper" },
+  );
+  assert.deepEqual(
+    oppositeScorePov({ kind: "mate", value: -4 }),
+    { kind: "mate", value: 4 },
   );
 });
 

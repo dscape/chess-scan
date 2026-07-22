@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { fenError, pieceDisplay, positionAt } from "../src/board.ts";
+import { boardPoint, fenError, pieceDisplay, positionAt } from "../src/board.ts";
 
 test("accepts a FEN that can be loaded into a review", () => {
   assert.equal(fenError("4k3/8/8/8/8/8/8/4K3 w - - 0 1"), null);
@@ -20,6 +20,14 @@ test("replays review moves through one validated board helper", () => {
 
   assert.equal(position.fen(), "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2");
   assert.throws(() => positionAt(position.fen(), ["e2e5"]), /Illegal review move/);
+});
+
+test("maps diagram geometry for both board orientations", () => {
+  assert.deepEqual(boardPoint("a8", "white"), { x: 0.5, y: 0.5 });
+  assert.deepEqual(boardPoint("h1", "white"), { x: 7.5, y: 7.5 });
+  assert.deepEqual(boardPoint("a8", "black"), { x: 7.5, y: 7.5 });
+  assert.deepEqual(boardPoint("h1", "black"), { x: 0.5, y: 0.5 });
+  assert.equal(boardPoint("z9", "white"), null);
 });
 
 test("rejects a FEN with invalid king counts", () => {

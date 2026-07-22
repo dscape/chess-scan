@@ -1,6 +1,8 @@
 import { Chess, validateFen, type Color, type PieceSymbol } from "chess.js";
 import type { Orientation, SideToMove } from "./types";
 
+export type BoardPoint = { x: number; y: number };
+
 export const pieceSymbols = ["·", "♙", "♘", "♗", "♖", "♕", "♔", "♟", "♞", "♝", "♜", "♛", "♚"] as const;
 export const pieceNames = [
   "Empty",
@@ -81,6 +83,15 @@ export function fullFen(
 export function fenError(fen: string): string | null {
   const result = validateFen(fen);
   return result.ok ? null : (result.error ?? "Invalid FEN");
+}
+
+export function boardPoint(square: string, orientation: Orientation): BoardPoint | null {
+  if (!/^[a-h][1-8]$/.test(square)) return null;
+  const file = square.charCodeAt(0) - 97;
+  const rank = Number(square[1]) - 1;
+  return orientation === "white"
+    ? { x: file + 0.5, y: 7 - rank + 0.5 }
+    : { x: 7 - file + 0.5, y: rank + 0.5 };
 }
 
 export function squareName(index: number, orientation: Orientation): string {

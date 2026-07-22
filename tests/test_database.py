@@ -189,12 +189,12 @@ def test_confirmed_feedback_is_immutable_and_counted(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         database.save_feedback_split_assignments({"feedback": "train"})
 
-    stored_response = {"schema_version": "position-analysis-2", "review_id": "review"}
+    stored_response = {"schema_version": "position-analysis-3", "review_id": "review"}
     database.save_position_review(
         review_id="review",
         feedback_id="feedback",
         fen="k7/8/8/8/8/8/8/8 w - - 0 1",
-        schema_version="position-analysis-2",
+        schema_version="position-analysis-3",
         engine="Deterministic rules",
         request={"fen": "k7/8/8/8/8/8/8/8 w - - 0 1"},
         response=stored_response,
@@ -272,7 +272,7 @@ def test_confirmed_feedback_is_immutable_and_counted(tmp_path: Path) -> None:
             review_id="wrong-fen",
             feedback_id="feedback",
             fen="8/8/8/8/8/8/8/8 w - - 0 1",
-            schema_version="position-analysis-2",
+            schema_version="position-analysis-3",
             engine="test",
             request={},
             response={},

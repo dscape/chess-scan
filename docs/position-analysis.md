@@ -9,10 +9,17 @@ Chess Scan reviews one corrected FEN and one optional learner attempt. It does n
 3. The API validates every legal move and rejects bound, unstable, malformed, or ambiguously ranked analysis.
 4. Deterministic detectors emit typed evidence: scope, proof, ply, actor, targets, causal move endpoints, squares, and legal moves.
 5. The planner prefers a concrete refutation of a non-equivalent attempt, then a causal explanation of the best line, and otherwise abstains.
-6. Human-authored text renders only selected evidence. Each annotation carries its line scope and ply so the board replays to the proven position before drawing an arrow. Candidate and refutation lines are labelled hypothetical, never played history.
-7. The immutable request, response, engine attribution, schema version, and user rating are stored in SQLite.
+6. Human-authored text renders only selected evidence. Each annotation carries its line scope and ply so the board replays to the proven position before drawing its diagram. Candidate and refutation lines are labelled hypothetical, never played history.
+7. The API compiles semantic visual marks from that same evidence: played, engine, reply, attack, ray, and threat arrows; typed square markers; and annotation-level motif badges. The frontend replays and renders these marks but never infers the tactic.
+8. The immutable request, response, engine attribution, schema version, and user rating are stored in SQLite.
 
-The wire contract is versioned as `position-analysis-2`.
+The wire contract is versioned as `position-analysis-3`.
+
+## Board diagrams
+
+After an attempt, the board presents a short, selectable story rather than drawing every idea at once. A typical review shows the learner's move, the strongest hypothetical reply or causal motif, and the checked best-line idea. Fork diagrams branch from the landing square to their targets; pins and x-rays use tactical rays; future capture or mating threats use a distinct threat arrow. Vacated, blocked, target, and dangerous squares have separate markers.
+
+Every arrow, marker, and badge belongs to an annotation with one or more evidence IDs. Its ply and move arrows must match the checked line, while relation arrows, markers, and badge squares must match cited evidence geometry. Unsupported visuals are rejected, and quiet positions fall back to an engine comparison without inventing a tactical diagram.
 
 ## Attempt verdicts
 

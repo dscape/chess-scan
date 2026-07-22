@@ -51,10 +51,37 @@ export interface ReviewMove {
   san: string;
 }
 
+export type ReviewArrowRole = "played" | "engine" | "reply" | "attack" | "ray" | "threat";
+export type ReviewBadge =
+  | "fork"
+  | "pin"
+  | "xray"
+  | "trap"
+  | "capture"
+  | "clearance"
+  | "discovery"
+  | "interference"
+  | "attraction"
+  | "intermezzo"
+  | "mate"
+  | "engine";
+export type ReviewMarkerRole = "focus" | "target" | "danger" | "vacated" | "blocked";
+
 export interface ReviewArrow {
   from_square: string;
   to_square: string;
-  kind: "move" | "idea";
+  role: ReviewArrowRole;
+}
+
+export interface ReviewSquareMarker {
+  square: string;
+  role: ReviewMarkerRole;
+}
+
+export interface ReviewDiagramBadge {
+  kind: ReviewBadge;
+  square: string;
+  role: ReviewArrowRole;
 }
 
 export interface ReviewAnnotation {
@@ -62,8 +89,9 @@ export interface ReviewAnnotation {
   text: string;
   scope: "root" | "best_line" | "attempt_line" | "attempt_refutation" | "terminal";
   ply: number;
-  squares: string[];
+  markers: ReviewSquareMarker[];
   arrows: ReviewArrow[];
+  badge: ReviewDiagramBadge | null;
   evidence_ids: string[];
 }
 
@@ -120,7 +148,7 @@ export interface ReviewAttempt {
 }
 
 export interface PositionReview {
-  schema_version: "position-analysis-2";
+  schema_version: "position-analysis-3";
   review_id: string | null;
   fen: string;
   engine: string;

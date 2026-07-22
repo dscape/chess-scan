@@ -4,7 +4,7 @@ import chess
 import pytest
 from pydantic import ValidationError
 
-from chess_scan.review import _evidence_arrows, build_position_review
+from chess_scan.review import _evidence_arrows, _evidence_badge, build_position_review
 from chess_scan.review_detectors import (
     Evidence,
     ReviewContext,
@@ -51,19 +51,28 @@ def test_review_returns_one_topic_and_spoiler_free_human_hint() -> None:
     assert review.topic.id == "double-attack"
     assert review.topic.name == "Double attack"
     assert review.hint.label == "Double attack"
-    assert review.hint.squares == ["c6", "h7"]
+    assert [marker.model_dump() for marker in review.hint.markers] == [
+        {"square": "c6", "role": "focus"},
+        {"square": "h7", "role": "focus"},
+    ]
     assert "Qe4" not in review.hint.text
     assert "e2e4" not in review.hint.text
     assert review.explanation[0].label == "Double attack"
     assert "two important targets" in review.explanation[0].text
     assert [arrow.model_dump() for arrow in review.explanation[0].arrows] == [
-        {"from_square": "e2", "to_square": "e4", "kind": "move"},
-        {"from_square": "e4", "to_square": "c6", "kind": "idea"},
-        {"from_square": "e4", "to_square": "h7", "kind": "idea"},
+        {"from_square": "e2", "to_square": "e4", "role": "engine"},
+        {"from_square": "e4", "to_square": "c6", "role": "attack"},
+        {"from_square": "e4", "to_square": "h7", "role": "attack"},
     ]
-    assert "attacks the rook on c6 and the king on h7 at once" in review.explanation[1].text
-    assert review.explanation[1].scope == "best_line"
-    assert review.explanation[1].ply == 0
+    assert review.explanation[0].badge is not None
+    assert review.explanation[0].badge.model_dump() == {
+        "kind": "fork",
+        "square": "e4",
+        "role": "engine",
+    }
+    assert "attacks the rook on c6 and the king on h7 at once" in review.explanation[0].text
+    assert review.explanation[0].scope == "best_line"
+    assert review.explanation[0].ply == 0
     assert review.evaluation == "The side to move has a winning advantage"
     assert review.score is not None and review.score.value == 520
 
@@ -101,8 +110,8 @@ def test_development_requires_the_best_move_to_develop_a_minor_piece() -> None:
     )
 
     assert review.topic.name == "Development"
-    assert review.hint.squares == ["g1", "f3"]
-    assert [arrow.kind for arrow in review.explanation[0].arrows] == ["move"]
+    assert [marker.square for marker in review.hint.markers] == ["g1", "f3"]
+    assert [arrow.role for arrow in review.explanation[0].arrows] == ["engine"]
 
 
 def test_review_returns_the_compact_annotation_contract() -> None:
@@ -125,7 +134,7 @@ def test_review_returns_the_compact_annotation_contract() -> None:
         "hint",
         "explanation",
     }
-    assert payload["schema_version"] == "position-analysis-2"
+    assert payload["schema_version"] == "position-analysis-3"
     assert payload["lines"][0]["role"] == "best_candidate"
     assert payload["findings"][0]["evidence_ids"] == ["f1-e1"]
     evidence_ids = {item["id"] for item in payload["evidence"]}
@@ -147,7 +156,12 @@ def test_later_evidence_replays_to_its_proven_ply_without_leaking_hint_squares()
 
     assert review.explanation[0].scope == "best_line"
     assert review.explanation[0].ply == 2
-    assert review.hint.squares == []
+    assert review.hint.markers == []
+
+    stored = review.model_dump()
+    stored["hint"]["markers"] = [{"square": stored["evidence"][0]["squares"][0], "role": "focus"}]
+    with pytest.raises(ValidationError, match="ply contradicts its evidence"):
+        PositionReviewResponse.model_validate(stored)
 
 
 def test_quiet_context_features_abstain_from_move_specific_coaching() -> None:
@@ -173,6 +187,41 @@ def test_stored_review_contract_rejects_unknown_evidence_and_mismatched_lines() 
     payload = build_position_review(_request()).model_dump()
     payload["best_move"] = {"uci": "e2d3", "san": "Qd3+"}
     with pytest.raises(ValidationError, match="does not match"):
+        PositionReviewResponse.model_validate(payload)
+
+    payload = build_position_review(_request()).model_dump()
+    payload["explanation"][0]["scope"] = "attempt_line"
+    with pytest.raises(ValidationError, match="scope contradicts its evidence"):
+        PositionReviewResponse.model_validate(payload)
+
+    payload = build_position_review(_request()).model_dump()
+    payload["explanation"][0]["arrows"][0]["badge"] = "fork"
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        PositionReviewResponse.model_validate(payload)
+
+    payload = build_position_review(_request()).model_dump()
+    payload["explanation"][0]["badge"]["square"] = "a1"
+    with pytest.raises(ValidationError, match="badge is not supported"):
+        PositionReviewResponse.model_validate(payload)
+
+    payload = build_position_review(_request()).model_dump()
+    payload["explanation"][0]["ply"] = 1
+    with pytest.raises(ValidationError, match="ply contradicts its evidence"):
+        PositionReviewResponse.model_validate(payload)
+
+    payload = build_position_review(_request()).model_dump()
+    payload["explanation"][0]["arrows"][0]["to_square"] = "e3"
+    with pytest.raises(ValidationError, match="move arrow contradicts"):
+        PositionReviewResponse.model_validate(payload)
+
+    payload = build_position_review(_request()).model_dump()
+    payload["explanation"][0]["markers"][0]["square"] = "c5"
+    with pytest.raises(ValidationError, match="marker is not supported"):
+        PositionReviewResponse.model_validate(payload)
+
+    payload = build_position_review(_request()).model_dump()
+    payload["explanation"][0]["ply"] = 99
+    with pytest.raises(ValidationError, match="exceeds its checked line"):
         PositionReviewResponse.model_validate(payload)
 
     payload = build_position_review(_request()).model_dump()
@@ -248,7 +297,7 @@ def test_finished_positions_receive_a_rules_based_result_without_analysis() -> N
     assert review.best_move is None
     assert review.score is None
     assert review.topic.name == "Checkmate"
-    assert review.hint.squares == ["g6", "h8"]
+    assert [marker.square for marker in review.hint.markers] == ["g6", "h8"]
     assert review.engine == "Deterministic rules"
 
     request.analysis = _request().analysis
@@ -275,7 +324,7 @@ def test_review_does_not_treat_an_unanswered_horizon_capture_as_material_gain() 
     review = build_position_review(request)
 
     assert review.topic.name == "Development"
-    assert "central space" in review.explanation[1].text
+    assert "central space" in review.explanation[0].text
 
 
 def test_review_compares_an_attempt_by_expected_score_not_exact_move_only() -> None:
@@ -302,6 +351,72 @@ def test_review_compares_an_attempt_by_expected_score_not_exact_move_only() -> N
     assert review.attempt.line.role == "attempt_refutation"
     assert review.explanation[0].label == "Your move"
     assert "percentage points" in review.explanation[0].text
+    assert review.explanation[0].scope == "attempt_refutation"
+    assert review.explanation[0].ply == 0
+    assert review.explanation[0].arrows[0].role == "played"
+    assert review.explanation[0].markers[0].role == "danger"
+
+
+def test_bad_attempt_gets_a_hypothetical_reply_diagram_without_a_named_tactic() -> None:
+    payload = _request(
+        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        moves=["e2e4", "e7e5"],
+    ).model_dump()
+    payload["analysis"]["attempt"] = {
+        "move": "a2a3",
+        "line": {
+            "rank": 1,
+            "depth": 18,
+            "score": {"kind": "cp", "value": -100},
+            "wdl": [100, 300, 600],
+            "pv": ["a2a3", "a7a6", "b2b3"],
+            "stable": True,
+        },
+    }
+
+    review = build_position_review(PositionReviewRequest.model_validate(payload))
+
+    assert review.explanation[0].label == "Your move"
+    assert review.explanation[1].label == "Strongest reply"
+    assert review.explanation[1].scope == "attempt_refutation"
+    assert review.explanation[1].ply == 1
+    assert review.explanation[1].arrows[0].role == "reply"
+    assert "hypothetical" in review.explanation[1].text
+
+    stored = review.model_dump()
+    stored["explanation"][1]["arrows"][0]["to_square"] = "g7"
+    with pytest.raises(ValidationError, match="move arrow contradicts"):
+        PositionReviewResponse.model_validate(stored)
+
+    stored = review.model_dump()
+    stored["explanation"][1]["markers"][0]["square"] = "b3"
+    with pytest.raises(ValidationError, match="marker is not supported"):
+        PositionReviewResponse.model_validate(stored)
+
+
+def test_empty_root_finding_keeps_the_checked_better_move_diagram() -> None:
+    payload = _request(
+        fen="6k1/8/8/8/8/8/8/R5K1 w - - 0 1",
+        moves=["a1a7", "g8f8"],
+    ).model_dump()
+    payload["analysis"]["attempt"] = {
+        "move": "g1f2",
+        "line": {
+            "rank": 1,
+            "depth": 18,
+            "score": {"kind": "cp", "value": 0},
+            "wdl": [200, 400, 400],
+            "pv": ["g1f2", "g8f8"],
+            "stable": True,
+        },
+    }
+
+    review = build_position_review(PositionReviewRequest.model_validate(payload))
+
+    better_move = next(note for note in review.explanation if note.label == "Better move")
+    assert better_move.arrows[0].role == "engine"
+    assert better_move.arrows[0].from_square == "a1"
+    assert better_move.arrows[0].to_square == "a7"
 
 
 def test_review_accepts_a_different_engine_candidate_when_effectively_equivalent() -> None:
@@ -459,6 +574,26 @@ def test_losing_attempt_does_not_claim_it_remains_favorable() -> None:
     assert "remains favorable" not in review.explanation[0].text
     assert review.explanation[1].scope == "attempt_refutation"
     assert review.explanation[1].ply == 1
+
+
+def test_created_threat_diagram_separates_setup_from_future_capture() -> None:
+    board = chess.Board("7k/8/8/8/2q5/8/8/R5K1 w - - 0 1")
+    context = ReviewContext(board, build_analyzed_line(board, ["a1a4", "h8g8", "a4c4"]))
+    finding = next(item for item in teaching_subjects(context) if item.handler == "threat")
+
+    arrows = _evidence_arrows(finding)
+    badge = _evidence_badge(finding, scope="best_line")
+
+    assert [(arrow.role, arrow.from_square, arrow.to_square) for arrow in arrows] == [
+        ("engine", "a1", "a4"),
+        ("threat", "a4", "c4"),
+    ]
+    assert badge is not None
+    assert badge.model_dump() == {
+        "kind": "capture",
+        "square": "c4",
+        "role": "threat",
+    }
 
 
 def test_review_uses_the_causal_move_for_later_theme_arrows() -> None:

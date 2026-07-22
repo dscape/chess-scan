@@ -3,16 +3,18 @@ import { Chess } from "chess.js";
 import { createPositionReview, ratePositionReview } from "../api";
 import { positionAt } from "../board";
 import StockfishClient, { StockfishError } from "../engine/StockfishClient";
-import type { EngineLine, EngineScore } from "../engine/uci";
+import { oppositeScorePov, type EngineLine, type EngineScore } from "../engine/uci";
 import type {
   Orientation,
   PositionReview as PositionReviewData,
   ReviewAnalysis,
   ReviewAnnotation,
+  ReviewBadge,
   ReviewedPosition,
   ReviewLine,
 } from "../types";
 import InteractiveBoard, { type AttemptedMove } from "./InteractiveBoard";
+import ReviewGlyph from "./ReviewGlyph";
 
 type PositionReviewProps = {
   position: ReviewedPosition;
@@ -45,6 +47,8 @@ type AnalysisError = {
   message: string;
 };
 
+type LinePreview = "best" | "attempt" | null;
+
 const INITIAL_ANALYSIS_MS = 2500;
 const ATTEMPT_ANALYSIS_MS = 1600;
 const LIVE_ANALYSIS_MS = 750;
@@ -68,7 +72,7 @@ export default function PositionReview({
       | "too_verbose" | "missing_detail" | "other"
   >("incorrect_chess");
   const [playedMoves, setPlayedMoves] = useState<AttemptedMove[]>([]);
-  const [linePreview, setLinePreview] = useState<"best" | "attempt" | null>(null);
+  const [linePreview, setLinePreview] = useState<LinePreview>(null);
   const [firstAttempt, setFirstAttempt] = useState<AttemptedMove | null>(null);
   const [pendingAttempt, setPendingAttempt] = useState<AttemptedMove | null>(null);
   const checkingAttempt = pendingAttempt !== null;
@@ -99,7 +103,9 @@ export default function PositionReview({
   const ratingStatus = ratingState.reviewId === review?.review_id
     ? ratingState.status
     : "idle";
-  const defaultCue = revealed ? review?.explanation[0] ?? null : null;
+  const defaultCue = revealed
+    ? review?.explanation.find(hasBoardCue) ?? null
+    : null;
   const rootHoveredCue = hoveredCue?.ply === 0 ? hoveredCue : null;
   const rootDefaultCue = defaultCue?.ply === 0 ? defaultCue : null;
   const boardCue = pinnedCue
@@ -262,6 +268,12 @@ export default function PositionReview({
           const line = analysis.lines[0];
           if (!line) throw new StockfishError("Stockfish could not evaluate your move.");
           attemptLine = line;
+          cacheAttemptEvaluation(
+            evaluationCache.current,
+            position.full_fen,
+            attempt.uci,
+            attemptLine.score,
+          );
         } catch (cause) {
           if (active && !isAbortError(cause)) {
             if (cause instanceof StockfishError) {
@@ -285,7 +297,11 @@ export default function PositionReview({
             },
             controller.signal,
           );
-          if (active) setReviewState({ status: "ready", review: result });
+          if (active) {
+            setReviewState({ status: "ready", review: result });
+            const teachingDiagram = initialTeachingDiagram(result);
+            if (teachingDiagram) selectCue(teachingDiagram, result);
+          }
         } catch (cause) {
           if (active && !isAbortError(cause)) {
             setLiveError({ source: "api", message: messageFrom(cause) });
@@ -437,18 +453,17 @@ export default function PositionReview({
     }
   }
 
-  function pinCue(cue: ReviewAnnotation) {
-    if (hasBoardCue(cue) && review) {
-      setPlayedMoves(movesForCue(cue, review));
-      setLinePreview(
-        cue.scope === "best_line"
-          ? "best"
-          : cue.scope === "attempt_line" || cue.scope === "attempt_refutation"
-            ? "attempt"
-            : null,
-      );
+  function selectCue(cue: ReviewAnnotation, sourceReview: PositionReviewData) {
+    if (hasBoardCue(cue)) {
+      setPlayedMoves(movesForCue(cue, sourceReview));
+      setLinePreview(linePreviewForCue(cue));
     }
-    setPinnedCue((currentCue) => currentCue === cue ? null : cue);
+    setPinnedCue(cue);
+    setHoveredCue(null);
+  }
+
+  function pinCue(cue: ReviewAnnotation) {
+    if (review) selectCue(cue, review);
   }
 
   const cueEvents = (cue: ReviewAnnotation, defaultActive = false) => ({
@@ -486,15 +501,11 @@ export default function PositionReview({
           <div className="board-context">
             <div>
               <span>{turnName(current.turn())} to move</span>
-              <small>
-                {lastMove
-                  ? `${linePreview ? "Hypothetical · after" : "After"} ${lastMove.san}`
-                  : "Starting position"}
-              </small>
+              <small>{boardPositionLabel(lastMove, linePreview, boardCue)}</small>
             </div>
             <span className="board-context__topic">
               {revealed && review
-                ? review.topic.name
+                ? boardCue?.label ?? review.topic.name
                 : reviewState.status === "loading"
                   ? "Finding the idea…"
                   : "Your turn"}
@@ -526,6 +537,14 @@ export default function PositionReview({
               onMove={play}
             />
           </div>
+
+          {revealed && review && (
+            <DiagramStory
+              cues={review.explanation}
+              activeCue={boardCue}
+              onSelect={pinCue}
+            />
+          )}
 
           <div className="board-tools" aria-label="Board controls">
             <div>
@@ -654,8 +673,8 @@ export default function PositionReview({
                   </p>
                   <h1>{attemptVerdict(firstAttempt, reviewState.review)}</h1>
                   <p className="review-explanation__lead">
-                    {reviewState.review.explanation.some((cue) => cue.arrows.length > 0)
-                      ? "Follow the red move arrow, then use each note to inspect the idea on the board."
+                    {reviewState.review.explanation.some(hasBoardCue)
+                      ? "Move through the board story to see the attempt, tactical idea, and checked alternative."
                       : "Use each note to compare your move with the checked engine lines."}
                   </p>
                   <div className="annotation-list">
@@ -759,6 +778,107 @@ export default function PositionReview({
       </footer>
     </main>
   );
+}
+
+function DiagramStory({
+  cues,
+  activeCue,
+  onSelect,
+}: {
+  cues: ReviewAnnotation[];
+  activeCue: ReviewAnnotation | null;
+  onSelect: (cue: ReviewAnnotation) => void;
+}) {
+  const diagrams = cues.filter(hasBoardCue);
+  const selectedIndex = diagrams.findIndex((cue) => cue === activeCue);
+  const selected = selectedIndex >= 0 ? diagrams[selectedIndex] ?? null : null;
+  const stepRail = useRef<HTMLDivElement | null>(null);
+  const selectedStep = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    const rail = stepRail.current;
+    const step = selectedStep.current;
+    if (!rail || !step) return;
+    const left = step.offsetLeft;
+    const right = left + step.offsetWidth;
+    if (left < rail.scrollLeft) rail.scrollTo({ left });
+    else if (right > rail.scrollLeft + rail.clientWidth) {
+      rail.scrollTo({ left: right - rail.clientWidth });
+    }
+  }, [selectedIndex]);
+
+  if (diagrams.length === 0) return null;
+  return (
+    <nav className="diagram-story" aria-label="Board story">
+      <div className="diagram-story__heading">
+        <span>Board story</span>
+        <span>{selected ? selectedIndex + 1 : "—"} / {diagrams.length}</span>
+      </div>
+      <div ref={stepRail} className="diagram-story__steps">
+        {diagrams.map((cue, index) => {
+          const badge = cueBadge(cue);
+          const active = cue === selected;
+          return (
+            <button
+              key={`${cue.scope}-${cue.ply}-${cue.label}-${index}`}
+              ref={active ? selectedStep : null}
+              type="button"
+              className={`diagram-step is-${cueRole(cue)}${active ? " is-active" : ""}`}
+              aria-pressed={active}
+              onClick={() => onSelect(cue)}
+            >
+              <span className={`diagram-step__mark is-${cueRole(cue)}`} aria-hidden="true">
+                {badge
+                  ? <ReviewGlyph badge={badge} />
+                  : String(index + 1).padStart(2, "0")}
+              </span>
+              <span>
+                <strong>{cue.label}</strong>
+                <small>{cueRoleLabel(cue, badge)}</small>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {selected && (
+        <p key={`${selected.scope}-${selected.ply}-${selected.label}`} className="diagram-story__caption">
+          {selected.text}
+        </p>
+      )}
+    </nav>
+  );
+}
+
+function cueBadge(cue: ReviewAnnotation): ReviewBadge | null {
+  return cue.badge?.kind ?? null;
+}
+
+function cueRole(cue: ReviewAnnotation): string {
+  return cue.arrows[0]?.role ?? cue.markers[0]?.role ?? "focus";
+}
+
+function cueRoleLabel(cue: ReviewAnnotation, badge: ReviewBadge | null): string {
+  if (badge && badge !== "engine") {
+    return badge === "xray"
+      ? "X-ray"
+      : badge === "intermezzo"
+        ? "In-between move"
+        : `${badge.charAt(0).toUpperCase()}${badge.slice(1)}`;
+  }
+  switch (cue.arrows[0]?.role) {
+    case "played":
+      return "Played move";
+    case "reply":
+      return "Checked reply";
+    case "engine":
+      return "Engine line";
+    case "attack":
+    case "ray":
+    case "threat":
+      return "Tactical idea";
+    default:
+      return "Position clue";
+  }
 }
 
 function BoardReference({
@@ -915,6 +1035,19 @@ function storeEvaluation(
   }
 }
 
+function cacheAttemptEvaluation(
+  cache: Map<string, CachedEvaluation>,
+  rootFen: string,
+  attemptedMove: string,
+  score: EngineScore,
+) {
+  const childFen = positionAt(rootFen, [attemptedMove]).fen();
+  storeEvaluation(cache, childFen, {
+    score: oppositeScorePov(score),
+    complete: true,
+  });
+}
+
 function reviewAnalysis(
   lines: EngineLine[],
   attempt?: AttemptedMove,
@@ -948,19 +1081,32 @@ function reviewEngineLine(line: EngineLine) {
 }
 
 function hasBoardCue(cue: ReviewAnnotation): boolean {
-  return cue.squares.length > 0 || cue.arrows.length > 0;
+  return cue.markers.length > 0 || cue.arrows.length > 0 || cue.badge !== null;
+}
+
+function initialTeachingDiagram(review: PositionReviewData): ReviewAnnotation | null {
+  const diagrams = review.explanation.filter(hasBoardCue);
+  return diagrams.find((cue) => cue.arrows[0]?.role !== "played")
+    ?? diagrams[0]
+    ?? null;
+}
+
+function linePreviewForCue(cue: ReviewAnnotation): LinePreview {
+  if (cue.scope === "best_line") return "best";
+  if (cue.scope === "attempt_line" || cue.scope === "attempt_refutation") return "attempt";
+  return null;
 }
 
 function movesForCue(
   cue: ReviewAnnotation,
   review: PositionReviewData,
 ): AttemptedMove[] {
-  let line: ReviewLine | undefined;
-  if (cue.scope === "best_line") {
-    line = review.lines.find((candidate) => candidate.rank === 1);
-  } else if (cue.scope === "attempt_line" || cue.scope === "attempt_refutation") {
-    line = review.attempt?.line;
-  }
+  const preview = linePreviewForCue(cue);
+  const line = preview === "best"
+    ? review.lines.find((candidate) => candidate.rank === 1)
+    : preview === "attempt"
+      ? review.attempt?.line
+      : undefined;
   if (!line) return [];
   return line.moves
     .slice(0, cue.ply)
@@ -1023,6 +1169,19 @@ function terminalResult(chess: Chess): "white" | "black" | "draw" | null {
 
 function turnName(turn: "w" | "b"): string {
   return turn === "w" ? "White" : "Black";
+}
+
+function boardPositionLabel(
+  lastMove: AttemptedMove | null,
+  linePreview: LinePreview,
+  cue: ReviewAnnotation | null,
+): string {
+  if (lastMove) return `${linePreview ? "Hypothetical · after" : "After"} ${lastMove.san}`;
+  const cuePreview = cue ? linePreviewForCue(cue) : null;
+  if (cuePreview === "attempt") return "Your move · illustrated";
+  if (cuePreview === "best") return "Best move · illustrated";
+  if (cue?.scope === "terminal") return "Final position";
+  return "Starting position";
 }
 
 function engineStatus(

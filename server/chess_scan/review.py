@@ -25,12 +25,17 @@ from chess_scan.schemas import (
     PositionTopicResponse,
     ReviewAnnotation,
     ReviewArrow,
+    ReviewArrowRole,
     ReviewAttemptResponse,
+    ReviewBadge,
+    ReviewDiagramBadge,
     ReviewEvidenceResponse,
     ReviewFindingResponse,
     ReviewLineResponse,
+    ReviewMarkerRole,
     ReviewMove,
     ReviewPieceRef,
+    ReviewSquareMarker,
 )
 
 _STOCKFISH_ENGINE = "Stockfish 18 lite"
@@ -51,8 +56,9 @@ class _ExplanationPlan:
     evidence_ids: tuple[str, ...]
     scope: _FindingScope
     ply: int
-    squares: tuple[str, ...]
+    markers: tuple[ReviewSquareMarker, ...]
     arrows: tuple[ReviewArrow, ...]
+    badge: ReviewDiagramBadge | None
 
 
 def build_position_review(
@@ -142,26 +148,30 @@ def build_position_review(
     primary_item = selected[0] if selected else None
     primary = primary_item.finding if primary_item else None
     topic = topic_for("mate_technique") if teach_forced_mate else _topic_for_finding(primary)
+    plans = _explanation_plans(selected, findings)
     primary_evidence_ids = findings[0].evidence_ids if findings else [best_evidence_id]
-    primary_scope = primary_item.scope if primary_item else "best_line"
-    primary_ply = primary.evidence[0].ply if primary is not None else 0
-    if primary_scope == "attempt_refutation":
-        primary_ply += 1
     best_move = _review_move(board, best_analyzed.moves[0])
-    explanation_squares = _hint_squares(primary)
-    hint_squares = explanation_squares if primary_ply == 0 else []
-    arrows = _evidence_arrows(primary)
+    if not plans:
+        plans = (
+            _ExplanationPlan(
+                topic=topic,
+                finding=None,
+                evidence_ids=tuple(primary_evidence_ids),
+                scope="best_line",
+                ply=0,
+                markers=(),
+                arrows=(_move_arrow(best_move.uci, role="engine"),),
+                badge=ReviewDiagramBadge(
+                    kind="engine",
+                    square=chess.square_name(best_analyzed.moves[0].to_square),
+                    role="engine",
+                ),
+            ),
+        )
+    hint_markers = _hint_markers(primary) if plans[0].ply == 0 else []
 
     explanation = _explanation(
-        plan=_ExplanationPlan(
-            topic=topic,
-            finding=primary,
-            evidence_ids=tuple(primary_evidence_ids),
-            scope=primary_scope,
-            ply=primary_ply,
-            squares=tuple(explanation_squares),
-            arrows=tuple(arrows),
-        ),
+        plans=plans,
         best_move=best_move,
         attempt=attempt,
         attempt_evidence_id=attempt_evidence_id,
@@ -183,7 +193,7 @@ def build_position_review(
         hint=ReviewAnnotation(
             label=topic.name,
             text=topic.hint,
-            squares=hint_squares,
+            markers=hint_markers,
             evidence_ids=primary_evidence_ids,
         ),
         explanation=explanation,
@@ -307,6 +317,32 @@ def _finding_contract(
     return findings, evidence_items
 
 
+def _explanation_plans(
+    selected: tuple[_SelectedFinding, ...],
+    findings: list[ReviewFindingResponse],
+) -> tuple[_ExplanationPlan, ...]:
+    plans: list[_ExplanationPlan] = []
+    for item, response in zip(selected, findings, strict=True):
+        evidence = item.finding.evidence[0]
+        plans.append(
+            _ExplanationPlan(
+                topic=_topic_for_finding(item.finding),
+                finding=item.finding,
+                evidence_ids=tuple(response.evidence_ids),
+                scope=item.scope,
+                ply=_scoped_ply(evidence, item.scope),
+                markers=tuple(_evidence_markers(item.finding)),
+                arrows=tuple(_evidence_arrows(item.finding, scope=item.scope)),
+                badge=_evidence_badge(item.finding, scope=item.scope),
+            )
+        )
+    return tuple(plans)
+
+
+def _scoped_ply(evidence: Evidence, scope: _FindingScope) -> int:
+    return evidence.ply + (1 if scope == "attempt_refutation" else 0)
+
+
 def _evidence_response(
     evidence_id: str,
     evidence: Evidence,
@@ -318,7 +354,7 @@ def _evidence_response(
         kind=evidence.kind,
         scope=scope,
         proof=evidence.proof,
-        ply=evidence.ply + (1 if scope == "attempt_refutation" else 0),
+        ply=_scoped_ply(evidence, scope),
         actor=_piece_response(evidence.actor) if evidence.actor else None,
         targets=[_piece_response(target) for target in evidence.targets],
         from_square=evidence.from_square,
@@ -359,7 +395,7 @@ def _review_line(
 
 def _explanation(
     *,
-    plan: _ExplanationPlan,
+    plans: tuple[_ExplanationPlan, ...],
     best_move: ReviewMove,
     attempt: ReviewAttemptResponse | None,
     attempt_evidence_id: str | None,
@@ -367,64 +403,144 @@ def _explanation(
 ) -> list[ReviewAnnotation]:
     notes: list[ReviewAnnotation] = []
     if attempt is not None:
+        if attempt_evidence_id is None:
+            raise ValueError("Attempt commentary requires engine evidence")
         notes.append(_attempt_annotation(attempt, evidence_id=attempt_evidence_id))
-    topic_text = plan.topic.idea
-    if plan.finding is None:
-        topic_text = (
-            "Stockfish verifies a forced mate from this position."
-            if plan.topic.id == "mate-technique"
-            else "The checked line supports the engine choice, but no specific tactical mechanism."
-        )
-    notes.append(
-        ReviewAnnotation(
-            label=plan.topic.name,
-            text=topic_text,
-            scope=plan.scope,
-            ply=plan.ply,
-            squares=list(plan.squares),
-            arrows=list(plan.arrows),
-            evidence_ids=list(plan.evidence_ids),
-        )
-    )
-    if plan.finding is not None:
-        evidence = plan.finding.evidence[0]
-        notes.append(
-            ReviewAnnotation(
-                label="Why it works",
-                text=evidence.summary,
-                scope=plan.scope,
-                ply=plan.ply,
-                squares=list(evidence.squares),
-                arrows=list(plan.arrows),
-                evidence_ids=list(plan.evidence_ids),
-            )
-        )
-    else:
-        engine_text = (
-            f"{best_move.san} starts Stockfish's shortest checked mating line."
-            if plan.topic.id == "mate-technique"
-            else (
+
+    visible_plans = _distinct_plans(plans, limit=2)
+    if (
+        attempt is not None
+        and attempt.verdict in {"mistake", "blunder"}
+        and len(attempt.line.moves) > 1
+        and not _shows_first_refutation(visible_plans, attempt.line.moves[1].uci)
+    ):
+        notes.append(_reply_annotation(attempt, evidence_id=attempt_evidence_id))
+    for plan in visible_plans:
+        if plan.finding is not None:
+            text = f"{plan.finding.evidence[0].summary} {plan.topic.idea}"
+        elif plan.topic.id == "mate-technique":
+            text = f"{best_move.san} starts Stockfish's shortest checked mating line."
+        else:
+            text = (
                 f"The clearest first move is {best_move.san}. The checked line supports "
                 "the move, but not a more specific tactical label."
             )
-        )
         notes.append(
             ReviewAnnotation(
-                label="Engine choice",
-                text=engine_text,
+                label=_plan_label(plan, has_attempt=attempt is not None),
+                text=text,
+                scope=plan.scope,
+                ply=plan.ply,
+                markers=list(plan.markers),
+                arrows=list(plan.arrows),
+                badge=plan.badge,
+                evidence_ids=list(plan.evidence_ids),
+            )
+        )
+
+    has_root_best_diagram = any(
+        plan.scope == "best_line" and plan.ply == 0 and (plan.markers or plan.arrows)
+        for plan in visible_plans
+    )
+    if (
+        attempt is not None
+        and not attempt.equivalent
+        and attempt.move.uci != best_move.uci
+        and not has_root_best_diagram
+    ):
+        notes.append(
+            ReviewAnnotation(
+                label="Better move",
+                text=f"Compare the attempt with {best_move.san}, Stockfish's first choice.",
                 scope="best_line",
                 ply=0,
-                arrows=list(plan.arrows),
+                markers=[_destination_marker(best_move.uci, role="focus")],
+                arrows=[_move_arrow(best_move.uci, role="engine")],
+                badge=ReviewDiagramBadge(
+                    kind="engine",
+                    square=best_move.uci[2:4],
+                    role="engine",
+                ),
                 evidence_ids=[best_evidence_id],
             )
         )
     return notes
 
 
+def _plan_label(plan: _ExplanationPlan, *, has_attempt: bool) -> str:
+    if plan.finding is None:
+        return "Engine choice"
+    if not has_attempt:
+        return plan.topic.name
+    prefix = "Reply" if plan.scope == "attempt_refutation" else "Best"
+    return f"{prefix} · {plan.topic.name}"
+
+
+def _shows_first_refutation(
+    plans: tuple[_ExplanationPlan, ...],
+    reply_uci: str,
+) -> bool:
+    reply = chess.Move.from_uci(reply_uci)
+    reply_from = chess.square_name(reply.from_square)
+    reply_to = chess.square_name(reply.to_square)
+    return any(
+        plan.scope == "attempt_refutation"
+        and plan.ply == 1
+        and plan.arrows
+        and plan.arrows[0].from_square == reply_from
+        and plan.arrows[0].to_square == reply_to
+        for plan in plans
+    )
+
+
+def _reply_annotation(
+    attempt: ReviewAttemptResponse,
+    *,
+    evidence_id: str,
+) -> ReviewAnnotation:
+    reply = attempt.line.moves[1]
+    return ReviewAnnotation(
+        label="Strongest reply",
+        text=(
+            f"After {attempt.move.san}, Stockfish checks {reply.san} as the strongest reply. "
+            "This continuation is hypothetical."
+        ),
+        scope="attempt_refutation",
+        ply=1,
+        markers=[_destination_marker(reply.uci, role="danger")],
+        arrows=[_move_arrow(reply.uci, role="reply")],
+        evidence_ids=[evidence_id],
+    )
+
+
+def _distinct_plans(
+    plans: tuple[_ExplanationPlan, ...],
+    *,
+    limit: int,
+) -> tuple[_ExplanationPlan, ...]:
+    selected: list[_ExplanationPlan] = []
+    seen: set[tuple[str, int, str | None, str | None]] = set()
+    for plan in plans:
+        first_arrow = plan.arrows[0] if plan.arrows else None
+        key = (
+            plan.scope,
+            plan.ply,
+            first_arrow.from_square if first_arrow else None,
+            first_arrow.to_square if first_arrow else None,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        selected.append(plan)
+        if len(selected) == limit:
+            break
+    return tuple(selected)
+
+
 def _attempt_annotation(
     attempt: ReviewAttemptResponse,
     *,
-    evidence_id: str | None,
+    evidence_id: str,
 ) -> ReviewAnnotation:
     percent = round(attempt.expected_score_loss * 100)
     if attempt.equivalent:
@@ -432,12 +548,12 @@ def _attempt_annotation(
     elif attempt.verdict == "blunder" and percent > 0:
         text = (
             f"{attempt.move.san} loses about {percent} percentage points of expected score. "
-            "The hypothetical refutation below shows the concrete consequence."
+            "The next diagram shows the hypothetical refutation."
         )
     elif attempt.verdict in {"mistake", "blunder"}:
         text = (
             f"{attempt.move.san} is a {attempt.verdict}. "
-            "The hypothetical refutation below shows the concrete consequence."
+            "The next diagram shows the hypothetical refutation."
         )
     elif attempt.lost_forced_mate:
         text = (
@@ -456,56 +572,227 @@ def _attempt_annotation(
         )
     else:
         text = f"{attempt.move.san} is not equivalent to the engine's first choice."
+    scope = "attempt_refutation" if attempt.line.role == "attempt_refutation" else "attempt_line"
+    marker_role: ReviewMarkerRole = (
+        "danger" if attempt.verdict in {"mistake", "blunder"} else "focus"
+    )
     return ReviewAnnotation(
         label="Your move",
         text=text,
-        evidence_ids=[evidence_id] if evidence_id else [],
+        scope=scope,
+        ply=0,
+        markers=[_destination_marker(attempt.move.uci, role=marker_role)],
+        arrows=[_move_arrow(attempt.move.uci, role="played")],
+        evidence_ids=[evidence_id],
     )
 
 
-def _evidence_arrows(finding: DetectedSubject | None) -> list[ReviewArrow]:
+def _evidence_arrows(
+    finding: DetectedSubject | None,
+    *,
+    scope: _FindingScope = "best_line",
+) -> list[ReviewArrow]:
     if finding is None or not finding.evidence:
         return []
     evidence = finding.evidence[0]
+    move_role: ReviewArrowRole = "reply" if scope == "attempt_refutation" else "engine"
     arrows: list[ReviewArrow] = []
     if evidence.from_square is not None and evidence.to_square is not None:
         arrows.append(
             ReviewArrow(
                 from_square=evidence.from_square,
                 to_square=evidence.to_square,
-                kind="move",
+                role=move_role,
             )
         )
     elif evidence.moves:
-        move = chess.Move.from_uci(evidence.moves[0])
-        arrows.append(
-            ReviewArrow(
-                from_square=chess.square_name(move.from_square),
-                to_square=chess.square_name(move.to_square),
-                kind="move",
-            )
-        )
-    if evidence.actor is not None:
+        arrows.append(_move_arrow(evidence.moves[0], role=move_role))
+    if finding.handler == "threat" and len(evidence.moves) > 1:
+        arrows.append(_move_arrow(evidence.moves[-1], role="threat"))
+
+    relation_role: ReviewArrowRole = (
+        "ray" if finding.handler in {"pin", "xray", "discovered_attack"} else "attack"
+    )
+    geometric_handlers = {
+        "check",
+        "double_attack",
+        "pin",
+        "discovered_attack",
+        "xray",
+        "trapping",
+        "chasing_targeting",
+    }
+    if evidence.actor is not None and finding.handler in geometric_handlers:
         for target in evidence.targets[:3]:
             if evidence.actor.square == target.square:
                 continue
+            relation = (evidence.actor.square, target.square)
+            if any(
+                arrow.from_square == relation[0] and arrow.to_square == relation[1]
+                for arrow in arrows
+            ):
+                continue
             arrows.append(
                 ReviewArrow(
-                    from_square=evidence.actor.square,
-                    to_square=target.square,
-                    kind="idea",
+                    from_square=relation[0],
+                    to_square=relation[1],
+                    role=relation_role,
                 )
             )
+            if len(arrows) == 4:
+                break
     return arrows
 
 
-def _hint_squares(finding: DetectedSubject | None) -> list[str]:
+def _evidence_badge(
+    finding: DetectedSubject,
+    *,
+    scope: _FindingScope,
+) -> ReviewDiagramBadge | None:
+    kind = _badge_for_finding(finding)
+    square = _badge_square(finding, kind)
+    if kind is None or square is None:
+        return None
+    role: ReviewArrowRole = "engine"
+    if finding.handler == "threat":
+        role = "threat"
+    elif scope == "attempt_refutation":
+        role = "reply"
+    return ReviewDiagramBadge(kind=kind, square=square, role=role)
+
+
+def _evidence_markers(finding: DetectedSubject | None) -> list[ReviewSquareMarker]:
+    if finding is None or not finding.evidence:
+        return []
+    evidence = finding.evidence[0]
+    target_role: ReviewMarkerRole = (
+        "danger" if finding.handler in {"trapping", "mate"} else "target"
+    )
+    markers = [
+        ReviewSquareMarker(square=target.square, role=target_role)
+        for target in evidence.targets[:3]
+    ]
+    if not markers and finding.handler in {
+        "double_attack",
+        "material",
+        "mate",
+        "pin",
+        "threat",
+        "trapping",
+        "xray",
+    }:
+        markers.extend(
+            ReviewSquareMarker(square=square, role=target_role) for square in evidence.squares[:3]
+        )
+
+    move_from, move_to = _evidence_move_squares(evidence)
+    if finding.handler in {"clearing", "discovered_attack"} and move_from:
+        markers.append(ReviewSquareMarker(square=move_from, role="vacated"))
+    elif finding.handler == "interference":
+        blocked = move_to or (evidence.squares[1] if len(evidence.squares) > 1 else None)
+        if blocked:
+            markers.append(ReviewSquareMarker(square=blocked, role="blocked"))
+        if evidence.squares:
+            markers.append(ReviewSquareMarker(square=evidence.squares[-1], role="target"))
+    return _unique_markers(markers)
+
+
+def _hint_markers(finding: DetectedSubject | None) -> list[ReviewSquareMarker]:
     if finding is None:
         return []
     evidence = finding.evidence[0]
-    if evidence.targets:
-        return list(dict.fromkeys(target.square for target in evidence.targets))
-    return list(dict.fromkeys(evidence.squares))
+    squares = (
+        [target.square for target in evidence.targets]
+        if evidence.targets
+        else list(evidence.squares)
+    )
+    return [ReviewSquareMarker(square=square, role="focus") for square in dict.fromkeys(squares)]
+
+
+def _move_arrow(
+    uci: str,
+    *,
+    role: ReviewArrowRole,
+) -> ReviewArrow:
+    move = chess.Move.from_uci(uci)
+    return ReviewArrow(
+        from_square=chess.square_name(move.from_square),
+        to_square=chess.square_name(move.to_square),
+        role=role,
+    )
+
+
+def _destination_marker(uci: str, *, role: ReviewMarkerRole) -> ReviewSquareMarker:
+    move = chess.Move.from_uci(uci)
+    return ReviewSquareMarker(square=chess.square_name(move.to_square), role=role)
+
+
+def _badge_for_finding(finding: DetectedSubject) -> ReviewBadge | None:
+    evidence = finding.evidence[0]
+    if finding.handler == "threat":
+        return "mate" if evidence.kind == "mate_threat" else "capture"
+    if finding.handler == "material":
+        return "capture" if evidence.kind == "material_gain" else None
+    badges: dict[str, ReviewBadge] = {
+        "double_attack": "fork",
+        "pin": "pin",
+        "xray": "xray",
+        "trapping": "trap",
+        "eliminate_defence": "capture",
+        "clearing": "clearance",
+        "discovered_attack": "discovery",
+        "interference": "interference",
+        "luring": "attraction",
+        "magnet": "attraction",
+        "intermediate_move": "intermezzo",
+        "mate": "mate",
+        "mate_technique": "mate",
+    }
+    return badges.get(finding.handler)
+
+
+def _badge_square(
+    finding: DetectedSubject,
+    badge: ReviewBadge | None,
+) -> str | None:
+    evidence = finding.evidence[0]
+    move_from, move_to = _evidence_move_squares(evidence)
+    if badge is None:
+        return None
+    if badge in {"fork", "engine"}:
+        return move_to or (evidence.actor.square if evidence.actor else None)
+    if badge in {"pin", "xray", "trap", "capture", "attraction"}:
+        if evidence.targets:
+            return evidence.targets[0].square
+        if evidence.squares:
+            if badge == "pin":
+                return evidence.squares[-1]
+            if badge == "xray" and len(evidence.squares) > 1:
+                return evidence.squares[1]
+            return evidence.squares[0]
+    if badge in {"clearance", "discovery"}:
+        return move_from
+    return move_to
+
+
+def _evidence_move_squares(evidence: Evidence) -> tuple[str | None, str | None]:
+    if evidence.from_square is not None and evidence.to_square is not None:
+        return evidence.from_square, evidence.to_square
+    if not evidence.moves:
+        return None, None
+    move = chess.Move.from_uci(evidence.moves[0])
+    return chess.square_name(move.from_square), chess.square_name(move.to_square)
+
+
+def _unique_markers(markers: list[ReviewSquareMarker]) -> list[ReviewSquareMarker]:
+    unique: list[ReviewSquareMarker] = []
+    seen: set[tuple[str, ReviewMarkerRole]] = set()
+    for marker in markers:
+        key = (marker.square, marker.role)
+        if key not in seen:
+            seen.add(key)
+            unique.append(marker)
+    return unique
 
 
 def _review_move(board: chess.Board, move: chess.Move) -> ReviewMove:
@@ -666,7 +953,10 @@ def _terminal_review(
             label=topic.name,
             text=hint,
             scope="terminal",
-            squares=king_squares,
+            markers=[
+                ReviewSquareMarker(square=square, role="danger" if is_mate else "focus")
+                for square in king_squares
+            ],
             evidence_ids=[evidence_id],
         ),
         explanation=[
@@ -674,7 +964,10 @@ def _terminal_review(
                 label="Final position",
                 text=explanation,
                 scope="terminal",
-                squares=king_squares,
+                markers=[
+                    ReviewSquareMarker(square=square, role="danger" if is_mate else "focus")
+                    for square in king_squares
+                ],
                 evidence_ids=[evidence_id],
             )
         ],

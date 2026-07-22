@@ -139,12 +139,20 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert position_review["topic"] == {"id": "double-attack", "name": "Double attack"}
         assert position_review["engine"] == "Stockfish 18 lite"
         assert position_review["score"]["value"] == 520
-        assert position_review["hint"]["squares"] == ["c6", "h7"]
-        assert position_review["schema_version"] == "position-analysis-2"
+        assert position_review["hint"]["markers"] == [
+            {"square": "c6", "role": "focus"},
+            {"square": "h7", "role": "focus"},
+        ]
+        assert position_review["schema_version"] == "position-analysis-3"
         assert position_review["explanation"][0]["arrows"][0] == {
             "from_square": "e2",
             "to_square": "e4",
-            "kind": "move",
+            "role": "engine",
+        }
+        assert position_review["explanation"][0]["badge"] == {
+            "kind": "fork",
+            "square": "e4",
+            "role": "engine",
         }
         review_id = position_review["review_id"]
         assert len(review_id) == 32

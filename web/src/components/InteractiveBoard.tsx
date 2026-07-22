@@ -1,7 +1,17 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { Chess, SQUARES, type PieceSymbol, type Square } from "chess.js";
-import { pieceDisplay, positionAt } from "../board";
-import type { Orientation, ReviewAnnotation, ReviewArrow } from "../types";
+import {
+  boardPoint as pointForSquare,
+  pieceDisplay,
+  positionAt,
+  type BoardPoint,
+} from "../board";
+import type {
+  Orientation,
+  ReviewAnnotation,
+  ReviewArrow,
+} from "../types";
+import { ReviewGlyphPaths } from "./ReviewGlyph";
 
 export type AttemptedMove = { uci: string; san: string };
 
@@ -20,8 +30,6 @@ type PromotionChoice = {
   pieces: PieceSymbol[];
 };
 
-type BoardPoint = { x: number; y: number };
-
 const BLACK_ORIENTED_SQUARES = [...SQUARES].reverse();
 
 export default function InteractiveBoard({
@@ -36,7 +44,6 @@ export default function InteractiveBoard({
   const [promotion, setPromotion] = useState<PromotionChoice | null>(null);
   const markerId = useId().replaceAll(":", "");
   const position = useMemo(() => positionAt(fen, moves), [fen, moves]);
-  const highlightedSquares = useMemo(() => new Set(cue?.squares ?? []), [cue]);
   const legalTargets = useMemo(() => {
     if (!interactive || !selected) return new Set<Square>();
     return new Set(
@@ -109,7 +116,6 @@ export default function InteractiveBoard({
                 position.squareColor(square) === "light" ? "is-light" : "is-dark",
                 selected === square ? "is-selected" : "",
                 legalTargets.has(square) ? "is-legal" : "",
-                highlightedSquares.has(square) ? "is-highlighted" : "",
                 isLastMove ? "is-last-move" : "",
               ].join(" ")}
               aria-label={`${square}${display ? `: ${display.name.toLowerCase()}` : ": empty"}`}
@@ -125,10 +131,10 @@ export default function InteractiveBoard({
         })}
         {cue && (
           <BoardOverlay
+            key={`${cue.scope}-${cue.ply}-${cue.label}`}
             cue={cue}
             orientation={orientation}
-            moveMarkerId={`${markerId}-move`}
-            ideaMarkerId={`${markerId}-idea`}
+            markerId={markerId}
           />
         )}
       </div>
@@ -160,51 +166,85 @@ export default function InteractiveBoard({
 function BoardOverlay({
   cue,
   orientation,
-  moveMarkerId,
-  ideaMarkerId,
+  markerId,
 }: {
   cue: ReviewAnnotation;
   orientation: Orientation;
-  moveMarkerId: string;
-  ideaMarkerId: string;
+  markerId: string;
 }) {
   const arrows = cue.arrows.flatMap((arrow) => {
     const line = arrowLine(arrow, orientation);
     return line ? [{ arrow, line }] : [];
   });
-  const anchorSquare = cue.arrows[0]?.to_square ?? cue.squares[0];
-  const anchor = anchorSquare ? pointForSquare(anchorSquare, orientation) : null;
-  const tagWidth = clamp(cue.label.length * 0.095 + 0.35, 0.85, 1.9);
-  const tagX = anchor ? clamp(anchor.x - tagWidth / 2, 0.08, 7.92 - tagWidth) : 0;
-  const tagY = anchor ? clamp(anchor.y < 1.1 ? anchor.y + 0.34 : anchor.y - 0.62, 0.08, 7.5) : 0;
+  const arrowRoles = [...new Set(arrows.map(({ arrow }) => arrow.role))];
+  const badgeSquare = cue.badge
+    ? pointForSquare(cue.badge.square, orientation)
+    : null;
+  const positionedBadge = cue.badge && badgeSquare
+    ? { badge: cue.badge, point: badgePoint(badgeSquare) }
+    : null;
+  const markers = cue.markers.flatMap((marker) => {
+    const point = pointForSquare(marker.square, orientation);
+    return point ? [{ marker, point }] : [];
+  });
 
   return (
     <svg className="board-annotation" viewBox="0 0 8 8" aria-hidden="true">
       <defs>
-        <marker id={moveMarkerId} markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto" markerUnits="strokeWidth">
-          <path className="board-annotation__move-head" d="M0,0 L5,2.5 L0,5 Z" />
-        </marker>
-        <marker id={ideaMarkerId} markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto" markerUnits="strokeWidth">
-          <path className="board-annotation__idea-head" d="M0,0 L5,2.5 L0,5 Z" />
-        </marker>
+        {arrowRoles.map((role) => (
+          <marker
+            key={role}
+            id={`${markerId}-${role}`}
+            markerWidth="4"
+            markerHeight="4"
+            refX="3.4"
+            refY="2"
+            orient="auto"
+            markerUnits="strokeWidth"
+          >
+            <path className={`board-annotation__head is-${role}`} d="M0,0 L4,2 L0,4 Z" />
+          </marker>
+        ))}
       </defs>
-      {arrows.map(({ arrow, line }, index) => (
-        <line
-          key={`${arrow.from_square}-${arrow.to_square}-${index}`}
-          className={`board-annotation__arrow is-${arrow.kind}`}
-          x1={line.start.x}
-          y1={line.start.y}
-          x2={line.end.x}
-          y2={line.end.y}
-          markerEnd={`url(#${arrow.kind === "move" ? moveMarkerId : ideaMarkerId})`}
-        />
-      ))}
-      {anchor && (
-        <g className="board-annotation__tag" transform={`translate(${tagX} ${tagY})`}>
-          <rect width={tagWidth} height="0.4" rx="0.1" />
-          <text x={tagWidth / 2} y="0.27" textAnchor="middle">{cue.label}</text>
-        </g>
-      )}
+      <g className="board-annotation__scene">
+        {markers.map(({ marker, point }, index) => (
+          <g
+            key={`${marker.square}-${marker.role}-${index}`}
+            className={`board-annotation__marker is-${marker.role}`}
+          >
+            <rect x={point.x - 0.39} y={point.y - 0.39} width="0.78" height="0.78" rx="0.1" />
+          </g>
+        ))}
+        {arrows.map(({ arrow, line }, index) => (
+          <line
+            key={`${arrow.from_square}-${arrow.to_square}-${arrow.role}-${index}`}
+            className={`board-annotation__arrow is-${arrow.role}`}
+            x1={line.start.x}
+            y1={line.start.y}
+            x2={line.end.x}
+            y2={line.end.y}
+            markerEnd={`url(#${markerId}-${arrow.role})`}
+          />
+        ))}
+        {positionedBadge && (
+          <g
+            className={`board-annotation__badge is-${positionedBadge.badge.role}`}
+            transform={`translate(${positionedBadge.point.x} ${positionedBadge.point.y})`}
+          >
+            <circle r="0.2" />
+            <g
+              transform="translate(-0.1 -0.1) scale(0.008333)"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <ReviewGlyphPaths badge={positionedBadge.badge.kind} />
+            </g>
+          </g>
+        )}
+      </g>
     </svg>
   );
 }
@@ -231,13 +271,10 @@ function arrowLine(arrow: ReviewArrow, orientation: Orientation) {
   };
 }
 
-function pointForSquare(square: string, orientation: Orientation): BoardPoint | null {
-  const squares = orientation === "white" ? SQUARES : BLACK_ORIENTED_SQUARES;
-  const index = squares.indexOf(square as Square);
-  if (index < 0) return null;
+function badgePoint(point: BoardPoint): BoardPoint {
   return {
-    x: index % 8 + 0.5,
-    y: Math.floor(index / 8) + 0.5,
+    x: Math.min(7.78, point.x + 0.27),
+    y: Math.max(0.22, point.y - 0.27),
   };
 }
 
@@ -250,8 +287,4 @@ function coordinateFor(square: Square, row: number, col: number) {
       {rankEdge && <span className="analysis-square__file">{square[0]}</span>}
     </>
   );
-}
-
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.min(maximum, Math.max(minimum, value));
 }
