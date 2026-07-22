@@ -680,7 +680,7 @@ button:disabled,
   opacity: 1;
 }
 
-.board-editor-wrap {
+.board-editor-stage {
   position: relative;
 }
 
@@ -2259,19 +2259,33 @@ button:disabled,
   fill: var(--annotation-keyline);
 }
 
-.board-annotation__glyph-keyline {
+.review-glyph-layers__keyline,
+.review-glyph-layers__face {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.review-glyph-layers__keyline {
+  stroke-width: 5;
+}
+
+.review-glyph-layers__face {
+  stroke-width: 2.2;
+}
+
+.board-annotation__glyph .review-glyph-layers__keyline {
   stroke: currentColor;
 }
 
-.board-annotation__glyph-face {
+.board-annotation__glyph .review-glyph-layers__face {
   stroke: var(--annotation-keyline);
 }
 
-.review-glyph__keyline {
+.review-glyph .review-glyph-layers__keyline {
   stroke: currentColor;
 }
 
-.review-glyph__face {
+.review-glyph .review-glyph-layers__face {
   stroke: var(--paper-clean);
 }
 

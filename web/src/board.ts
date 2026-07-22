@@ -2,58 +2,40 @@ import { Chess, validateFen, type Color, type PieceSymbol } from "chess.js";
 import type { Orientation, SideToMove } from "./types";
 
 export type BoardPoint = { x: number; y: number };
+export type BoardPiece = Readonly<{ color: Color; type: PieceSymbol }>;
+export type PieceOption = Readonly<{
+  name: string;
+  fenSymbol: string;
+  piece: BoardPiece | null;
+}>;
 
-export const pieceSymbols = ["·", "♙", "♘", "♗", "♖", "♕", "♔", "♟", "♞", "♝", "♜", "♛", "♚"] as const;
-export const pieceNames = [
-  "Empty",
-  "White pawn",
-  "White knight",
-  "White bishop",
-  "White rook",
-  "White queen",
-  "White king",
-  "Black pawn",
-  "Black knight",
-  "Black bishop",
-  "Black rook",
-  "Black queen",
-  "Black king",
-] as const;
-const fenSymbols = ["", "P", "N", "B", "R", "Q", "K", "p", "n", "b", "r", "q", "k"] as const;
-const pieceOffsets: Record<PieceSymbol, number> = {
-  p: 1,
-  n: 2,
-  b: 3,
-  r: 4,
-  q: 5,
-  k: 6,
-};
-const labelPieces: Array<{ color: Color; type: PieceSymbol } | null> = [
-  null,
-  { color: "w", type: "p" },
-  { color: "w", type: "n" },
-  { color: "w", type: "b" },
-  { color: "w", type: "r" },
-  { color: "w", type: "q" },
-  { color: "w", type: "k" },
-  { color: "b", type: "p" },
-  { color: "b", type: "n" },
-  { color: "b", type: "b" },
-  { color: "b", type: "r" },
-  { color: "b", type: "q" },
-  { color: "b", type: "k" },
+export const pieceOptions: readonly PieceOption[] = [
+  { name: "Empty", fenSymbol: "", piece: null },
+  { name: "White pawn", fenSymbol: "P", piece: { color: "w", type: "p" } },
+  { name: "White knight", fenSymbol: "N", piece: { color: "w", type: "n" } },
+  { name: "White bishop", fenSymbol: "B", piece: { color: "w", type: "b" } },
+  { name: "White rook", fenSymbol: "R", piece: { color: "w", type: "r" } },
+  { name: "White queen", fenSymbol: "Q", piece: { color: "w", type: "q" } },
+  { name: "White king", fenSymbol: "K", piece: { color: "w", type: "k" } },
+  { name: "Black pawn", fenSymbol: "p", piece: { color: "b", type: "p" } },
+  { name: "Black knight", fenSymbol: "n", piece: { color: "b", type: "n" } },
+  { name: "Black bishop", fenSymbol: "b", piece: { color: "b", type: "b" } },
+  { name: "Black rook", fenSymbol: "r", piece: { color: "b", type: "r" } },
+  { name: "Black queen", fenSymbol: "q", piece: { color: "b", type: "q" } },
+  { name: "Black king", fenSymbol: "k", piece: { color: "b", type: "k" } },
 ];
 
-export function pieceDisplay(color: Color, type: PieceSymbol): { name: string; symbol: string } {
-  const index = pieceOffsets[type] + (color === "w" ? 0 : 6);
-  return {
-    name: pieceNames[index]!,
-    symbol: pieceSymbols[index]!,
-  };
+export function pieceName(color: Color, type: PieceSymbol): string {
+  const option = pieceOptionsByIdentity.get(pieceIdentity(color, type));
+  if (!option) throw new Error(`Unsupported chess piece: ${color}${type}`);
+  return option.name;
 }
 
-export function pieceForLabel(label: number): { color: Color; type: PieceSymbol } | null {
-  return labelPieces[label] ?? null;
+export function pieceOptionForLabel(label: number): PieceOption {
+  if (!Number.isInteger(label) || label < 0 || label >= pieceOptions.length) {
+    throw new RangeError(`Invalid classifier label: ${label}`);
+  }
+  return pieceOptions[label]!;
 }
 
 export function positionAt(fen: string, moves: string[]): Chess {
@@ -75,12 +57,12 @@ export function labelsToBoardFen(labels: number[], orientation: Orientation): st
     let rank = "";
     let empty = 0;
     for (let col = 0; col < 8; col += 1) {
-      const id = canonical[row * 8 + col] ?? 0;
-      if (id === 0) {
+      const option = pieceOptionForLabel(canonical[row * 8 + col] ?? 0);
+      if (!option.piece) {
         empty += 1;
       } else {
         if (empty > 0) rank += String(empty);
-        rank += fenSymbols[id] ?? "";
+        rank += option.fenSymbol;
         empty = 0;
       }
     }
@@ -138,4 +120,15 @@ export function countKings(labels: number[]): { white: number; black: number } {
     white: labels.filter((label) => label === 6).length,
     black: labels.filter((label) => label === 12).length,
   };
+}
+
+const pieceOptionsByIdentity = new Map<string, PieceOption>();
+for (const option of pieceOptions) {
+  if (option.piece) {
+    pieceOptionsByIdentity.set(pieceIdentity(option.piece.color, option.piece.type), option);
+  }
+}
+
+function pieceIdentity(color: Color, type: PieceSymbol): string {
+  return `${color}${type}`;
 }

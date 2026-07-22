@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useState } from "react";
 import { Chess, SQUARES, type PieceSymbol, type Square } from "chess.js";
 import {
   boardPoint as pointForSquare,
-  pieceDisplay,
+  pieceName,
   positionAt,
   type BoardPoint,
 } from "../board";
@@ -12,7 +12,7 @@ import type {
   ReviewArrow,
 } from "../types";
 import ChessPiece from "./ChessPiece";
-import { ReviewGlyphPaths } from "./ReviewGlyph";
+import { ReviewGlyphLayers } from "./ReviewGlyph";
 
 export type AttemptedMove = { uci: string; san: string };
 
@@ -100,7 +100,7 @@ export default function InteractiveBoard({
       <div className="analysis-board" role="grid" aria-label="Interactive chess position">
         {squares.map((square, index) => {
           const piece = position.get(square);
-          const display = piece ? pieceDisplay(piece.color, piece.type) : null;
+          const name = piece ? pieceName(piece.color, piece.type) : null;
           const row = Math.floor(index / 8);
           const col = index % 8;
           const isLastMove = square === lastMove?.from || square === lastMove?.to;
@@ -119,7 +119,7 @@ export default function InteractiveBoard({
                 legalTargets.has(square) ? "is-legal" : "",
                 isLastMove ? "is-last-move" : "",
               ].join(" ")}
-              aria-label={`${square}${display ? `: ${display.name.toLowerCase()}` : ": empty"}`}
+              aria-label={`${square}${name ? `: ${name.toLowerCase()}` : ": empty"}`}
               aria-disabled={!keyboardTarget}
               tabIndex={keyboardTarget ? 0 : -1}
               onClick={() => selectSquare(square)}
@@ -150,12 +150,12 @@ export default function InteractiveBoard({
           <strong>Promote to</strong>
           <div>
             {promotion.pieces.map((piece) => {
-              const display = pieceDisplay(position.turn(), piece);
+              const name = pieceName(position.turn(), piece);
               return (
                 <button
                   key={piece}
                   type="button"
-                  aria-label={`Promote to ${display.name.toLowerCase()}`}
+                  aria-label={`Promote to ${name.toLowerCase()}`}
                   onClick={() => play(promotion.from, promotion.to, piece)}
                 >
                   <ChessPiece color={position.turn()} piece={piece} />
@@ -247,8 +247,8 @@ function BoardOverlay({
               className={`board-annotation__arrow-keyline is-${arrow.role}`}
               x1={line.start.x}
               y1={line.start.y}
-              x2={line.end.x}
-              y2={line.end.y}
+              x2={line.keylineEnd.x}
+              y2={line.keylineEnd.y}
             />
             <line
               className={`board-annotation__arrow is-${arrow.role}`}
@@ -267,23 +267,11 @@ function BoardOverlay({
           >
             <rect className="board-annotation__badge-keyline" x="-0.27" y="-0.27" width="0.54" height="0.54" rx="0.13" />
             <rect className="board-annotation__badge-face" x="-0.205" y="-0.205" width="0.41" height="0.41" rx="0.085" />
-            <g transform="translate(-0.105 -0.105) scale(0.00875)" fill="none">
-              <g
-                className="board-annotation__glyph-keyline"
-                strokeWidth="4.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <ReviewGlyphPaths badge={positionedBadge.badge.kind} />
-              </g>
-              <g
-                className="board-annotation__glyph-face"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <ReviewGlyphPaths badge={positionedBadge.badge.kind} />
-              </g>
+            <g transform="translate(-0.105 -0.105) scale(0.00875)">
+              <ReviewGlyphLayers
+                badge={positionedBadge.badge.kind}
+                className="board-annotation__glyph"
+              />
             </g>
           </g>
         )}
@@ -300,16 +288,23 @@ function arrowLine(arrow: ReviewArrow, orientation: Orientation) {
   const dy = to.y - from.y;
   const distance = Math.hypot(dx, dy);
   if (distance === 0) return null;
+  const unitX = dx / distance;
+  const unitY = dy / distance;
   const startInset = 0.16;
   const endInset = 0.3;
+  const keylineEndInset = endInset + 0.12;
   return {
     start: {
-      x: from.x + (dx / distance) * startInset,
-      y: from.y + (dy / distance) * startInset,
+      x: from.x + unitX * startInset,
+      y: from.y + unitY * startInset,
     },
     end: {
-      x: to.x - (dx / distance) * endInset,
-      y: to.y - (dy / distance) * endInset,
+      x: to.x - unitX * endInset,
+      y: to.y - unitY * endInset,
+    },
+    keylineEnd: {
+      x: to.x - unitX * keylineEndInset,
+      y: to.y - unitY * keylineEndInset,
     },
   };
 }

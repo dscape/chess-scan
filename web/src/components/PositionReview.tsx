@@ -921,7 +921,7 @@ export default function PositionReview({
             </a>
           </span>
           <span className="position-review__piece-credit">
-            Pieces:{" "}
+            Adapted pieces:{" "}
             <a
               href="https://www.figma.com/community/file/971870797656870866/chess-simple-assets"
               target="_blank"

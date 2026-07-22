@@ -9,31 +9,37 @@ export default function ReviewGlyph({ badge, className }: ReviewGlyphProps) {
   return (
     <svg
       className={["review-glyph", className].filter(Boolean).join(" ")}
-      viewBox="0 0 24 24"
-      fill="none"
+      viewBox="-1 -1 26 26"
       aria-hidden="true"
     >
-      <g
-        className="review-glyph__keyline"
-        strokeWidth="5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <ReviewGlyphPaths badge={badge} />
-      </g>
-      <g
-        className="review-glyph__face"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <ReviewGlyphPaths badge={badge} />
-      </g>
+      <ReviewGlyphLayers badge={badge} />
     </svg>
   );
 }
 
-export function ReviewGlyphPaths({ badge }: { badge: ReviewBadge }) {
+export function ReviewGlyphLayers({
+  badge,
+  className,
+}: {
+  badge: ReviewBadge;
+  className?: string;
+}) {
+  return (
+    <g
+      className={["review-glyph-layers", className].filter(Boolean).join(" ")}
+      fill="none"
+    >
+      <g className="review-glyph-layers__keyline">
+        <ReviewGlyphPaths badge={badge} />
+      </g>
+      <g className="review-glyph-layers__face">
+        <ReviewGlyphPaths badge={badge} />
+      </g>
+    </g>
+  );
+}
+
+function ReviewGlyphPaths({ badge }: { badge: ReviewBadge }) {
   switch (badge) {
     case "fork":
       return (

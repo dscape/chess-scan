@@ -1,4 +1,4 @@
-import { pieceForLabel, pieceNames } from "../board";
+import { pieceOptions } from "../board";
 import ChessPiece from "./ChessPiece";
 
 interface PiecePickerProps {
@@ -20,26 +20,23 @@ export default function PiecePicker({ square, value, onPick, onClose }: PiecePic
         </button>
       </div>
       <div className="piece-picker__grid">
-        {pieceNames.map((name, id) => {
-          const artwork = pieceForLabel(id);
-          return (
-            <button
-              key={id}
-              type="button"
-              className={`piece-picker__piece ${id === value ? "is-active" : ""}`}
-              title={name}
-              aria-label={name}
-              aria-pressed={id === value}
-              onClick={() => onPick(id)}
-            >
-              {artwork ? (
-                <ChessPiece color={artwork.color} piece={artwork.type} />
-              ) : (
-                <span className="empty-symbol">·</span>
-              )}
-            </button>
-          );
-        })}
+        {pieceOptions.map(({ name, piece }, id) => (
+          <button
+            key={id}
+            type="button"
+            className={`piece-picker__piece ${id === value ? "is-active" : ""}`}
+            title={name}
+            aria-label={name}
+            aria-pressed={id === value}
+            onClick={() => onPick(id)}
+          >
+            {piece ? (
+              <ChessPiece color={piece.color} piece={piece.type} />
+            ) : (
+              <span className="empty-symbol">·</span>
+            )}
+          </button>
+        ))}
       </div>
     </div>
   );

@@ -4,8 +4,8 @@ import test from "node:test";
 import {
   boardPoint,
   fenError,
-  pieceDisplay,
-  pieceForLabel,
+  pieceName,
+  pieceOptionForLabel,
   positionAt,
 } from "../src/board.ts";
 
@@ -14,15 +14,24 @@ test("accepts a FEN that can be loaded into a review", () => {
 });
 
 test("maps chess.js pieces to the shared board metadata", () => {
-  assert.deepEqual(pieceDisplay("w", "n"), { name: "White knight", symbol: "♘" });
-  assert.deepEqual(pieceDisplay("b", "q"), { name: "Black queen", symbol: "♛" });
+  assert.equal(pieceName("w", "n"), "White knight");
+  assert.equal(pieceName("b", "q"), "Black queen");
 });
 
-test("maps classifier labels to reusable SVG piece identities", () => {
-  assert.deepEqual(pieceForLabel(2), { color: "w", type: "n" });
-  assert.deepEqual(pieceForLabel(11), { color: "b", type: "q" });
-  assert.equal(pieceForLabel(0), null);
-  assert.equal(pieceForLabel(13), null);
+test("maps classifier labels to canonical piece metadata", () => {
+  assert.deepEqual(pieceOptionForLabel(2), {
+    name: "White knight",
+    fenSymbol: "N",
+    piece: { color: "w", type: "n" },
+  });
+  assert.deepEqual(pieceOptionForLabel(11), {
+    name: "Black queen",
+    fenSymbol: "q",
+    piece: { color: "b", type: "q" },
+  });
+  assert.deepEqual(pieceOptionForLabel(0), { name: "Empty", fenSymbol: "", piece: null });
+  assert.throws(() => pieceOptionForLabel(13), /Invalid classifier label: 13/);
+  assert.throws(() => pieceOptionForLabel(1.5), /Invalid classifier label: 1.5/);
 });
 
 test("replays review moves through one validated board helper", () => {
