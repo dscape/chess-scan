@@ -17,15 +17,16 @@ from chess_scan.schemas import PositionReviewRequest
 from chess_scan.service import ScannerService
 
 
-def test_scan_rejects_an_image_without_a_complete_aligned_grid(tmp_path: Path) -> None:
+def test_detect_requests_manual_adjustment_for_an_image_without_a_grid(tmp_path: Path) -> None:
     service, _, settings = _service(tmp_path)
     blank = np.full((640, 640, 3), 230, dtype=np.uint8)
     encoded, payload = cv2.imencode(".png", blank)
     assert encoded
 
-    with pytest.raises(ValueError, match="No complete, aligned 8x8 chess board"):
-        service.scan(payload.tobytes())
+    detection = service.detect(payload.tobytes())
 
+    assert detection.found is False
+    assert detection.corners == []
     assert not list((settings.data_dir / "source-temp").iterdir())
     assert not list((settings.data_dir / "rectified").iterdir())
 

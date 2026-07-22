@@ -1,5 +1,6 @@
 import type {
   BoardDetection,
+  CaptureGeometry,
   ConfirmResult,
   Orientation,
   Point,
@@ -32,9 +33,16 @@ export async function detectBoard(image: Blob): Promise<BoardDetection> {
   return request<BoardDetection>("/api/detect-board", { method: "POST", body: form });
 }
 
-export async function scanImage(image: File): Promise<ScanResult> {
+export async function scanImage(
+  image: File,
+  geometry?: CaptureGeometry,
+): Promise<ScanResult> {
   const form = new FormData();
   form.append("image", image);
+  if (geometry) {
+    form.append("corners", JSON.stringify(geometry.corners));
+    form.append("detection_method", geometry.method);
+  }
   return request<ScanResult>("/api/scans", { method: "POST", body: form });
 }
 

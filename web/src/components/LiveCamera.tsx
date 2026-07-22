@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { detectBoard } from "../api";
-import type { BoardDetection, Point } from "../types";
+import {
+  cornersAreStable,
+  MIN_PREVIEW_BOARD_EDGE,
+  minimumBoardEdge,
+  scaleCorners,
+} from "../camera";
+import type { BoardDetection, CaptureGeometry, Point } from "../types";
 import PhotoPicker from "./PhotoPicker";
+
+const REQUIRED_STABLE_DETECTIONS = 2;
+const MAX_MISSED_DETECTIONS = 1;
 
 type CameraPhase =
   | "requesting"
@@ -13,7 +22,7 @@ type CameraPhase =
   | "error";
 
 interface LiveCameraProps {
-  onCapture: (file: File) => void;
+  onCapture: (file: File, geometry?: CaptureGeometry) => void;
   onCancel: () => void;
 }
 
@@ -25,6 +34,7 @@ export default function LiveCamera({ onCapture, onCancel }: LiveCameraProps) {
   const lockedRef = useRef(false);
   const previousCornersRef = useRef<Point[] | null>(null);
   const stableFramesRef = useRef(0);
+  const missedDetectionsRef = useRef(0);
   const onCaptureRef = useRef(onCapture);
   const [phase, setPhase] = useState<CameraPhase>("requesting");
   const [detection, setDetection] = useState<BoardDetection | null>(null);
@@ -102,51 +112,66 @@ export default function LiveCamera({ onCapture, onCancel }: LiveCameraProps) {
   async function runDetection() {
     const video = videoRef.current;
     if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-      scheduleDetection(180);
+      scheduleDetection(120);
       return;
     }
     try {
-      const frame = await frameBlob(video, 960, 0.74);
-      const result = await detectBoard(frame);
-      if (stoppedRef.current) return;
+      const frame = await captureCameraFrame(video);
+      const result = await detectBoard(frame.preview);
+      if (stoppedRef.current || lockedRef.current) return;
       setDetection(result);
       if (!result.found) {
-        previousCornersRef.current = null;
-        stableFramesRef.current = 0;
+        registerMissedDetection();
         setPhase("searching");
-        scheduleDetection(360);
+        scheduleDetection(260);
         return;
       }
 
-      if (boardFillRatio(result) < 0.22) {
+      missedDetectionsRef.current = 0;
+      if (minimumBoardEdge(result.corners) < MIN_PREVIEW_BOARD_EDGE) {
         previousCornersRef.current = result.corners;
         stableFramesRef.current = 0;
         setPhase("framing");
-        scheduleDetection(360);
+        scheduleDetection(220);
         return;
       }
 
-      const stable = cornersAreStable(previousCornersRef.current, result);
+      const stable = cornersAreStable(previousCornersRef.current, result.corners);
       stableFramesRef.current = stable ? stableFramesRef.current + 1 : 1;
       previousCornersRef.current = result.corners;
-      if (stableFramesRef.current >= 3) {
+      if (stableFramesRef.current >= REQUIRED_STABLE_DETECTIONS) {
         lockedRef.current = true;
         setPhase("locked");
         navigator.vibrate?.(45);
-        await new Promise((resolve) => window.setTimeout(resolve, 720));
-        if (!stoppedRef.current) await captureFinalFrame(video);
+        await captureFinalFrame(frame.source, {
+          corners: scaleCorners(
+            result.corners,
+            result.image_width,
+            result.image_height,
+            frame.source.width,
+            frame.source.height,
+          ),
+          method: result.method,
+        });
         return;
       }
 
       setPhase("aligning");
-      scheduleDetection(300);
+      scheduleDetection(180);
     } catch {
       if (stoppedRef.current) return;
       lockedRef.current = false;
-      stableFramesRef.current = 0;
+      registerMissedDetection();
       setPhase("searching");
-      scheduleDetection(700);
+      scheduleDetection(500);
     }
+  }
+
+  function registerMissedDetection() {
+    missedDetectionsRef.current += 1;
+    if (missedDetectionsRef.current <= MAX_MISSED_DETECTIONS) return;
+    previousCornersRef.current = null;
+    stableFramesRef.current = 0;
   }
 
   async function captureManually() {
@@ -156,20 +181,19 @@ export default function LiveCamera({ onCapture, onCancel }: LiveCameraProps) {
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
     setPhase("capturing");
     try {
-      await new Promise((resolve) => window.setTimeout(resolve, 120));
-      if (!stoppedRef.current) await captureFinalFrame(video);
+      await captureFinalFrame(videoFrameCanvas(video, 2000));
     } catch {
       lockedRef.current = false;
       setCameraError("The frame could not be captured. Close and try again, or choose a photo.");
     }
   }
 
-  async function captureFinalFrame(video: HTMLVideoElement) {
-    const blob = await frameBlob(video, 2000, 0.93);
+  async function captureFinalFrame(source: HTMLCanvasElement, geometry?: CaptureGeometry) {
+    const blob = await canvasBlob(source, 0.93);
     if (stoppedRef.current) return;
     const file = new File([blob], `chess-board-${Date.now()}.jpg`, { type: "image/jpeg" });
     stopStream();
-    onCaptureRef.current(file);
+    onCaptureRef.current(file, geometry);
   }
 
   function stopStream() {
@@ -294,7 +318,19 @@ function BoardGridOverlay({ detection, locked }: { detection: BoardDetection; lo
   );
 }
 
-async function frameBlob(video: HTMLVideoElement, maxDimension: number, quality: number) {
+interface CameraFrame {
+  source: HTMLCanvasElement;
+  preview: Blob;
+}
+
+async function captureCameraFrame(video: HTMLVideoElement): Promise<CameraFrame> {
+  // Derive detection and final images from one draw so accepted corners cannot outlive their frame.
+  const source = videoFrameCanvas(video, 2000);
+  const preview = resizedCanvas(source, 960);
+  return { source, preview: await canvasBlob(preview, 0.74) };
+}
+
+function videoFrameCanvas(video: HTMLVideoElement, maxDimension: number): HTMLCanvasElement {
   const sourceWidth = video.videoWidth;
   const sourceHeight = video.videoHeight;
   if (!sourceWidth || !sourceHeight) throw new Error("Camera has no frame yet");
@@ -305,25 +341,29 @@ async function frameBlob(video: HTMLVideoElement, maxDimension: number, quality:
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Canvas is unavailable");
   context.drawImage(video, 0, 0, canvas.width, canvas.height);
-  return new Promise<Blob>((resolve, reject) => {
+  return canvas;
+}
+
+function resizedCanvas(source: HTMLCanvasElement, maxDimension: number): HTMLCanvasElement {
+  const scale = Math.min(1, maxDimension / Math.max(source.width, source.height));
+  if (scale === 1) return source;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(source.width * scale));
+  canvas.height = Math.max(1, Math.round(source.height * scale));
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Canvas is unavailable");
+  context.drawImage(source, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+function canvasBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
     canvas.toBlob(
       (blob) => (blob ? resolve(blob) : reject(new Error("Could not capture camera frame"))),
       "image/jpeg",
       quality,
     );
   });
-}
-
-function cornersAreStable(previous: Point[] | null, current: BoardDetection): boolean {
-  if (!previous || previous.length !== 4 || current.corners.length !== 4) return false;
-  const diagonal = Math.hypot(current.image_width, current.image_height);
-  const maximumDrift = Math.max(
-    ...current.corners.map(([x, y], index) => {
-      const prior = previous[index];
-      return prior ? Math.hypot(x - prior[0], y - prior[1]) : diagonal;
-    }),
-  );
-  return maximumDrift / diagonal < 0.014;
 }
 
 function cameraStatus(phase: CameraPhase, stableFrames: number) {
@@ -336,31 +376,19 @@ function cameraStatus(phase: CameraPhase, stableFrames: number) {
   if (phase === "aligning") {
     return {
       title: "Board identified",
-      detail: stableFrames >= 2 ? "Almost there — hold steady." : "Squares found — hold steady.",
+      detail: stableFrames >= 1 ? "Almost there — hold steady." : "Squares found — hold steady.",
     };
   }
   if (phase === "capturing") {
-    return { title: "Photo captured", detail: "You can adjust the four board corners next." };
+    return { title: "Photo captured", detail: "Reading this frame now." };
   }
   if (phase === "locked") {
-    return { title: "Board locked", detail: "64 squares are in place. Capturing now." };
+    return { title: "Board locked", detail: "Using this exact frame now." };
   }
   if (phase === "error") {
     return { title: "Camera unavailable", detail: "Use an existing photograph instead." };
   }
   return { title: "Find the board", detail: "Fill the guide with one complete diagram." };
-}
-
-function boardFillRatio(detection: BoardDetection): number {
-  const points = detection.corners;
-  let twiceArea = 0;
-  for (let index = 0; index < points.length; index += 1) {
-    const current = points[index];
-    const next = points[(index + 1) % points.length];
-    if (!current || !next) continue;
-    twiceArea += current[0] * next[1] - next[0] * current[1];
-  }
-  return Math.abs(twiceArea) / 2 / (detection.image_width * detection.image_height);
 }
 
 function pointString(points: Point[]): string {

@@ -46,6 +46,12 @@ def test_rectification_antialiases_print_screen_patterns() -> None:
     assert difference.mean() < 1.0
 
 
+def test_tiny_preview_requests_manual_adjustment_without_opencv_errors() -> None:
+    detection = detect_board_corners(np.full((2, 2, 3), 230, dtype=np.uint8))
+
+    assert detection.method == "manual_adjustment_needed"
+
+
 def test_detects_low_contrast_blurred_checkerboard() -> None:
     board = _checkerboard(640, light=232, dark=202)
     source = np.float32([[0, 0], [639, 0], [639, 639], [0, 639]])

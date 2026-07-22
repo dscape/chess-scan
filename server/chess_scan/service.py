@@ -83,20 +83,38 @@ class ScannerService:
             grid_points=project_board_grid(corners) if found else [],
         )
 
-    def scan(self, file_bytes: bytes) -> ScanResponse:
+    def scan(
+        self,
+        file_bytes: bytes,
+        *,
+        corners: list[list[float]] | None = None,
+        detection_method: str | None = None,
+    ) -> ScanResponse:
         source = decode_uploaded_image(
             file_bytes,
             max_dimension=self.settings.max_image_dimension,
         )
         source_height, source_width = source.shape[:2]
-        detection = detect_board_corners(source)
-        if detection.method == "manual_adjustment_needed":
-            raise ValueError(
-                "No complete, aligned 8x8 chess board was found. "
-                "Retake the photo with all four board corners visible."
+        if corners is None:
+            if detection_method is not None:
+                raise ValueError("A detection method cannot be used without captured corners")
+            detection = detect_board_corners(source)
+            selected = order_corners(np.asarray(detection.corners, dtype=np.float32))
+            method = detection.method
+        else:
+            if detection_method not in {"checkerboard", "contour"}:
+                raise ValueError("Captured corners must come from an automatic board detection")
+            selected = order_corners(_corners_array(corners))
+            if not _corners_are_inside_image(selected, source.shape):
+                raise ValueError("Captured board corners must stay inside the image")
+            method = (
+                detection_method
+                if board_grid_fits(source, selected)
+                else "manual_adjustment_needed"
             )
-        corners = [[float(x), float(y)] for x, y in detection.corners]
-        rectified = rectify_board(source, corners)
+
+        selected_corners = [[float(x), float(y)] for x, y in selected]
+        rectified = rectify_board(source, selected)
         classifier = self.models.active()
         prediction = classifier.predict(rectified)
 
@@ -113,8 +131,8 @@ class ScannerService:
                 source_height=source_height,
                 source_image_path=source_path,
                 rectified_image_path=rectified_path,
-                corners=corners,
-                detection_method=detection.method,
+                corners=selected_corners,
+                detection_method=method,
                 model_version=classifier.version,
                 labels=prediction.labels,
                 probabilities=prediction.probabilities,
@@ -128,8 +146,8 @@ class ScannerService:
             scan_id=scan_id,
             source_width=source_width,
             source_height=source_height,
-            corners=corners,
-            detection_method=detection.method,
+            corners=selected_corners,
+            detection_method=method,
             prediction=prediction,
             model_version=classifier.version,
         )
@@ -164,10 +182,8 @@ class ScannerService:
             raise ValueError("The original photograph is no longer available for adjustment")
 
         ordered = order_corners(_corners_array(corners))
-        if not board_grid_fits(source, ordered):
-            raise ValueError(
-                "The selected corners do not tightly align with a complete 8x8 chess board"
-            )
+        if not _corners_are_inside_image(ordered, source.shape):
+            raise ValueError("The selected corners must stay inside the photograph")
         ordered_corners = [[float(x), float(y)] for x, y in ordered]
         rectified = rectify_board(source, ordered)
         classifier = self.models.active()
@@ -434,3 +450,14 @@ def _prediction_revision(
 
 def _corners_array(corners: list[list[float]]) -> np.ndarray:
     return np.asarray(corners, dtype=np.float32)
+
+
+def _corners_are_inside_image(corners: np.ndarray, image_shape: tuple[int, ...]) -> bool:
+    height, width = image_shape[:2]
+    return bool(
+        np.isfinite(corners).all()
+        and (corners[:, 0] >= 0).all()
+        and (corners[:, 0] <= width - 1).all()
+        and (corners[:, 1] >= 0).all()
+        and (corners[:, 1] <= height - 1).all()
+    )

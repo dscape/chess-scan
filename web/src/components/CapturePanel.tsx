@@ -1,10 +1,11 @@
 import { useState } from "react";
+import type { CaptureGeometry } from "../types";
 import LiveCamera from "./LiveCamera";
 import PhotoPicker from "./PhotoPicker";
 
 interface CapturePanelProps {
   busy: boolean;
-  onImage: (file: File) => void;
+  onImage: (file: File, geometry?: CaptureGeometry) => void;
 }
 
 export default function CapturePanel({ busy, onImage }: CapturePanelProps) {
@@ -14,9 +15,9 @@ export default function CapturePanel({ busy, onImage }: CapturePanelProps) {
     return (
       <main className="camera-shell">
         <LiveCamera
-          onCapture={(file) => {
+          onCapture={(file, geometry) => {
             setCameraOpen(false);
-            onImage(file);
+            onImage(file, geometry);
           }}
           onCancel={() => setCameraOpen(false)}
         />

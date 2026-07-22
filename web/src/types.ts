@@ -14,6 +14,11 @@ export interface BoardDetection {
   grid_points: Point[];
 }
 
+export interface CaptureGeometry {
+  corners: Point[];
+  method: string;
+}
+
 export interface ScanResult {
   scan_id: string;
   source_width: number;

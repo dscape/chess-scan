@@ -159,6 +159,8 @@ def _resize_for_detection(image_bgr: np.ndarray) -> tuple[np.ndarray, float]:
 
 
 def _find_checkerboard_corners(gray: np.ndarray) -> np.ndarray | None:
+    if min(gray.shape) < 16:
+        return None
     sb_flags = cv2.CALIB_CB_EXHAUSTIVE | cv2.CALIB_CB_ACCURACY | cv2.CALIB_CB_NORMALIZE_IMAGE
     enhanced = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
     for candidate in (gray, enhanced):
@@ -175,11 +177,14 @@ def _find_checkerboard_corners(gray: np.ndarray) -> np.ndarray | None:
 
     regular_flags = cv2.CALIB_CB_ADAPTIVE_THRESH | cv2.CALIB_CB_NORMALIZE_IMAGE
     for candidate in (gray, enhanced):
-        found, corners = cv2.findChessboardCorners(
-            candidate,
-            _PATTERN_SIZE,
-            flags=regular_flags,
-        )
+        try:
+            found, corners = cv2.findChessboardCorners(
+                candidate,
+                _PATTERN_SIZE,
+                flags=regular_flags,
+            )
+        except cv2.error:
+            found, corners = False, None
         if not found or corners is None:
             continue
         refined = cv2.cornerSubPix(

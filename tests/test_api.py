@@ -198,6 +198,85 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert status["candidate_model"] is None
 
 
+def test_scan_reuses_live_corners_and_preserves_manual_recovery(tmp_path: Path) -> None:
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        model_dir=PROJECT_ROOT / "models",
+        web_dist=tmp_path / "missing-web",
+        max_upload_bytes=2 * 1024 * 1024,
+        max_image_dimension=1200,
+        cors_origins=(),
+    )
+    app = create_app(settings)
+    board_corners = [[0, 0], [639, 0], [639, 639], [0, 639]]
+    with TestClient(app) as client:
+        live_response = client.post(
+            "/api/scans",
+            data={
+                "corners": json.dumps(board_corners),
+                "detection_method": "checkerboard",
+            },
+            files={"image": ("board.png", _board_png(), "image/png")},
+        )
+        assert live_response.status_code == 200, live_response.text
+        live_scan = live_response.json()
+        assert live_scan["detection_method"] == "checkerboard"
+        assert live_scan["corners"] == board_corners
+
+        invalid_live_response = client.post(
+            "/api/scans",
+            data={
+                "corners": json.dumps(board_corners),
+                "detection_method": "manual_adjustment_needed",
+            },
+            files={"image": ("board.png", _board_png(), "image/png")},
+        )
+        assert invalid_live_response.status_code == 422
+
+        outside_live_response = client.post(
+            "/api/scans",
+            data={
+                "corners": json.dumps([[-1, 0], [639, 0], [639, 639], [0, 639]]),
+                "detection_method": "checkerboard",
+            },
+            files={"image": ("board.png", _board_png(), "image/png")},
+        )
+        assert outside_live_response.status_code == 422
+
+        uncertain_live_response = client.post(
+            "/api/scans",
+            data={
+                "corners": json.dumps([[20, 0], [639, 0], [639, 639], [20, 639]]),
+                "detection_method": "checkerboard",
+            },
+            files={"image": ("board.png", _board_png(), "image/png")},
+        )
+        assert uncertain_live_response.status_code == 200, uncertain_live_response.text
+        assert uncertain_live_response.json()["detection_method"] == "manual_adjustment_needed"
+
+        manual_response = client.post(
+            "/api/scans",
+            files={"image": ("blank.png", _solid_png(), "image/png")},
+        )
+        assert manual_response.status_code == 200, manual_response.text
+        manual_scan = manual_response.json()
+        assert manual_scan["detection_method"] == "manual_adjustment_needed"
+        assert len(manual_scan["corners"]) == 4
+
+        reprocessed = client.post(
+            f"/api/scans/{manual_scan['scan_id']}/reprocess",
+            json={"corners": board_corners},
+        )
+        assert reprocessed.status_code == 200, reprocessed.text
+        assert reprocessed.json()["detection_method"] == "manual"
+
+        outside_reprocess = client.post(
+            f"/api/scans/{manual_scan['scan_id']}/reprocess",
+            json={"corners": [[-1, 0], [639, 0], [639, 639], [0, 639]]},
+        )
+        assert outside_reprocess.status_code == 422
+
+
 def test_request_limit_and_api_fallback(tmp_path: Path) -> None:
     web_dist = tmp_path / "web"
     web_dist.mkdir()
@@ -327,7 +406,15 @@ def _board_png() -> bytes:
         for col in range(8):
             value = 235 if (row + col) % 2 == 0 else 110
             board[row * square : (row + 1) * square, col * square : (col + 1) * square] = value
-    image = Image.fromarray(board, "RGB")
+    return _png_bytes(board)
+
+
+def _solid_png() -> bytes:
+    return _png_bytes(np.full((640, 640, 3), 230, dtype=np.uint8))
+
+
+def _png_bytes(pixels: np.ndarray) -> bytes:
+    image = Image.fromarray(pixels, "RGB")
     output = io.BytesIO()
     image.save(output, format="PNG")
     return output.getvalue()

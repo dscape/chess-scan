@@ -10,12 +10,13 @@ import {
   scanImage,
 } from "./api";
 import { countKings, fenError, fullFen, predictionNeedsReview } from "./board";
+import { minimumBoardEdge } from "./camera";
 import BoardEditor from "./components/BoardEditor";
 import CapturePanel from "./components/CapturePanel";
 import CornerEditor from "./components/CornerEditor";
-import RecognitionSuccess from "./components/RecognitionSuccess";
 import PositionReview from "./components/PositionReview";
 import type {
+  CaptureGeometry,
   Orientation,
   Point,
   ReviewedPosition,
@@ -60,7 +61,6 @@ export default function App() {
   const [busy, setBusy] = useState<BusyAction>(null);
   const [error, setError] = useState<string | null>(null);
   const [reviewPosition, setReviewPosition] = useState<ReviewedPosition | null>(null);
-  const [reviewReady, setReviewReady] = useState(false);
   const [geometryOpen, setGeometryOpen] = useState(false);
   const [geometryMounted, setGeometryMounted] = useState(false);
   const [routeLoadError, setRouteLoadError] = useState<string | null>(null);
@@ -97,7 +97,6 @@ export default function App() {
       ? getScan(route.scanId, controller.signal).then((result) => {
           if (generation !== requestGeneration.current) return;
           restoreScan(result);
-          setReviewReady(true);
         })
       : getReviewedPosition(route.feedbackId, controller.signal).then((result) => {
           if (generation !== requestGeneration.current) return;
@@ -231,18 +230,17 @@ export default function App() {
       ).length
     : 0;
 
-  async function handleImage(file: File) {
+  async function handleImage(file: File, geometry?: CaptureGeometry) {
     const generation = ++requestGeneration.current;
     setError(null);
     setReviewPosition(null);
     setBusy("scan");
     setSourceFile(file);
     try {
-      const result = await scanImage(file);
+      const result = await scanImage(file, geometry);
       if (generation !== requestGeneration.current) return;
       applyScan(result);
       const needsManualFrame = result.detection_method === "manual_adjustment_needed";
-      setReviewReady(needsManualFrame);
       setGeometryOpen(needsManualFrame);
       setGeometryMounted(needsManualFrame);
       navigate({ page: "scan", scanId: result.scan_id });
@@ -288,7 +286,6 @@ export default function App() {
       const result = await reprocessScan(scan.scan_id, corners);
       if (generation !== requestGeneration.current) return;
       applyScan(result);
-      setReviewReady(true);
       setGeometryOpen(false);
     } catch (cause) {
       if (generation === requestGeneration.current) setError(messageFrom(cause));
@@ -353,7 +350,6 @@ export default function App() {
     setCastlingRights([]);
     setConsentTraining(true);
     setReviewPosition(null);
-    setReviewReady(false);
     setGeometryOpen(false);
     setGeometryMounted(false);
     setBusy(null);
@@ -436,11 +432,6 @@ export default function App() {
         />
       ) : route.page === "home" || !scan ? (
         <CapturePanel busy={busy === "scan"} onImage={handleImage} />
-      ) : !reviewReady ? (
-        <RecognitionSuccess
-          imageUrl={rectifiedImageUrl}
-          onContinue={() => setReviewReady(true)}
-        />
       ) : (
         <main className="review-shell">
           <nav className="progress-rail" aria-label="Scan progress">
@@ -718,16 +709,6 @@ function isCorners(value: unknown): value is Point[] {
       && point.length === 2
       && point.every((coordinate) => typeof coordinate === "number" && Number.isFinite(coordinate))
     );
-}
-
-function minimumBoardEdge(corners: Point[]): number {
-  if (corners.length !== 4) return 0;
-  return Math.min(
-    ...corners.map(([x, y], index) => {
-      const next = corners[(index + 1) % corners.length];
-      return next ? Math.hypot(next[0] - x, next[1] - y) : 0;
-    }),
-  );
 }
 
 function getClientSessionId(): string {

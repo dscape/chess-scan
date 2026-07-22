@@ -1287,12 +1287,13 @@ button:disabled,
 
 .live-camera__corners {
   position: absolute;
-  left: 12%;
-  right: 12%;
-  top: 18%;
-  bottom: 22%;
+  left: 50%;
+  top: 47%;
+  width: min(76%, 560px, 62svh);
+  aspect-ratio: 1;
   z-index: 2;
   opacity: 0.9;
+  transform: translate(-50%, -50%);
   transition-property: opacity, transform;
   transition-duration: 220ms;
   transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
@@ -1302,7 +1303,7 @@ button:disabled,
 .live-camera.is-aligning .live-camera__corners,
 .live-camera.is-locked .live-camera__corners {
   opacity: 0;
-  transform: scale(1.03);
+  transform: translate(-50%, -50%) scale(1.03);
 }
 
 .live-camera__corners i {
@@ -1588,110 +1589,6 @@ button:disabled,
   font-weight: 800;
 }
 
-.recognition-shell {
-  width: min(100% - 32px, 980px);
-  margin: auto;
-  padding: 42px 0 68px;
-}
-
-.recognition-card {
-  padding: clamp(18px, 4vw, 42px);
-  display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(240px, 0.82fr);
-  gap: clamp(28px, 6vw, 72px);
-  align-items: center;
-  background: var(--forest);
-  color: white;
-  box-shadow: var(--shadow);
-}
-
-.recognition-board {
-  position: relative;
-  overflow: hidden;
-  aspect-ratio: 1;
-  outline: 1px solid rgba(255, 255, 255, 0.14);
-  outline-offset: -1px;
-  box-shadow: 12px 14px 0 rgba(0, 0, 0, 0.18);
-}
-
-.recognition-board img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.recognition-board__green,
-.recognition-board__grid {
-  position: absolute;
-  inset: 0;
-}
-
-.recognition-board__green {
-  background: rgba(22, 202, 111, 0.22);
-  box-shadow: inset 0 0 0 4px #4bea9c;
-}
-
-.recognition-board__grid {
-  background-image:
-    linear-gradient(to right, transparent calc(100% - 1px), rgba(95, 255, 175, 0.88) 1px),
-    linear-gradient(to bottom, transparent calc(100% - 1px), rgba(95, 255, 175, 0.88) 1px);
-  background-size: 12.5% 12.5%;
-}
-
-.recognition-board__check {
-  position: absolute;
-  right: 16px;
-  top: 16px;
-  width: 48px;
-  height: 48px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: #31d986;
-  color: #07351f;
-  font-size: 25px;
-  font-weight: 900;
-  box-shadow: 0 7px 20px rgba(0, 0, 0, 0.2);
-}
-
-.recognition-copy h1 {
-  margin: 0;
-  font: 600 clamp(46px, 7vw, 76px)/0.88 var(--display);
-  letter-spacing: -0.055em;
-  text-wrap: balance;
-}
-
-.recognition-copy > p:not(.eyebrow) {
-  max-width: 360px;
-  margin: 22px 0;
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 13px;
-  line-height: 1.55;
-  text-wrap: pretty;
-}
-
-.recognition-progress {
-  height: 3px;
-  margin: 0 0 22px;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.15);
-}
-
-.recognition-progress i {
-  display: block;
-  width: 100%;
-  height: 100%;
-  background: #4bea9c;
-  transform-origin: left;
-  animation: recognition-progress 1500ms linear forwards;
-}
-
-@keyframes recognition-progress {
-  from { transform: scaleX(0); }
-  to { transform: scaleX(1); }
-}
-
 @media (max-width: 760px) {
   .camera-shell {
     width: 100%;
@@ -1717,26 +1614,6 @@ button:disabled,
 
   .live-camera__feedback {
     bottom: max(14px, env(safe-area-inset-bottom));
-  }
-
-  .recognition-shell {
-    padding: 24px 0 48px;
-  }
-
-  .recognition-card {
-    grid-template-columns: 1fr;
-  }
-
-  .recognition-board {
-    order: 1;
-  }
-
-  .recognition-copy {
-    order: 2;
-  }
-
-  .recognition-copy .primary-button {
-    width: 100%;
   }
 
   .capture-card {

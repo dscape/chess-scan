@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import tempfile
 from collections.abc import AsyncIterator, Callable
@@ -10,7 +11,7 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Annotated, TypeVar
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -131,6 +132,8 @@ def _register_api_routes(application: FastAPI) -> None:
     async def create_scan(
         request: Request,
         image: Annotated[UploadFile, File(description="One photographed chess diagram")],
+        corners: Annotated[str | None, Form()] = None,
+        detection_method: Annotated[str | None, Form()] = None,
     ) -> ScanResponse:
         settings: Settings = request.app.state.settings
         payload = await image.read(settings.max_upload_bytes + 1)
@@ -139,7 +142,18 @@ def _register_api_routes(application: FastAPI) -> None:
         if not payload:
             raise HTTPException(400, "Image is empty")
         try:
-            return await _run_processing(request, lambda: request.app.state.service.scan(payload))
+            captured_corners, captured_method = _parse_capture_geometry(
+                corners,
+                detection_method,
+            )
+            return await _run_processing(
+                request,
+                lambda: request.app.state.service.scan(
+                    payload,
+                    corners=captured_corners,
+                    detection_method=captured_method,
+                ),
+            )
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
@@ -281,6 +295,24 @@ def _register_web_routes(application: FastAPI, web_dist: Path) -> None:
         if path and candidate.is_relative_to(web_dist) and candidate.is_file():
             return FileResponse(candidate)
         return FileResponse(index)
+
+
+def _parse_capture_geometry(
+    corners_json: str | None,
+    detection_method: str | None,
+) -> tuple[list[list[float]] | None, str | None]:
+    if corners_json is None and detection_method is None:
+        return None, None
+    if corners_json is None or detection_method is None:
+        raise ValueError("Captured corners and their detection method must be provided together")
+    if detection_method not in {"checkerboard", "contour"}:
+        raise ValueError("Captured corners must come from an automatic board detection")
+    try:
+        decoded = json.loads(corners_json)
+        corners = ReprocessRequest.model_validate({"corners": decoded}).corners
+    except (json.JSONDecodeError, ValueError, TypeError) as exc:
+        raise ValueError("Captured board corners are invalid") from exc
+    return corners, detection_method
 
 
 def _processing_slots(capacity: int) -> asyncio.Queue[None]:

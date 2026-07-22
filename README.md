@@ -7,15 +7,14 @@ Chess Scan extracts the useful single-image classifier from [Argus](https://gith
 ## Product flow
 
 1. Open the in-app camera and frame one diagram.
-2. Watch the projected 8×8 grid align; three stable detections lock it green, or use the manual shutter for a faint board.
-3. See a brief rectified “64 squares in place” confirmation.
-4. Adjust four corners if automatic detection was uncertain and heed low-resolution or king-count warnings.
-5. Correct any piece on an editable board.
-6. Select side to move and orientation.
-7. Save the confirmed position and read its detected topic and spoiler-free human-written hint.
-8. Try legal moves on the full board while the local evaluation bar updates.
-9. After the first move, inspect grounded arrows and text annotations or open advanced Lichess analysis.
-10. Use confirmed crops and labels in a gated model-learning cycle.
+2. Watch the projected 8×8 grid align; two agreeing detections capture the exact identified frame, or use the manual shutter for a faint board.
+3. Check the rectified crop immediately and adjust four corners when automatic framing was uncertain.
+4. Heed low-resolution or king-count warnings and correct any piece on the editable board.
+5. Select side to move and orientation.
+6. Save the confirmed position and read its detected topic and spoiler-free human-written hint.
+7. Try legal moves on the full board while the local evaluation bar updates.
+8. After the first move, inspect grounded arrows and text annotations or open advanced Lichess analysis.
+9. Use confirmed crops and labels in a gated model-learning cycle.
 
 ## Development
 
