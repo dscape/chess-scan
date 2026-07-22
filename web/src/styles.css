@@ -2319,12 +2319,14 @@ button:disabled,
 .promotion-picker > div {
   margin: 12px 0 8px;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
 }
 
 .promotion-picker > div button {
+  min-width: 0;
   min-height: 54px;
+  padding: 2px;
   border: 1px solid var(--line);
   background: var(--paper);
   transition-property: scale, background-color;
@@ -2337,8 +2339,10 @@ button:disabled,
 }
 
 .promotion-picker .chess-piece {
-  width: 46px;
-  height: 46px;
+  width: 86%;
+  max-width: 46px;
+  height: auto;
+  aspect-ratio: 1;
   margin: auto;
 }
 
@@ -3222,6 +3226,10 @@ button:disabled,
   .position-review__credits {
     display: grid;
     gap: 4px;
+  }
+
+  .position-review__credits > .position-review__piece-credit {
+    white-space: normal;
   }
 
   .position-review__piece-credit::before {

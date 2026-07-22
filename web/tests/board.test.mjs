@@ -30,8 +30,8 @@ test("maps classifier labels to canonical piece metadata", () => {
     piece: { color: "b", type: "q" },
   });
   assert.deepEqual(pieceOptionForLabel(0), { name: "Empty", fenSymbol: "", piece: null });
-  assert.throws(() => pieceOptionForLabel(13), /Invalid classifier label: 13/);
-  assert.throws(() => pieceOptionForLabel(1.5), /Invalid classifier label: 1.5/);
+  assert.throws(() => pieceOptionForLabel(13), RangeError);
+  assert.throws(() => pieceOptionForLabel(1.5), RangeError);
 });
 
 test("replays review moves through one validated board helper", () => {

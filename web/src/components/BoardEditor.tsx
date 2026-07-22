@@ -2,6 +2,7 @@ import { useState } from "react";
 import { pieceOptionForLabel, predictionNeedsReview, squareName } from "../board";
 import type { Orientation } from "../types";
 import ChessPiece from "./ChessPiece";
+import ChessPieceAttribution from "./ChessPieceAttribution";
 import PiecePicker from "./PiecePicker";
 
 interface BoardEditorProps {
@@ -86,22 +87,7 @@ export default function BoardEditor({
         )}
       </div>
       <p className="piece-attribution">
-        Adapted from{" "}
-        <a
-          href="https://www.figma.com/community/file/971870797656870866/chess-simple-assets"
-          target="_blank"
-          rel="noreferrer"
-        >
-          Chess Simple Assets by Maciej Świerczek
-        </a>{" "}
-        ·{" "}
-        <a
-          href="https://creativecommons.org/licenses/by/4.0/"
-          target="_blank"
-          rel="noreferrer"
-        >
-          CC BY 4.0
-        </a>
+        <ChessPieceAttribution />
       </p>
     </div>
   );

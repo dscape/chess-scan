@@ -1,12 +1,11 @@
-import { Chess, validateFen, type Color, type PieceSymbol } from "chess.js";
+import { Chess, validateFen, type Color, type Piece, type PieceSymbol } from "chess.js";
 import type { Orientation, SideToMove } from "./types";
 
 export type BoardPoint = { x: number; y: number };
-export type BoardPiece = Readonly<{ color: Color; type: PieceSymbol }>;
 export type PieceOption = Readonly<{
   name: string;
   fenSymbol: string;
-  piece: BoardPiece | null;
+  piece: Readonly<Piece> | null;
 }>;
 
 export const pieceOptions: readonly PieceOption[] = [
@@ -26,7 +25,9 @@ export const pieceOptions: readonly PieceOption[] = [
 ];
 
 export function pieceName(color: Color, type: PieceSymbol): string {
-  const option = pieceOptionsByIdentity.get(pieceIdentity(color, type));
+  const option = pieceOptions.find(
+    ({ piece }) => piece?.color === color && piece.type === type,
+  );
   if (!option) throw new Error(`Unsupported chess piece: ${color}${type}`);
   return option.name;
 }
@@ -120,15 +121,4 @@ export function countKings(labels: number[]): { white: number; black: number } {
     white: labels.filter((label) => label === 6).length,
     black: labels.filter((label) => label === 12).length,
   };
-}
-
-const pieceOptionsByIdentity = new Map<string, PieceOption>();
-for (const option of pieceOptions) {
-  if (option.piece) {
-    pieceOptionsByIdentity.set(pieceIdentity(option.piece.color, option.piece.type), option);
-  }
-}
-
-function pieceIdentity(color: Color, type: PieceSymbol): string {
-  return `${color}${type}`;
 }

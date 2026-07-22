@@ -17,13 +17,7 @@ export default function ReviewGlyph({ badge, className }: ReviewGlyphProps) {
   );
 }
 
-export function ReviewGlyphLayers({
-  badge,
-  className,
-}: {
-  badge: ReviewBadge;
-  className?: string;
-}) {
+export function ReviewGlyphLayers({ badge, className }: ReviewGlyphProps) {
   return (
     <g
       className={["review-glyph-layers", className].filter(Boolean).join(" ")}

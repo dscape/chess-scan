@@ -17,6 +17,7 @@ import type {
   ReviewedPosition,
   ReviewLine,
 } from "../types";
+import ChessPieceAttribution from "./ChessPieceAttribution";
 import InteractiveBoard, { type AttemptedMove } from "./InteractiveBoard";
 import ReviewGlyph from "./ReviewGlyph";
 
@@ -920,24 +921,7 @@ export default function PositionReview({
               Source
             </a>
           </span>
-          <span className="position-review__piece-credit">
-            Adapted pieces:{" "}
-            <a
-              href="https://www.figma.com/community/file/971870797656870866/chess-simple-assets"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Maciej Świerczek
-            </a>
-            {" · "}
-            <a
-              href="https://creativecommons.org/licenses/by/4.0/"
-              target="_blank"
-              rel="noreferrer"
-            >
-              CC BY 4.0
-            </a>
-          </span>
+          <ChessPieceAttribution className="position-review__piece-credit" />
         </span>
         <div>
           <button type="button" onClick={onScanAnother}>
