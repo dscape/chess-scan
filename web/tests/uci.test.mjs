@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   contiguousRankedLines,
   isStableLine,
+  latestExactLine,
   parseBestMove,
   parseInfoLine,
   parseUciMove,
@@ -52,10 +53,28 @@ test("rejects malformed moves, ranks, and WDL", () => {
   );
 });
 
-test("requires repeated matching principal moves before teaching", () => {
+test("keeps the latest complete line when a timed search ends on a newer bound", () => {
+  const complete = parseInfoLine(
+    "info depth 17 multipv 1 score cp -58 wdl 100 300 600 pv c2d1 c8d8",
+  );
+  const interrupted = parseInfoLine(
+    "info depth 18 multipv 1 score cp -55 lowerbound wdl 110 300 590 pv c2d1 c8d8",
+  );
+  assert.ok(complete);
+  assert.ok(interrupted);
+
+  assert.equal(latestExactLine(undefined, complete), complete);
+  assert.equal(latestExactLine(complete, interrupted), complete);
+});
+
+test("requires matching principal moves at the latest two completed depths", () => {
   const primary = parseInfoLine("info depth 18 score cp 42 pv e2e4 e7e5");
 
   assert.equal(isStableLine("e2e4", primary ?? undefined, ["e2e4", "e2e4"]), true);
+  assert.equal(
+    isStableLine("e2e4", primary ?? undefined, ["e2e4", "e2e4", "d2d4"]),
+    true,
+  );
   assert.equal(isStableLine("d2d4", primary ?? undefined, ["e2e4", "e2e4"]), false);
   assert.equal(isStableLine("e2e4", primary ?? undefined, ["e2e4", "d2d4"]), false);
   assert.equal(

@@ -22,6 +22,7 @@ export type ParsedUciMove = {
 };
 
 const MOVE_PATTERN = /^([a-h][1-8])([a-h][1-8])([qrbn])?$/;
+const REQUIRED_STABLE_DEPTHS = 2;
 
 export function parseInfoLine(message: string): EngineLine | null {
   if (!message.startsWith("info ") || !message.includes(" score ") || !message.includes(" pv ")) {
@@ -66,6 +67,14 @@ export function parseInfoLine(message: string): EngineLine | null {
   };
 }
 
+export function latestExactLine(
+  current: EngineLine | undefined,
+  candidate: EngineLine,
+): EngineLine | undefined {
+  if (candidate.score.bound != null) return current;
+  return !current || candidate.depth >= current.depth ? candidate : current;
+}
+
 export function isStableLine(
   expectedMove: string,
   line: EngineLine | undefined,
@@ -74,8 +83,10 @@ export function isStableLine(
   return line !== undefined
     && line.score.bound == null
     && line.pv[0] === expectedMove
-    && recentMoves.length >= 2
-    && recentMoves.every((move) => move === expectedMove);
+    && recentMoves.length >= REQUIRED_STABLE_DEPTHS
+    && recentMoves
+      .slice(0, REQUIRED_STABLE_DEPTHS)
+      .every((move) => move === expectedMove);
 }
 
 export function contiguousRankedLines(lines: EngineLine[]): EngineLine[] {

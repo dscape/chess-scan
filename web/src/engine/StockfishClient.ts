@@ -1,6 +1,7 @@
 import {
   contiguousRankedLines,
   isStableLine,
+  latestExactLine,
   parseBestMove,
   parseInfoLine,
   type EngineLine,
@@ -37,7 +38,10 @@ type ActiveAnalysis = {
   reject: (reason: unknown) => void;
   drained: Promise<void>;
   drain: () => void;
+  minimumBudgetReached: boolean;
   stopping: boolean;
+  stopRequested: boolean;
+  stabilityTimeout: number | null;
   timeout: number;
 };
 
@@ -70,6 +74,8 @@ export default class StockfishClient {
   async analyze(fen: string, options: AnalysisOptions = {}): Promise<AnalysisResult> {
     const budgetMs = Math.min(Math.max(options.budgetMs ?? 1800, 250), 10_000);
     const multiPv = Math.min(Math.max(options.multiPv ?? 3, 1), 3);
+    const requireStable = options.requireStable ?? true;
+    const searchBudgetMs = requireStable ? Math.min(budgetMs * 2, 10_000) : budgetMs;
     await this.ready;
     this.assertAvailable();
     await this.stop();
@@ -85,27 +91,39 @@ export default class StockfishClient {
     const result = new Promise<AnalysisResult>((resolve, reject) => {
       const timeout = window.setTimeout(() => {
         if (this.active) this.fatal(new StockfishError("Stockfish analysis timed out."));
-      }, budgetMs + 5000);
+      }, searchBudgetMs + 5000);
       this.active = {
         lines: new Map(),
         firstMovesByRank: new Map(),
-        requireStable: options.requireStable ?? true,
+        requireStable,
         onUpdate: options.onUpdate,
         resolve,
         reject,
         drained,
         drain,
+        minimumBudgetReached: false,
         stopping: false,
+        stopRequested: false,
+        stabilityTimeout: null,
         timeout,
       };
     });
+
+    const active = this.active;
+    if (requireStable && searchBudgetMs > budgetMs && active) {
+      active.stabilityTimeout = window.setTimeout(() => {
+        if (this.active !== active) return;
+        active.minimumBudgetReached = true;
+        this.stopIfStable(active);
+      }, budgetMs);
+    }
 
     const abort = () => { void this.stop(); };
     options.signal?.addEventListener("abort", abort, { once: true });
     const searchMoves = options.searchMoves?.length
       ? ` searchmoves ${options.searchMoves.join(" ")}`
       : "";
-    this.send(`go movetime ${budgetMs}${searchMoves}`);
+    this.send(`go movetime ${searchBudgetMs}${searchMoves}`);
     try {
       return await result;
     } finally {
@@ -118,7 +136,10 @@ export default class StockfishClient {
     if (!active) return;
     if (!active.stopping) {
       active.stopping = true;
-      this.send("stop");
+      if (!active.stopRequested) {
+        active.stopRequested = true;
+        this.send("stop");
+      }
     }
     await active.drained;
   }
@@ -167,14 +188,16 @@ export default class StockfishClient {
       if (!active) continue;
       const info = parseInfoLine(line);
       if (info) {
-        const previous = active.lines.get(info.rank);
-        if (!previous || info.depth >= previous.depth) active.lines.set(info.rank, info);
-        if (!info.score.bound && info.pv[0]) {
+        const latest = latestExactLine(active.lines.get(info.rank), info);
+        if (latest !== info) continue;
+        active.lines.set(info.rank, latest);
+        if (info.pv[0]) {
           const history = active.firstMovesByRank.get(info.rank) ?? new Map<number, string>();
           history.set(info.depth, info.pv[0]);
           active.firstMovesByRank.set(info.rank, history);
         }
         active.onUpdate?.(orderedLines(active.lines));
+        this.stopIfStable(active);
         continue;
       }
       const bestMove = parseBestMove(line);
@@ -182,9 +205,29 @@ export default class StockfishClient {
     }
   }
 
+  private stopIfStable(active: ActiveAnalysis): void {
+    if (
+      this.active !== active
+      || !active.minimumBudgetReached
+      || active.stopping
+      || active.stopRequested
+    ) return;
+    const primary = active.lines.get(1);
+    const expectedMove = primary?.pv[0];
+    if (!expectedMove) return;
+    const recentMoves = [...(active.firstMovesByRank.get(1)?.entries() ?? [])]
+      .sort(([left], [right]) => right - left)
+      .slice(0, 3)
+      .map(([, move]) => move);
+    if (!isStableLine(expectedMove, primary, recentMoves)) return;
+    active.stopRequested = true;
+    this.send("stop");
+  }
+
   private finishAnalysis(active: ActiveAnalysis, bestMove: string): void {
     if (this.active !== active) return;
     window.clearTimeout(active.timeout);
+    if (active.stabilityTimeout !== null) window.clearTimeout(active.stabilityTimeout);
     this.active = null;
     const allLines = orderedLines(active.lines);
     const primaryDepth = allLines.find((line) => line.rank === 1)?.depth ?? 0;
@@ -254,6 +297,7 @@ export default class StockfishClient {
     const active = this.active;
     if (active) {
       window.clearTimeout(active.timeout);
+      if (active.stabilityTimeout !== null) window.clearTimeout(active.stabilityTimeout);
       active.reject(reason);
       active.drain();
       this.active = null;
