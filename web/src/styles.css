@@ -60,6 +60,7 @@ button {
 }
 
 button:focus-visible,
+a:focus-visible,
 input:focus-visible,
 select:focus-visible,
 summary:focus-visible,
@@ -611,10 +612,17 @@ button:disabled,
 .secondary-button {
   min-height: 42px;
   padding: 0 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid var(--ink);
+  color: var(--ink);
   background: transparent;
   font-size: 11px;
   font-weight: 800;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
 }
 
 .secondary-button:hover {
