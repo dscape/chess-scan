@@ -69,6 +69,7 @@ def test_review_returns_one_topic_and_spoiler_free_human_hint() -> None:
         "kind": "fork",
         "square": "e4",
         "role": "engine",
+        "arrow_index": 1,
     }
     assert "attacks the rook on c6 and the king on h7 at once" in review.explanation[0].text
     assert review.explanation[0].scope == "best_line"
@@ -134,7 +135,7 @@ def test_review_returns_the_compact_annotation_contract() -> None:
         "hint",
         "explanation",
     }
-    assert payload["schema_version"] == "position-analysis-3"
+    assert payload["schema_version"] == "position-analysis-4"
     assert payload["lines"][0]["role"] == "best_candidate"
     assert payload["findings"][0]["evidence_ids"] == ["f1-e1"]
     evidence_ids = {item["id"] for item in payload["evidence"]}
@@ -200,7 +201,23 @@ def test_stored_review_contract_rejects_unknown_evidence_and_mismatched_lines() 
         PositionReviewResponse.model_validate(payload)
 
     payload = build_position_review(_request()).model_dump()
-    payload["explanation"][0]["badge"]["square"] = "a1"
+    payload["explanation"][0]["arrows"] = []
+    with pytest.raises(ValidationError) as missing_arrow:
+        PositionReviewResponse.model_validate(payload)
+    assert {error["type"] for error in missing_arrow.value.errors()} == {
+        "review_badge_arrow_missing"
+    }
+
+    payload = build_position_review(_request()).model_dump()
+    payload["explanation"][0]["badge"].update({"square": "c6", "arrow_index": 0})
+    with pytest.raises(ValidationError) as mismatched_arrow:
+        PositionReviewResponse.model_validate(payload)
+    assert {error["type"] for error in mismatched_arrow.value.errors()} == {
+        "review_badge_arrow_mismatch"
+    }
+
+    payload = build_position_review(_request()).model_dump()
+    payload["explanation"][0]["badge"]["square"] = "d5"
     with pytest.raises(ValidationError, match="badge is not supported"):
         PositionReviewResponse.model_validate(payload)
 
@@ -582,7 +599,7 @@ def test_created_threat_diagram_separates_setup_from_future_capture() -> None:
     finding = next(item for item in teaching_subjects(context) if item.handler == "threat")
 
     arrows = _evidence_arrows(finding)
-    badge = _evidence_badge(finding, scope="best_line")
+    badge = _evidence_badge(finding, tuple(arrows), scope="best_line")
 
     assert [(arrow.role, arrow.from_square, arrow.to_square) for arrow in arrows] == [
         ("engine", "a1", "a4"),
@@ -593,6 +610,7 @@ def test_created_threat_diagram_separates_setup_from_future_capture() -> None:
         "kind": "capture",
         "square": "c4",
         "role": "threat",
+        "arrow_index": 1,
     }
 
 

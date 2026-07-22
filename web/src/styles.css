@@ -2009,56 +2009,55 @@ button:disabled,
   stroke-linejoin: round;
 }
 
+.board-annotation__arrow {
+  stroke-width: var(--review-arrow-width);
+}
+
 .board-annotation__arrow-keyline {
   stroke: var(--annotation-keyline);
-  stroke-width: 0.205;
+  stroke-width: var(--review-arrow-keyline-width);
   filter: drop-shadow(0 0.04px 0.05px rgba(0, 0, 0, 0.3));
 }
 
 .board-annotation__arrow.is-played {
   stroke: var(--gold);
-  stroke-width: 0.115;
 }
 
 .board-annotation__arrow.is-engine {
   stroke: var(--pencil-blue);
-  stroke-width: 0.11;
 }
 
 .board-annotation__arrow.is-reply {
   stroke: var(--teacher-red);
-  stroke-width: 0.12;
 }
 
 .board-annotation__arrow.is-attack,
 .board-annotation__arrow.is-ray {
   stroke: var(--forest);
-  stroke-width: 0.085;
 }
 
 .board-annotation__arrow.is-threat {
   stroke: var(--teacher-red);
-  stroke-width: 0.09;
 }
 
 .board-annotation__arrow.is-attack,
 .board-annotation__arrow-keyline.is-attack {
-  stroke-dasharray: 0.15 0.11;
+  stroke-dasharray: 0.46 0.24;
 }
 
 .board-annotation__arrow.is-ray,
 .board-annotation__arrow-keyline.is-ray {
-  stroke-dasharray: 0.28 0.08 0.06 0.08;
+  stroke-dasharray: 0.5 0.24 0.08 0.24;
 }
 
 .board-annotation__arrow.is-threat,
 .board-annotation__arrow-keyline.is-threat {
-  stroke-dasharray: 0.18 0.1;
+  stroke-dasharray: 0.28 0.24;
 }
 
 .board-annotation__head {
   stroke: var(--annotation-keyline);
-  stroke-width: 0.52;
+  stroke-width: var(--review-arrow-head-keyline-width);
   stroke-linejoin: round;
   paint-order: stroke fill;
 }
@@ -2098,28 +2097,39 @@ button:disabled,
 .board-annotation__marker-keyline {
   fill: none;
   stroke: var(--annotation-keyline);
-  stroke-width: 0.13;
+  stroke-width: 0.11;
 }
 
 .board-annotation__marker-face {
   fill: currentColor;
-  fill-opacity: 0.16;
+  fill-opacity: 0.11;
   stroke: currentColor;
-  stroke-width: 0.055;
+  stroke-width: 0.05;
 }
 
 .board-annotation__marker.is-danger .board-annotation__marker-face {
-  fill-opacity: 0.24;
+  fill-opacity: 0.19;
 }
 
 .board-annotation__marker.is-vacated .board-annotation__marker-keyline,
 .board-annotation__marker.is-vacated .board-annotation__marker-face {
-  stroke-dasharray: 0.14 0.09;
+  stroke-dasharray: 0.13 0.09;
 }
 
-.board-annotation__marker.is-blocked .board-annotation__marker-keyline,
-.board-annotation__marker.is-blocked .board-annotation__marker-face {
-  stroke-dasharray: 0.06 0.06;
+.board-annotation__marker-symbol-keyline,
+.board-annotation__marker-symbol-face {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.board-annotation__marker-symbol-keyline {
+  stroke: var(--annotation-keyline);
+  stroke-width: 0.13;
+}
+
+.board-annotation__marker-symbol-face {
+  stroke: currentColor;
+  stroke-width: 0.055;
 }
 
 .board-annotation__badge {
@@ -2138,6 +2148,9 @@ button:disabled,
 
 .board-annotation__badge-keyline {
   fill: currentColor;
+  stroke: var(--annotation-keyline);
+  stroke-width: var(--review-badge-keyline-width);
+  paint-order: stroke fill;
 }
 
 .board-annotation__badge-face {

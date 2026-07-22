@@ -143,7 +143,7 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
             {"square": "c6", "role": "focus"},
             {"square": "h7", "role": "focus"},
         ]
-        assert position_review["schema_version"] == "position-analysis-3"
+        assert position_review["schema_version"] == "position-analysis-4"
         assert position_review["explanation"][0]["arrows"][0] == {
             "from_square": "e2",
             "to_square": "e4",
@@ -153,6 +153,7 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
             "kind": "fork",
             "square": "e4",
             "role": "engine",
+            "arrow_index": 1,
         }
         review_id = position_review["review_id"]
         assert len(review_id) == 32

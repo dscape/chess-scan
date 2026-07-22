@@ -165,6 +165,7 @@ def build_position_review(
                     kind="engine",
                     square=chess.square_name(best_analyzed.moves[0].to_square),
                     role="engine",
+                    arrow_index=0,
                 ),
             ),
         )
@@ -324,6 +325,7 @@ def _explanation_plans(
     plans: list[_ExplanationPlan] = []
     for item, response in zip(selected, findings, strict=True):
         evidence = item.finding.evidence[0]
+        arrows = tuple(_evidence_arrows(item.finding, scope=item.scope))
         plans.append(
             _ExplanationPlan(
                 topic=_topic_for_finding(item.finding),
@@ -332,8 +334,8 @@ def _explanation_plans(
                 scope=item.scope,
                 ply=_scoped_ply(evidence, item.scope),
                 markers=tuple(_evidence_markers(item.finding)),
-                arrows=tuple(_evidence_arrows(item.finding, scope=item.scope)),
-                badge=_evidence_badge(item.finding, scope=item.scope),
+                arrows=arrows,
+                badge=_evidence_badge(item.finding, arrows, scope=item.scope),
             )
         )
     return tuple(plans)
@@ -460,6 +462,7 @@ def _explanation(
                     kind="engine",
                     square=best_move.uci[2:4],
                     role="engine",
+                    arrow_index=0,
                 ),
                 evidence_ids=[best_evidence_id],
             )
@@ -646,6 +649,7 @@ def _evidence_arrows(
 
 def _evidence_badge(
     finding: DetectedSubject,
+    arrows: tuple[ReviewArrow, ...],
     *,
     scope: _FindingScope,
 ) -> ReviewDiagramBadge | None:
@@ -653,12 +657,46 @@ def _evidence_badge(
     square = _badge_square(finding, kind)
     if kind is None or square is None:
         return None
+    arrow_index = _badge_arrow_index(finding, square, arrows)
     role: ReviewArrowRole = "engine"
     if finding.handler == "threat":
         role = "threat"
     elif scope == "attempt_refutation":
         role = "reply"
-    return ReviewDiagramBadge(kind=kind, square=square, role=role)
+    return ReviewDiagramBadge(
+        kind=kind,
+        square=square,
+        role=role,
+        arrow_index=arrow_index,
+    )
+
+
+def _badge_arrow_index(
+    finding: DetectedSubject,
+    square: str,
+    arrows: tuple[ReviewArrow, ...],
+) -> int:
+    preferred_roles: set[ReviewArrowRole]
+    if finding.handler == "threat":
+        preferred_roles = {"threat"}
+    elif finding.handler in {
+        "double_attack",
+        "pin",
+        "xray",
+        "trapping",
+        "discovered_attack",
+    }:
+        preferred_roles = {"attack", "ray"}
+    else:
+        preferred_roles = {"engine", "reply"}
+
+    for require_preferred_role in (True, False):
+        for index, arrow in enumerate(arrows):
+            if require_preferred_role and arrow.role not in preferred_roles:
+                continue
+            if arrow.contains_square(square):
+                return index
+    raise RuntimeError("Review badge has no evidence-backed arrow")
 
 
 def _evidence_markers(finding: DetectedSubject | None) -> list[ReviewSquareMarker]:

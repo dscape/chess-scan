@@ -6,6 +6,7 @@ from typing import Literal
 
 import chess
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 
 from chess_scan.board import SQUARE_COUNT, validate_full_fen, validate_labels
 
@@ -242,6 +243,9 @@ class ReviewArrow(BaseModel):
             raise ValueError("Review arrows require distinct endpoint squares")
         return self
 
+    def contains_square(self, square: str) -> bool:
+        return _square_lies_on_arrow(square, self)
+
 
 class ReviewSquareMarker(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -261,6 +265,7 @@ class ReviewDiagramBadge(BaseModel):
     kind: ReviewBadge
     square: str
     role: ReviewArrowRole
+    arrow_index: int = Field(ge=0, le=3)
 
     @field_validator("square")
     @classmethod
@@ -294,6 +299,18 @@ class ReviewAnnotation(BaseModel):
         arrow_keys = {(arrow.from_square, arrow.to_square, arrow.role) for arrow in self.arrows}
         if len(arrow_keys) != len(self.arrows):
             raise ValueError("Review diagrams cannot repeat an arrow")
+        if self.badge is not None:
+            if self.badge.arrow_index >= len(self.arrows):
+                raise PydanticCustomError(
+                    "review_badge_arrow_missing",
+                    "Review diagram badge does not reference an arrow",
+                )
+            arrow = self.arrows[self.badge.arrow_index]
+            if not arrow.contains_square(self.badge.square):
+                raise PydanticCustomError(
+                    "review_badge_arrow_mismatch",
+                    "Review diagram badge anchor does not lie on its arrow",
+                )
         return self
 
 
@@ -400,7 +417,7 @@ class ReviewAttemptResponse(BaseModel):
 
 
 class PositionReviewResponse(BaseModel):
-    schema_version: Literal["position-analysis-3"] = "position-analysis-3"
+    schema_version: Literal["position-analysis-4"] = "position-analysis-4"
     review_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
     fen: str
     engine: str
@@ -649,6 +666,13 @@ def _validate_annotation_evidence(
 def _move_endpoints(uci: str) -> tuple[str, str]:
     move = chess.Move.from_uci(uci)
     return chess.square_name(move.from_square), chess.square_name(move.to_square)
+
+
+def _square_lies_on_arrow(square: str, arrow: ReviewArrow) -> bool:
+    start = chess.parse_square(arrow.from_square)
+    end = chess.parse_square(arrow.to_square)
+    anchor = chess.parse_square(square)
+    return anchor in {start, end} or anchor in chess.SquareSet(chess.between(start, end))
 
 
 def _validate_review_line(fen: str, line: ReviewLineResponse) -> None:

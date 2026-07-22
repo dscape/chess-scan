@@ -87,6 +87,7 @@ export interface ReviewDiagramBadge {
   kind: ReviewBadge;
   square: string;
   role: ReviewArrowRole;
+  arrow_index: number;
 }
 
 export interface ReviewAnnotation {
@@ -153,7 +154,7 @@ export interface ReviewAttempt {
 }
 
 export interface PositionReview {
-  schema_version: "position-analysis-3";
+  schema_version: "position-analysis-4";
   review_id: string | null;
   fen: string;
   engine: string;

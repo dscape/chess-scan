@@ -1,16 +1,17 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState, type CSSProperties } from "react";
 import { Chess, SQUARES, type PieceSymbol, type Square } from "chess.js";
 import {
   boardPoint as pointForSquare,
   pieceName,
   positionAt,
-  type BoardPoint,
 } from "../board";
-import type {
-  Orientation,
-  ReviewAnnotation,
-  ReviewArrow,
-} from "../types";
+import {
+  positionReviewArrows,
+  positionReviewBadge,
+  REVIEW_DIAGRAM_GEOMETRY,
+  visibleReviewMarkers,
+} from "../reviewDiagram";
+import type { Orientation, ReviewAnnotation } from "../types";
 import ChessPiece from "./ChessPiece";
 import { ReviewGlyphLayers } from "./ReviewGlyph";
 
@@ -32,6 +33,12 @@ type PromotionChoice = {
 };
 
 const BLACK_ORIENTED_SQUARES = [...SQUARES].reverse();
+const REVIEW_DIAGRAM_STYLE = {
+  "--review-arrow-width": REVIEW_DIAGRAM_GEOMETRY.arrowWidth,
+  "--review-arrow-keyline-width": REVIEW_DIAGRAM_GEOMETRY.arrowKeylineWidth,
+  "--review-arrow-head-keyline-width": REVIEW_DIAGRAM_GEOMETRY.arrowHeadKeylineWidth,
+  "--review-badge-keyline-width": REVIEW_DIAGRAM_GEOMETRY.badgeKeylineWidth,
+} as CSSProperties;
 
 export default function InteractiveBoard({
   fen,
@@ -179,24 +186,22 @@ function BoardOverlay({
   orientation: Orientation;
   markerId: string;
 }) {
-  const arrows = cue.arrows.flatMap((arrow) => {
-    const line = arrowLine(arrow, orientation);
-    return line ? [{ arrow, line }] : [];
-  });
+  const resolvePoint = (square: string) => pointForSquare(square, orientation);
+  const arrows = positionReviewArrows(cue.arrows, resolvePoint);
   const arrowRoles = [...new Set(arrows.map(({ arrow }) => arrow.role))];
-  const badgeSquare = cue.badge
-    ? pointForSquare(cue.badge.square, orientation)
-    : null;
-  const positionedBadge = cue.badge && badgeSquare
-    ? { badge: cue.badge, point: badgePoint(badgeSquare) }
-    : null;
-  const markers = cue.markers.flatMap((marker) => {
-    const point = pointForSquare(marker.square, orientation);
+  const positionedBadge = positionReviewBadge(cue.badge, arrows, resolvePoint);
+  const markers = visibleReviewMarkers(cue.markers, arrows).flatMap((marker) => {
+    const point = resolvePoint(marker.square);
     return point ? [{ marker, point }] : [];
   });
 
   return (
-    <svg className="board-annotation" viewBox="0 0 8 8" aria-hidden="true">
+    <svg
+      className="board-annotation"
+      viewBox="0 0 8 8"
+      style={REVIEW_DIAGRAM_STYLE}
+      aria-hidden="true"
+    >
       <defs>
         {arrowRoles.map((role) => (
           <marker
@@ -222,23 +227,22 @@ function BoardOverlay({
           <g
             key={`${marker.square}-${marker.role}-${index}`}
             className={`board-annotation__marker is-${marker.role}`}
+            transform={`translate(${point.x} ${point.y})`}
           >
-            <rect
-              className="board-annotation__marker-keyline"
-              x={point.x - 0.405}
-              y={point.y - 0.405}
-              width="0.81"
-              height="0.81"
-              rx="0.13"
-            />
-            <rect
-              className="board-annotation__marker-face"
-              x={point.x - 0.355}
-              y={point.y - 0.355}
-              width="0.71"
-              height="0.71"
-              rx="0.09"
-            />
+            <circle className="board-annotation__marker-keyline" r="0.31" />
+            <circle className="board-annotation__marker-face" r="0.255" />
+            {marker.role === "blocked" && (
+              <>
+                <path
+                  className="board-annotation__marker-symbol-keyline"
+                  d="M -0.13 -0.13 L 0.13 0.13 M 0.13 -0.13 L -0.13 0.13"
+                />
+                <path
+                  className="board-annotation__marker-symbol-face"
+                  d="M -0.13 -0.13 L 0.13 0.13 M 0.13 -0.13 L -0.13 0.13"
+                />
+              </>
+            )}
           </g>
         ))}
         {arrows.map(({ arrow, line }, index) => (
@@ -265,9 +269,15 @@ function BoardOverlay({
             className={`board-annotation__badge is-${positionedBadge.badge.role}`}
             transform={`translate(${positionedBadge.point.x} ${positionedBadge.point.y})`}
           >
-            <rect className="board-annotation__badge-keyline" x="-0.27" y="-0.27" width="0.54" height="0.54" rx="0.13" />
-            <rect className="board-annotation__badge-face" x="-0.205" y="-0.205" width="0.41" height="0.41" rx="0.085" />
-            <g transform="translate(-0.105 -0.105) scale(0.00875)">
+            <circle
+              className="board-annotation__badge-keyline"
+              r={REVIEW_DIAGRAM_GEOMETRY.badgeRadius}
+            />
+            <circle
+              className="board-annotation__badge-face"
+              r={REVIEW_DIAGRAM_GEOMETRY.badgeFaceRadius}
+            />
+            <g transform="translate(-0.1 -0.1) scale(0.0083)">
               <ReviewGlyphLayers
                 badge={positionedBadge.badge.kind}
                 className="board-annotation__glyph"
@@ -278,42 +288,6 @@ function BoardOverlay({
       </g>
     </svg>
   );
-}
-
-function arrowLine(arrow: ReviewArrow, orientation: Orientation) {
-  const from = pointForSquare(arrow.from_square, orientation);
-  const to = pointForSquare(arrow.to_square, orientation);
-  if (!from || !to) return null;
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  const distance = Math.hypot(dx, dy);
-  if (distance === 0) return null;
-  const unitX = dx / distance;
-  const unitY = dy / distance;
-  const startInset = 0.16;
-  const endInset = 0.3;
-  const keylineEndInset = endInset + 0.12;
-  return {
-    start: {
-      x: from.x + unitX * startInset,
-      y: from.y + unitY * startInset,
-    },
-    end: {
-      x: to.x - unitX * endInset,
-      y: to.y - unitY * endInset,
-    },
-    keylineEnd: {
-      x: to.x - unitX * keylineEndInset,
-      y: to.y - unitY * keylineEndInset,
-    },
-  };
-}
-
-function badgePoint(point: BoardPoint): BoardPoint {
-  return {
-    x: Math.min(7.78, point.x + 0.27),
-    y: Math.max(0.22, point.y - 0.27),
-  };
 }
 
 function coordinateFor(square: Square, row: number, col: number) {
