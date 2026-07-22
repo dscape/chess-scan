@@ -910,14 +910,34 @@ export default function PositionReview({
       </section>
 
       <footer className="position-review__footer">
-        <span>
-          <a href="/stockfish/Copying.txt" target="_blank" rel="noreferrer">
-            Stockfish 18 lite · GPLv3
-          </a>
-          {" · "}
-          <a href="/stockfish/SOURCE.md" target="_blank" rel="noreferrer">
-            Source
-          </a>
+        <span className="position-review__credits">
+          <span>
+            <a href="/stockfish/Copying.txt" target="_blank" rel="noreferrer">
+              Stockfish 18 lite · GPLv3
+            </a>
+            {" · "}
+            <a href="/stockfish/SOURCE.md" target="_blank" rel="noreferrer">
+              Source
+            </a>
+          </span>
+          <span className="position-review__piece-credit">
+            Pieces:{" "}
+            <a
+              href="https://www.figma.com/community/file/971870797656870866/chess-simple-assets"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Maciej Świerczek
+            </a>
+            {" · "}
+            <a
+              href="https://creativecommons.org/licenses/by/4.0/"
+              target="_blank"
+              rel="noreferrer"
+            >
+              CC BY 4.0
+            </a>
+          </span>
         </span>
         <div>
           <button type="button" onClick={onScanAnother}>

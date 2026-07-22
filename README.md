@@ -61,6 +61,10 @@ Chess Scan is independently branded and does not redistribute workbook text, dia
 
 Chess Scan remains MIT-licensed. `stockfish@18.0.8` is a separately distributed GPLv3 component: `web/scripts/copy-stockfish.mjs` copies its pinned lite single-thread Worker/WASM build into the generated `web/public/stockfish/` directory during development and production builds. The generated directory includes the complete GPLv3 license, source/build provenance, npm integrity, and SHA-256 hashes. It is excluded from Git because it is reproducibly sourced from the pinned package.
 
+### Chess piece artwork licensing
+
+The board pieces adapt [Chess Simple Assets](https://www.figma.com/community/file/971870797656870866/chess-simple-assets) by [Maciej Świerczek](https://www.figma.com/@swierq), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Chess Scan extracts and normalizes the SVGs, changes their palette and optical sizing, and redraws its annotation system in the same bold two-tone visual language. The original export, attribution, modification notice, and full license are retained under [`web/src/assets/chess-simple/`](web/src/assets/chess-simple/).
+
 ## Production
 
 The Docker image builds the React frontend and serves it from FastAPI:

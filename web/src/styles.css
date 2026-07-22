@@ -11,6 +11,11 @@
   --teacher-red-soft: #f6ded8;
   --pencil-blue: #2f6688;
   --gold: #dcac3d;
+  --board-light: #eee6d2;
+  --board-dark: #8f9d7c;
+  --piece-dark: #173d2c;
+  --piece-light: #fffaf0;
+  --annotation-keyline: #fffaf0;
   --line: rgba(23, 35, 29, 0.18);
   --shadow: 0 18px 50px rgba(38, 43, 34, 0.13);
   --display: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, serif;
@@ -700,16 +705,18 @@ button:disabled,
 }
 
 .board-square.is-light {
-  background: #f1eddf;
+  background: var(--board-light);
 }
 
 .board-square.is-dark {
-  background: #9da99a;
+  background: var(--board-dark);
 }
 
 .board-square:hover,
 .board-square.is-selected {
-  box-shadow: inset 0 0 0 4px var(--pencil-blue);
+  box-shadow:
+    inset 0 0 0 3px var(--pencil-blue),
+    inset 0 0 0 6px var(--annotation-keyline);
   z-index: 1;
 }
 
@@ -721,16 +728,47 @@ button:disabled,
   pointer-events: none;
 }
 
-.board-square__piece {
-  font-size: clamp(25px, 5.2vw, 58px);
-  line-height: 1;
-  transform: translateY(-2%);
+.chess-piece {
+  --piece-keyline: var(--piece-dark);
+  --piece-face: var(--piece-light);
+  width: 1em;
+  height: 1em;
+  display: block;
+  overflow: visible;
+  pointer-events: none;
 }
 
-.chess-symbol {
-  font-family: "Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols 2", serif;
-  color: #101612;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+.chess-piece.is-black {
+  --piece-keyline: var(--piece-light);
+  --piece-face: var(--piece-dark);
+}
+
+.chess-piece__keyline {
+  fill: var(--piece-keyline);
+}
+
+.chess-piece__face {
+  fill: var(--piece-face);
+}
+
+.board-square__piece {
+  width: 82%;
+  height: 82%;
+  filter: drop-shadow(0 2px 1px rgba(23, 35, 29, 0.16));
+  transform: translateY(-1%);
+}
+
+.piece-attribution {
+  margin: 9px 2px 0;
+  color: var(--ink-soft);
+  font-size: 9px;
+  line-height: 1.4;
+  text-align: right;
+}
+
+.piece-attribution a {
+  color: inherit;
+  text-underline-offset: 2px;
 }
 
 .board-square__coordinate {
@@ -796,19 +834,31 @@ button:disabled,
   padding: 0;
   display: grid;
   place-items: center;
-  border: 1px solid var(--line);
+  border: 0;
+  border-radius: 4px;
   background: var(--paper);
   cursor: pointer;
+  box-shadow: inset 0 0 0 1px var(--line);
+  transition-property: background-color, box-shadow, scale;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
 }
 
 .piece-picker__piece:hover,
 .piece-picker__piece.is-active {
-  border-color: var(--teacher-red);
   background: var(--teacher-red-soft);
+  box-shadow:
+    inset 0 0 0 3px var(--teacher-red),
+    inset 0 0 0 6px var(--paper-clean);
 }
 
-.piece-picker__piece .chess-symbol {
-  font-size: clamp(23px, 4vw, 38px);
+.piece-picker__piece:active {
+  scale: 0.96;
+}
+
+.piece-picker__piece .chess-piece {
+  width: 86%;
+  height: 86%;
 }
 
 .empty-symbol {
@@ -1763,14 +1813,6 @@ button:disabled,
     gap: 30px;
   }
 
-  .board-square__piece {
-    font-size: 10.5vw;
-  }
-
-  .piece-picker__piece .chess-symbol {
-    font-size: 7vw;
-  }
-
   .position-controls {
     gap: 17px;
   }
@@ -1990,15 +2032,17 @@ button:disabled,
 }
 
 .analysis-square.is-light {
-  background: #eee6d2;
+  background: var(--board-light);
 }
 
 .analysis-square.is-dark {
-  background: #8f9d7c;
+  background: var(--board-dark);
 }
 
 .analysis-square.is-selected {
-  box-shadow: inset 0 0 0 4px var(--gold);
+  box-shadow:
+    inset 0 0 0 3px var(--gold),
+    inset 0 0 0 6px var(--annotation-keyline);
 }
 
 .analysis-square.is-last-move::before {
@@ -2016,24 +2060,26 @@ button:disabled,
 .analysis-square__target {
   position: absolute;
   z-index: 3;
-  width: 22%;
+  width: 20%;
   aspect-ratio: 1;
   border-radius: 50%;
-  background: rgba(23, 61, 44, 0.48);
+  background: var(--forest);
+  box-shadow: 0 0 0 3px var(--annotation-keyline);
 }
 
 .analysis-square:has(.analysis-square__piece):has(.analysis-square__target) .analysis-square__target {
-  width: 82%;
-  border: 5px solid rgba(23, 61, 44, 0.52);
+  width: 76%;
+  border: 4px solid var(--forest);
   background: transparent;
+  box-shadow: 0 0 0 3px var(--annotation-keyline);
 }
 
 .analysis-square__piece {
   position: relative;
   z-index: 2;
-  font-size: clamp(30px, 5.35vw, 66px);
-  line-height: 1;
-  filter: drop-shadow(0 2px 1px rgba(0, 0, 0, 0.16));
+  width: 88%;
+  height: 88%;
+  filter: drop-shadow(0 2px 1px rgba(23, 35, 29, 0.18));
   transform: translateY(-1%);
 }
 
@@ -2071,107 +2117,129 @@ button:disabled,
   animation: diagram-reveal 260ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
-.board-annotation__arrow {
+.board-annotation__arrow,
+.board-annotation__arrow-keyline {
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
-  filter: drop-shadow(0 0.035px 0.045px rgba(0, 0, 0, 0.34));
+}
+
+.board-annotation__arrow-keyline {
+  stroke: var(--annotation-keyline);
+  stroke-width: 0.205;
+  filter: drop-shadow(0 0.04px 0.05px rgba(0, 0, 0, 0.3));
 }
 
 .board-annotation__arrow.is-played {
-  stroke: rgba(220, 172, 61, 0.96);
+  stroke: var(--gold);
   stroke-width: 0.115;
 }
 
 .board-annotation__arrow.is-engine {
-  stroke: rgba(47, 102, 136, 0.96);
+  stroke: var(--pencil-blue);
   stroke-width: 0.11;
 }
 
 .board-annotation__arrow.is-reply {
-  stroke: rgba(185, 67, 53, 0.95);
+  stroke: var(--teacher-red);
   stroke-width: 0.12;
 }
 
 .board-annotation__arrow.is-attack,
 .board-annotation__arrow.is-ray {
-  stroke: rgba(23, 61, 44, 0.86);
+  stroke: var(--forest);
   stroke-width: 0.085;
 }
 
-.board-annotation__arrow.is-attack {
+.board-annotation__arrow.is-threat {
+  stroke: var(--teacher-red);
+  stroke-width: 0.09;
+}
+
+.board-annotation__arrow.is-attack,
+.board-annotation__arrow-keyline.is-attack {
   stroke-dasharray: 0.15 0.11;
 }
 
-.board-annotation__arrow.is-ray {
+.board-annotation__arrow.is-ray,
+.board-annotation__arrow-keyline.is-ray {
   stroke-dasharray: 0.28 0.08 0.06 0.08;
 }
 
-.board-annotation__arrow.is-threat {
-  stroke: rgba(185, 67, 53, 0.86);
-  stroke-width: 0.09;
+.board-annotation__arrow.is-threat,
+.board-annotation__arrow-keyline.is-threat {
   stroke-dasharray: 0.18 0.1;
 }
 
+.board-annotation__head {
+  stroke: var(--annotation-keyline);
+  stroke-width: 0.52;
+  stroke-linejoin: round;
+  paint-order: stroke fill;
+}
+
 .board-annotation__head.is-played {
-  fill: rgba(220, 172, 61, 0.96);
+  fill: var(--gold);
 }
 
 .board-annotation__head.is-engine {
-  fill: rgba(47, 102, 136, 0.96);
+  fill: var(--pencil-blue);
 }
 
 .board-annotation__head.is-reply,
 .board-annotation__head.is-threat {
-  fill: rgba(185, 67, 53, 0.95);
+  fill: var(--teacher-red);
 }
 
 .board-annotation__head.is-attack,
 .board-annotation__head.is-ray {
-  fill: rgba(23, 61, 44, 0.88);
+  fill: var(--forest);
 }
 
-.board-annotation__marker rect {
-  fill: rgba(255, 253, 246, 0.06);
-  stroke-width: 0.045;
+.board-annotation__marker {
+  color: var(--forest);
 }
 
-.board-annotation__marker.is-focus rect {
-  fill: rgba(220, 172, 61, 0.2);
-  stroke: rgba(220, 172, 61, 0.96);
+.board-annotation__marker.is-focus,
+.board-annotation__marker.is-vacated {
+  color: var(--gold);
 }
 
-.board-annotation__marker.is-target rect {
-  fill: rgba(185, 67, 53, 0.14);
-  stroke: rgba(185, 67, 53, 0.88);
+.board-annotation__marker.is-target,
+.board-annotation__marker.is-danger {
+  color: var(--teacher-red);
 }
 
-.board-annotation__marker.is-danger rect {
-  fill: rgba(185, 67, 53, 0.2);
-  stroke: rgba(185, 67, 53, 0.96);
+.board-annotation__marker-keyline {
+  fill: none;
+  stroke: var(--annotation-keyline);
+  stroke-width: 0.13;
 }
 
-.board-annotation__marker.is-vacated rect {
-  fill: rgba(220, 172, 61, 0.08);
-  stroke: rgba(220, 172, 61, 0.96);
+.board-annotation__marker-face {
+  fill: currentColor;
+  fill-opacity: 0.16;
+  stroke: currentColor;
+  stroke-width: 0.055;
+}
+
+.board-annotation__marker.is-danger .board-annotation__marker-face {
+  fill-opacity: 0.24;
+}
+
+.board-annotation__marker.is-vacated .board-annotation__marker-keyline,
+.board-annotation__marker.is-vacated .board-annotation__marker-face {
   stroke-dasharray: 0.14 0.09;
 }
 
-.board-annotation__marker.is-blocked rect {
-  fill: rgba(23, 61, 44, 0.16);
-  stroke: rgba(23, 61, 44, 0.92);
+.board-annotation__marker.is-blocked .board-annotation__marker-keyline,
+.board-annotation__marker.is-blocked .board-annotation__marker-face {
   stroke-dasharray: 0.06 0.06;
 }
 
 .board-annotation__badge {
-  color: var(--ink);
-  filter: drop-shadow(0 0.055px 0.07px rgba(0, 0, 0, 0.42));
-}
-
-.board-annotation__badge circle {
-  fill: var(--paper-clean);
-  stroke: currentColor;
-  stroke-width: 0.038;
+  color: var(--forest);
+  filter: drop-shadow(0 0.055px 0.07px rgba(0, 0, 0, 0.38));
 }
 
 .board-annotation__badge.is-engine {
@@ -2181,6 +2249,30 @@ button:disabled,
 .board-annotation__badge.is-reply,
 .board-annotation__badge.is-threat {
   color: var(--teacher-red);
+}
+
+.board-annotation__badge-keyline {
+  fill: currentColor;
+}
+
+.board-annotation__badge-face {
+  fill: var(--annotation-keyline);
+}
+
+.board-annotation__glyph-keyline {
+  stroke: currentColor;
+}
+
+.board-annotation__glyph-face {
+  stroke: var(--annotation-keyline);
+}
+
+.review-glyph__keyline {
+  stroke: currentColor;
+}
+
+.review-glyph__face {
+  stroke: var(--paper-clean);
 }
 
 @keyframes diagram-reveal {
@@ -2221,7 +2313,6 @@ button:disabled,
   min-height: 54px;
   border: 1px solid var(--line);
   background: var(--paper);
-  font-size: 34px;
   transition-property: scale, background-color;
   transition-duration: 150ms;
   transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
@@ -2229,6 +2320,12 @@ button:disabled,
 
 .promotion-picker > div button:not(:disabled):active {
   scale: 0.96;
+}
+
+.promotion-picker .chess-piece {
+  width: 46px;
+  height: 46px;
+  margin: auto;
 }
 
 .eval-bar {
@@ -2439,10 +2536,12 @@ button:disabled,
   height: 30px;
   display: grid;
   place-items: center;
-  border-radius: 50%;
+  border-radius: 8px;
   color: var(--forest);
-  background: rgba(23, 61, 44, 0.09);
-  box-shadow: inset 0 0 0 1px rgba(23, 61, 44, 0.14);
+  background: var(--paper-clean);
+  box-shadow:
+    inset 0 0 0 3px currentColor,
+    0 2px 4px rgba(23, 35, 29, 0.1);
   font: 750 10px/1 var(--sans);
   font-variant-numeric: tabular-nums;
 }
@@ -2454,23 +2553,17 @@ button:disabled,
 
 .diagram-step__mark.is-played,
 .diagram-step__mark.is-focus {
-  color: #8d6812;
-  background: rgba(220, 172, 61, 0.17);
-  box-shadow: inset 0 0 0 1px rgba(151, 109, 16, 0.22);
+  color: #9a7114;
 }
 
 .diagram-step__mark.is-engine {
   color: var(--pencil-blue);
-  background: rgba(47, 102, 136, 0.11);
-  box-shadow: inset 0 0 0 1px rgba(47, 102, 136, 0.18);
 }
 
 .diagram-step__mark.is-reply,
 .diagram-step__mark.is-threat,
 .diagram-step__mark.is-danger {
   color: var(--teacher-red);
-  background: rgba(185, 67, 53, 0.1);
-  box-shadow: inset 0 0 0 1px rgba(185, 67, 53, 0.18);
 }
 
 .diagram-step strong,
@@ -2937,6 +3030,22 @@ button:disabled,
   text-decoration: none;
 }
 
+.position-review__credits {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.position-review__credits > span {
+  white-space: nowrap;
+}
+
+.position-review__piece-credit::before {
+  content: "·";
+  margin-right: 8px;
+}
+
 .position-review__footer > div {
   display: flex;
   align-items: center;
@@ -3022,10 +3131,6 @@ button:disabled,
     height: calc(100% - 8px);
   }
 
-  .analysis-square__piece {
-    font-size: 10.5vw;
-  }
-
   .eval-bar {
     width: 23px;
     min-width: 23px;
@@ -3098,6 +3203,15 @@ button:disabled,
   .position-review__footer {
     align-items: start;
     flex-direction: column;
+  }
+
+  .position-review__credits {
+    display: grid;
+    gap: 4px;
+  }
+
+  .position-review__piece-credit::before {
+    display: none;
   }
 
   .position-review__footer > div {

@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { boardPoint, fenError, pieceDisplay, positionAt } from "../src/board.ts";
+import {
+  boardPoint,
+  fenError,
+  pieceDisplay,
+  pieceForLabel,
+  positionAt,
+} from "../src/board.ts";
 
 test("accepts a FEN that can be loaded into a review", () => {
   assert.equal(fenError("4k3/8/8/8/8/8/8/4K3 w - - 0 1"), null);
@@ -10,6 +16,13 @@ test("accepts a FEN that can be loaded into a review", () => {
 test("maps chess.js pieces to the shared board metadata", () => {
   assert.deepEqual(pieceDisplay("w", "n"), { name: "White knight", symbol: "♘" });
   assert.deepEqual(pieceDisplay("b", "q"), { name: "Black queen", symbol: "♛" });
+});
+
+test("maps classifier labels to reusable SVG piece identities", () => {
+  assert.deepEqual(pieceForLabel(2), { color: "w", type: "n" });
+  assert.deepEqual(pieceForLabel(11), { color: "b", type: "q" });
+  assert.equal(pieceForLabel(0), null);
+  assert.equal(pieceForLabel(13), null);
 });
 
 test("replays review moves through one validated board helper", () => {

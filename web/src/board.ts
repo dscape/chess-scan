@@ -28,6 +28,21 @@ const pieceOffsets: Record<PieceSymbol, number> = {
   q: 5,
   k: 6,
 };
+const labelPieces: Array<{ color: Color; type: PieceSymbol } | null> = [
+  null,
+  { color: "w", type: "p" },
+  { color: "w", type: "n" },
+  { color: "w", type: "b" },
+  { color: "w", type: "r" },
+  { color: "w", type: "q" },
+  { color: "w", type: "k" },
+  { color: "b", type: "p" },
+  { color: "b", type: "n" },
+  { color: "b", type: "b" },
+  { color: "b", type: "r" },
+  { color: "b", type: "q" },
+  { color: "b", type: "k" },
+];
 
 export function pieceDisplay(color: Color, type: PieceSymbol): { name: string; symbol: string } {
   const index = pieceOffsets[type] + (color === "w" ? 0 : 6);
@@ -35,6 +50,10 @@ export function pieceDisplay(color: Color, type: PieceSymbol): { name: string; s
     name: pieceNames[index]!,
     symbol: pieceSymbols[index]!,
   };
+}
+
+export function pieceForLabel(label: number): { color: Color; type: PieceSymbol } | null {
+  return labelPieces[label] ?? null;
 }
 
 export function positionAt(fen: string, moves: string[]): Chess {

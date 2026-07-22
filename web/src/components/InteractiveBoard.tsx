@@ -11,6 +11,7 @@ import type {
   ReviewAnnotation,
   ReviewArrow,
 } from "../types";
+import ChessPiece from "./ChessPiece";
 import { ReviewGlyphPaths } from "./ReviewGlyph";
 
 export type AttemptedMove = { uci: string; san: string };
@@ -124,7 +125,13 @@ export default function InteractiveBoard({
               onClick={() => selectSquare(square)}
             >
               {coordinateFor(square, row, col)}
-              {display && <span className="chess-symbol analysis-square__piece">{display.symbol}</span>}
+              {piece && (
+                <ChessPiece
+                  className="analysis-square__piece"
+                  color={piece.color}
+                  piece={piece.type}
+                />
+              )}
               {legalTargets.has(square) && <span className="analysis-square__target" aria-hidden="true" />}
             </button>
           );
@@ -151,7 +158,7 @@ export default function InteractiveBoard({
                   aria-label={`Promote to ${display.name.toLowerCase()}`}
                   onClick={() => play(promotion.from, promotion.to, piece)}
                 >
-                  <span className="chess-symbol">{display.symbol}</span>
+                  <ChessPiece color={position.turn()} piece={piece} />
                 </button>
               );
             })}
@@ -195,14 +202,18 @@ function BoardOverlay({
           <marker
             key={role}
             id={`${markerId}-${role}`}
-            markerWidth="4"
-            markerHeight="4"
-            refX="3.4"
-            refY="2"
+            markerWidth="5"
+            markerHeight="5"
+            refX="4.25"
+            refY="2.5"
             orient="auto"
             markerUnits="strokeWidth"
+            viewBox="0 0 5 5"
           >
-            <path className={`board-annotation__head is-${role}`} d="M0,0 L4,2 L0,4 Z" />
+            <path
+              className={`board-annotation__head is-${role}`}
+              d="M0.7 0.55C0.42 0.39 0.1 0.62 0.2 0.93L0.92 2.5 0.2 4.07C0.1 4.38 0.42 4.61 0.7 4.45L4.25 2.86C4.57 2.72 4.57 2.28 4.25 2.14Z"
+            />
           </marker>
         ))}
       </defs>
@@ -212,35 +223,67 @@ function BoardOverlay({
             key={`${marker.square}-${marker.role}-${index}`}
             className={`board-annotation__marker is-${marker.role}`}
           >
-            <rect x={point.x - 0.39} y={point.y - 0.39} width="0.78" height="0.78" rx="0.1" />
+            <rect
+              className="board-annotation__marker-keyline"
+              x={point.x - 0.405}
+              y={point.y - 0.405}
+              width="0.81"
+              height="0.81"
+              rx="0.13"
+            />
+            <rect
+              className="board-annotation__marker-face"
+              x={point.x - 0.355}
+              y={point.y - 0.355}
+              width="0.71"
+              height="0.71"
+              rx="0.09"
+            />
           </g>
         ))}
         {arrows.map(({ arrow, line }, index) => (
-          <line
-            key={`${arrow.from_square}-${arrow.to_square}-${arrow.role}-${index}`}
-            className={`board-annotation__arrow is-${arrow.role}`}
-            x1={line.start.x}
-            y1={line.start.y}
-            x2={line.end.x}
-            y2={line.end.y}
-            markerEnd={`url(#${markerId}-${arrow.role})`}
-          />
+          <g key={`${arrow.from_square}-${arrow.to_square}-${arrow.role}-${index}`}>
+            <line
+              className={`board-annotation__arrow-keyline is-${arrow.role}`}
+              x1={line.start.x}
+              y1={line.start.y}
+              x2={line.end.x}
+              y2={line.end.y}
+            />
+            <line
+              className={`board-annotation__arrow is-${arrow.role}`}
+              x1={line.start.x}
+              y1={line.start.y}
+              x2={line.end.x}
+              y2={line.end.y}
+              markerEnd={`url(#${markerId}-${arrow.role})`}
+            />
+          </g>
         ))}
         {positionedBadge && (
           <g
             className={`board-annotation__badge is-${positionedBadge.badge.role}`}
             transform={`translate(${positionedBadge.point.x} ${positionedBadge.point.y})`}
           >
-            <circle r="0.2" />
-            <g
-              transform="translate(-0.1 -0.1) scale(0.008333)"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <ReviewGlyphPaths badge={positionedBadge.badge.kind} />
+            <rect className="board-annotation__badge-keyline" x="-0.27" y="-0.27" width="0.54" height="0.54" rx="0.13" />
+            <rect className="board-annotation__badge-face" x="-0.205" y="-0.205" width="0.41" height="0.41" rx="0.085" />
+            <g transform="translate(-0.105 -0.105) scale(0.00875)" fill="none">
+              <g
+                className="board-annotation__glyph-keyline"
+                strokeWidth="4.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <ReviewGlyphPaths badge={positionedBadge.badge.kind} />
+              </g>
+              <g
+                className="board-annotation__glyph-face"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <ReviewGlyphPaths badge={positionedBadge.badge.kind} />
+              </g>
             </g>
           </g>
         )}

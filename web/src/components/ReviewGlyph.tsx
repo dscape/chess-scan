@@ -8,16 +8,27 @@ type ReviewGlyphProps = {
 export default function ReviewGlyph({ badge, className }: ReviewGlyphProps) {
   return (
     <svg
-      className={className}
+      className={["review-glyph", className].filter(Boolean).join(" ")}
       viewBox="0 0 24 24"
       fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
       aria-hidden="true"
     >
-      <ReviewGlyphPaths badge={badge} />
+      <g
+        className="review-glyph__keyline"
+        strokeWidth="5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <ReviewGlyphPaths badge={badge} />
+      </g>
+      <g
+        className="review-glyph__face"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <ReviewGlyphPaths badge={badge} />
+      </g>
     </svg>
   );
 }
@@ -79,7 +90,7 @@ export function ReviewGlyphPaths({ badge }: { badge: ReviewBadge }) {
       return (
         <>
           <path d="M4 18 9.5 12.5M14.5 7.5 20 2" />
-          <path d="m7 5 12 12M9.5 9.5l5 5" strokeWidth="3" />
+          <path d="m7 5 12 12M9.5 9.5l5 5" />
         </>
       );
     case "attraction":

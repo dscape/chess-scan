@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { pieceNames, pieceSymbols, predictionNeedsReview, squareName } from "../board";
+import { pieceForLabel, pieceNames, predictionNeedsReview, squareName } from "../board";
 import type { Orientation } from "../types";
+import ChessPiece from "./ChessPiece";
 import PiecePicker from "./PiecePicker";
 
 interface BoardEditorProps {
@@ -44,6 +45,7 @@ export default function BoardEditor({
             probabilities[index] ?? [],
           );
           const name = squareName(index, orientation);
+          const artwork = pieceForLabel(piece);
           return (
             <button
               key={index}
@@ -61,12 +63,35 @@ export default function BoardEditor({
               onClick={() => setSelectedSquare(index)}
             >
               <span className="board-square__coordinate">{name}</span>
-              {piece !== 0 && <span className="chess-symbol board-square__piece">{pieceSymbols[piece]}</span>}
+              {artwork && (
+                <ChessPiece
+                  className="board-square__piece"
+                  color={artwork.color}
+                  piece={artwork.type}
+                />
+              )}
               {corrected && <span className="board-square__correction" aria-label="Corrected" />}
             </button>
           );
         })}
       </div>
+      <p className="piece-attribution">
+        <a
+          href="https://www.figma.com/community/file/971870797656870866/chess-simple-assets"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Chess Simple Assets by Maciej Świerczek
+        </a>{" "}
+        ·{" "}
+        <a
+          href="https://creativecommons.org/licenses/by/4.0/"
+          target="_blank"
+          rel="noreferrer"
+        >
+          CC BY 4.0
+        </a>
+      </p>
       {selectedSquare !== null && (
         <PiecePicker
           square={squareName(selectedSquare, orientation)}
