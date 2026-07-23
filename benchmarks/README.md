@@ -12,6 +12,11 @@ These manifests reference official sample PDFs without redistributing their imag
 - `platform-training-corpus.json`: external Chess.com, Lichess, and Take Take Take source and label-manifest hashes without redistributing platform artwork.
 - `print-regression-corpus.json`: hash inventory for consented rectified workbook crops; full photographs and workbook pixels are not committed.
 - `lichess-puzzle-corpus.json`: checksum, deterministic game-grouped sampling rules, and balanced split metadata for two external 1,000-puzzle theme benchmarks sourced from Lichess's public-domain puzzle database. The evaluator reports setup-aware, history-free, and production-planner agreement separately.
+- `expert-commentary-v1.json`: archived original ten-position Tata Steel snapshot. It predates collection-level split metadata and is retained for audit only; the preparation and evaluation CLIs intentionally require v2 or later.
+- `expert-commentary-v2.json`: those ten development cases plus 30 frozen validation games from four independent expert-annotated studies.
+- `expert-commentary-shadow-v1.json`: ten post-implementation shadow games from the independently annotated 2024 World Championship study. It was selected after the deterministic and planner work and was not used to tune that candidate.
+
+The commentary manifests commit derived concepts and typed claims with pinned Stockfish inputs, not article or annotation prose. Promotion credit requires a user-visible finding whose causal move, evidence kind, proof, squares, pieces, and continuation support one of those claims; hidden findings and topic-name matches do not count. Full studies and chapter PGNs remain external and checksum-verified.
 
 Square indices are image-order values from `0` at the top-left to `63` at the bottom-right. Source hashes make an upstream sample change fail loudly instead of silently changing a benchmark.
 
@@ -31,12 +36,16 @@ make qa-argus
 make qa-platform
 make qa-print
 make qa-review
+make qa-commentary
+make qa-coaching
 ```
 
-Recreate the disjoint Lichess development and validation splits from the checksum-pinned archive:
+Recreate the disjoint Lichess development and validation splits from the checksum-pinned archive, or verify the external expert-commentary chapters:
 
 ```bash
 make prepare-lichess-puzzles
+make prepare-commentary
+make prepare-commentary-shadow
 ```
 
 Recreate the photographed-print recovery candidate after mounting all verified external corpora:

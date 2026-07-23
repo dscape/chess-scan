@@ -13,7 +13,7 @@ from typing import Literal
 import chess
 
 ColorName = Literal["white", "black"]
-Proof = Literal["legal_geometry", "line_consequence"]
+Proof = Literal["legal_geometry", "line_consequence", "counterfactual"]
 
 PIECE_VALUES = {
     chess.PAWN: 1,

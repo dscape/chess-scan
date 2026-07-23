@@ -41,6 +41,7 @@ export interface ConfirmResult {
   lichess_url: string;
   changed_squares: number;
   warnings: string[];
+  coaching_available: boolean;
 }
 
 export interface ReviewedPosition {
@@ -49,6 +50,7 @@ export interface ReviewedPosition {
   orientation: Orientation;
   changed_squares: number;
   lichess_url: string;
+  coaching_available: boolean;
 }
 
 export interface ReviewMove {
@@ -91,6 +93,7 @@ export interface ReviewDiagramBadge {
 }
 
 export interface ReviewAnnotation {
+  id: string;
   label: string;
   text: string;
   scope: "root" | "best_line" | "attempt_line" | "attempt_refutation" | "terminal";
@@ -116,7 +119,7 @@ export interface ReviewEvidence {
   id: string;
   kind: string;
   scope: "best_line" | "attempt_line" | "attempt_refutation" | "terminal";
-  proof: "legal_geometry" | "line_consequence" | "direct_rule";
+  proof: "legal_geometry" | "line_consequence" | "counterfactual" | "direct_rule";
   ply: number;
   actor: ReviewPieceRef | null;
   targets: ReviewPieceRef[];
@@ -144,6 +147,7 @@ export interface ReviewLine {
 
 export interface ReviewAttempt {
   move: ReviewMove;
+  headline: string;
   verdict: "best" | "excellent" | "good" | "inaccuracy" | "mistake" | "blunder";
   equivalent: boolean;
   expected_score_loss: number;
@@ -154,7 +158,7 @@ export interface ReviewAttempt {
 }
 
 export interface PositionReview {
-  schema_version: "position-analysis-4";
+  schema_version: "position-analysis-5";
   review_id: string | null;
   fen: string;
   engine: string;
@@ -170,6 +174,38 @@ export interface PositionReview {
   hint: ReviewAnnotation;
   explanation: ReviewAnnotation[];
 }
+
+interface PositionCoachingBase {
+  schema_version: "commentary-planner-1";
+  review_id: string;
+  planner_version: string;
+  headline: string;
+}
+
+export type PositionCoaching = PositionCoachingBase &
+  (
+    | {
+        status: "accepted";
+        run_id: string;
+        lesson_ids: [string, ...string[]];
+        message: null;
+      }
+    | {
+        status: "fallback";
+        run_id: string;
+        lesson_ids: string[];
+        message: string;
+      }
+    | { status: "disabled"; run_id: null; lesson_ids: []; message: null }
+  );
+
+export type CoachingPresentationStatus =
+  | "not_shown"
+  | "loading"
+  | "accepted"
+  | "fallback"
+  | "unavailable"
+  | "disabled";
 
 export interface ReviewEngineLine {
   rank: number;

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from chess_scan.board import labels_to_board_fen, validate_labels
-from chess_scan.model_artifact import sha256_file
+from chess_scan.model_artifact import is_sha256, sha256_file
 
 _MANIFEST_NAME = "print-regression-corpus.json"
 
@@ -143,7 +143,7 @@ def _validate_record(record: dict[str, Any], *, path: Path, line_number: int) ->
         raise ValueError(f"Record has an invalid split at {path}:{line_number}")
     if record["orientation"] not in {"white", "black"}:
         raise ValueError(f"Record has an invalid orientation at {path}:{line_number}")
-    if not _is_sha256(record["sha256"]) or not _is_sha256(record["source_image_sha256"]):
+    if not is_sha256(record["sha256"]) or not is_sha256(record["source_image_sha256"]):
         raise ValueError(f"Record has an invalid SHA-256 at {path}:{line_number}")
     labels = record.get("labels")
     if not isinstance(labels, list) or any(not isinstance(label, int) for label in labels):
@@ -151,7 +151,3 @@ def _validate_record(record: dict[str, Any], *, path: Path, line_number: int) ->
     validate_labels(labels)
     if labels_to_board_fen(labels, orientation=record["orientation"]) != record["fen"]:
         raise ValueError(f"Record FEN does not match its labels at {path}:{line_number}")
-
-
-def _is_sha256(value: str) -> bool:
-    return len(value) == 64 and all(character in "0123456789abcdef" for character in value)

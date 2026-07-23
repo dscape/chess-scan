@@ -15,8 +15,24 @@ class ScanExpiredError(ScanStateError):
     pass
 
 
+class PositionReviewNotFoundError(LookupError):
+    """A requested immutable position review does not exist."""
+
+
 class StoredDataIntegrityError(RuntimeError):
     """Persisted immutable data cannot be interpreted safely."""
+
+
+class PositionReviewFeedbackConflictError(ValueError):
+    """Feedback does not match the coaching presentation being rated."""
+
+
+class CommentaryBusyError(RuntimeError):
+    """A coaching run is already active for this review."""
+
+
+class CommentaryBudgetExceededError(RuntimeError):
+    """A confirmed position has exhausted its external coaching budget."""
 
 
 class ModelArtifactError(ValueError):

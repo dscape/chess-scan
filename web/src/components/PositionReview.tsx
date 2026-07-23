@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Chess } from "chess.js";
-import { createPositionReview, ratePositionReview } from "../api";
+import {
+  createPositionCoaching,
+  createPositionReview,
+  ratePositionReview,
+} from "../api";
 import { positionAt } from "../board";
+import { displayedBoardCue } from "../reviewCue";
 import StockfishClient, { StockfishError } from "../engine/StockfishClient";
 import {
   oppositeScorePov,
@@ -9,7 +14,9 @@ import {
   type EngineScore,
 } from "../engine/uci";
 import type {
+  CoachingPresentationStatus,
   Orientation,
+  PositionCoaching,
   PositionReview as PositionReviewData,
   ReviewAnalysis,
   ReviewAnnotation,
@@ -42,6 +49,12 @@ type EvaluationPublisher = {
   cancel: () => void;
 };
 
+type CoachingState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "unavailable" }
+  | { status: "ready"; coaching: PositionCoaching };
+
 type RatingState = {
   reviewId: string | null;
   status: "idle" | "sending" | "done" | "error";
@@ -66,6 +79,9 @@ export default function PositionReview({
 }: PositionReviewProps) {
   const [reviewState, setReviewState] = useState<ReviewState>({
     status: "loading",
+  });
+  const [coachingState, setCoachingState] = useState<CoachingState>({
+    status: "idle",
   });
   const [retry, setRetry] = useState(0);
   const [liveRetry, setLiveRetry] = useState(0);
@@ -93,6 +109,7 @@ export default function PositionReview({
   const [currentScore, setCurrentScore] = useState<EngineScore | null>(null);
   const [evaluatingFen, setEvaluatingFen] = useState<string | null>(null);
   const [hoveredCue, setHoveredCue] = useState<ReviewAnnotation | null>(null);
+  const [automaticCue, setAutomaticCue] = useState<ReviewAnnotation | null>(null);
   const [pinnedCue, setPinnedCue] = useState<ReviewAnnotation | null>(null);
   const engine = useRef<StockfishClient | null>(null);
   const reviewLines = useRef(new Map<string, EngineLine[]>());
@@ -100,6 +117,8 @@ export default function PositionReview({
   const evaluationCache = useRef(new Map<string, CachedEvaluation>());
   const analysisGeneration = useRef(0);
   const ratingGeneration = useRef(0);
+  const boardInteractionGeneration = useRef(0);
+  const coachingPresentationGeneration = useRef<number | null>(null);
 
   const root = useMemo(() => new Chess(position.full_fen), [position.full_fen]);
   const moveUcis = useMemo(
@@ -117,16 +136,24 @@ export default function PositionReview({
   const currentTerminal = terminalResult(current);
   const revealed = rootIsTerminal || firstAttempt !== null;
   const review = reviewState.status === "ready" ? reviewState.review : null;
+  const coaching = coachingState.status === "ready" ? coachingState.coaching : null;
+  const coachingPlan = useMemo(
+    () => coachingExplanationPlan(review?.explanation ?? [], coaching),
+    [coaching, review?.explanation],
+  );
+  const explanation = coachingPlan.ordered;
   const ratingStatus =
     ratingState.reviewId === review?.review_id ? ratingState.status : "idle";
   const defaultCue = revealed
-    ? (review?.explanation.find(hasBoardCue) ?? null)
+    ? (explanation.find(hasBoardCue) ?? null)
     : null;
-  const rootHoveredCue = hoveredCue?.ply === 0 ? hoveredCue : null;
-  const rootDefaultCue = defaultCue?.ply === 0 ? defaultCue : null;
-  const boardCue =
-    pinnedCue ??
-    (playedMoves.length === 0 ? (rootHoveredCue ?? rootDefaultCue) : null);
+  const boardCue = displayedBoardCue(
+    pinnedCue,
+    hoveredCue,
+    automaticCue,
+    defaultCue,
+    playedMoves.length,
+  );
   const lastMove = playedMoves.at(-1) ?? null;
 
   useEffect(
@@ -145,7 +172,10 @@ export default function PositionReview({
     let updates: EvaluationPublisher | null = null;
 
     setReviewState({ status: "loading" });
+    setCoachingState({ status: "idle" });
+    coachingPresentationGeneration.current = null;
     setPinnedCue(null);
+    setAutomaticCue(null);
     setHoveredCue(null);
     setLiveError(null);
     ratingGeneration.current += 1;
@@ -270,6 +300,7 @@ export default function PositionReview({
   useEffect(() => {
     if (!pendingAttempt) return;
     const attempt = pendingAttempt;
+    const interactionGeneration = boardInteractionGeneration.current;
     const cachedRootLines = reviewLines.current.get(position.full_fen);
     if (!cachedRootLines) return;
     const rootLines = cachedRootLines;
@@ -328,8 +359,18 @@ export default function PositionReview({
           );
           if (active) {
             setReviewState({ status: "ready", review: result });
-            const teachingDiagram = initialTeachingDiagram(result);
-            if (teachingDiagram) selectCue(teachingDiagram, result);
+            const teachingDiagram = initialTeachingDiagram(result.explanation);
+            if (boardInteractionGeneration.current !== interactionGeneration) {
+              setPinnedCue(null);
+              setAutomaticCue(null);
+            } else if (teachingDiagram) {
+              selectAutomaticCue(teachingDiagram, result);
+            } else {
+              setPlayedMoves([]);
+              setPinnedCue(null);
+              setAutomaticCue(null);
+              setLinePreview(null);
+            }
           }
         } catch (cause) {
           if (active && !isAbortError(cause)) {
@@ -353,6 +394,61 @@ export default function PositionReview({
       controller.abort();
     };
   }, [pendingAttempt, position.feedback_id, position.full_fen]);
+
+  useEffect(() => {
+    const reviewId = review?.review_id;
+    if (
+      !position.coaching_available ||
+      !firstAttempt ||
+      !review?.attempt ||
+      !reviewId
+    ) {
+      setCoachingState({ status: "idle" });
+      coachingPresentationGeneration.current = null;
+      return;
+    }
+
+    const controller = new AbortController();
+    coachingPresentationGeneration.current = boardInteractionGeneration.current;
+    let active = true;
+    setCoachingState({ status: "loading" });
+
+    async function loadCoaching() {
+      try {
+        const result = await createPositionCoaching(reviewId!, controller.signal);
+        if (active) setCoachingState({ status: "ready", coaching: result });
+      } catch (cause) {
+        if (active && !isAbortError(cause)) {
+          setCoachingState({ status: "unavailable" });
+        }
+      }
+    }
+
+    void loadCoaching();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [
+    firstAttempt,
+    position.coaching_available,
+    review?.attempt,
+    review?.review_id,
+  ]);
+
+  useEffect(() => {
+    if (
+      coachingState.status !== "ready" ||
+      coachingState.coaching.status !== "accepted" ||
+      !review ||
+      pinnedCue !== null ||
+      hoveredCue !== null ||
+      coachingPresentationGeneration.current !== boardInteractionGeneration.current
+    )
+      return;
+    const teachingDiagram = initialTeachingDiagram(coachingPlan.ordered);
+    if (teachingDiagram) selectAutomaticCue(teachingDiagram, review);
+  }, [coachingState, coachingPlan, review, pinnedCue, hoveredCue]);
 
   useEffect(() => {
     if (reviewState.status !== "ready") return;
@@ -431,7 +527,13 @@ export default function PositionReview({
     reviewState.status,
   ]);
 
+  function recordBoardInteraction() {
+    boardInteractionGeneration.current += 1;
+    setAutomaticCue(null);
+  }
+
   function play(move: AttemptedMove) {
+    recordBoardInteraction();
     setLinePreview(null);
     if (firstAttempt === null) {
       setFirstAttempt(move);
@@ -444,16 +546,19 @@ export default function PositionReview({
   }
 
   function undo() {
+    recordBoardInteraction();
     setPlayedMoves((moves) => moves.slice(0, -1));
     setPinnedCue(null);
   }
 
   function resetBoard() {
+    recordBoardInteraction();
     setPlayedMoves([]);
     setLinePreview(null);
     setFirstAttempt(null);
     setPendingAttempt(null);
     setLiveError(null);
+    setCoachingState({ status: "idle" });
     ratingGeneration.current += 1;
     setRatingState({ reviewId: null, status: "idle" });
     setPinnedCue(null);
@@ -470,6 +575,7 @@ export default function PositionReview({
   }
 
   function showLine(line: ReviewLine) {
+    recordBoardInteraction();
     setPlayedMoves(
       line.moves.map((move) => ({ uci: move.uci, san: move.san })),
     );
@@ -491,6 +597,7 @@ export default function PositionReview({
       await ratePositionReview(reviewId, {
         rating,
         reason: rating === "helpful" ? "correct" : ratingReason,
+        ...coachingPresentation(coachingState, position.coaching_available),
       });
       if (ratingGeneration.current === generation) {
         setRatingState({ reviewId, status: "done" });
@@ -502,13 +609,26 @@ export default function PositionReview({
     }
   }
 
-  function selectCue(cue: ReviewAnnotation, sourceReview: PositionReviewData) {
+  function previewCue(cue: ReviewAnnotation, sourceReview: PositionReviewData) {
     if (hasBoardCue(cue)) {
       setPlayedMoves(movesForCue(cue, sourceReview));
       setLinePreview(linePreviewForCue(cue));
     }
-    setPinnedCue(cue);
     setHoveredCue(null);
+  }
+
+  function selectCue(cue: ReviewAnnotation, sourceReview: PositionReviewData) {
+    recordBoardInteraction();
+    previewCue(cue, sourceReview);
+    setPinnedCue(cue);
+  }
+
+  function selectAutomaticCue(
+    cue: ReviewAnnotation,
+    sourceReview: PositionReviewData,
+  ) {
+    previewCue(cue, sourceReview);
+    setAutomaticCue(cue);
   }
 
   function pinCue(cue: ReviewAnnotation) {
@@ -518,7 +638,11 @@ export default function PositionReview({
   const cueEvents = (cue: ReviewAnnotation, defaultActive = false) => ({
     active:
       pinnedCue === cue ||
-      (defaultActive && pinnedCue === null && hoveredCue === null),
+      automaticCue === cue ||
+      (defaultActive &&
+        pinnedCue === null &&
+        automaticCue === null &&
+        hoveredCue === null),
     onEnter: () => setHoveredCue(cue),
     onLeave: () => setHoveredCue(null),
     onToggle: () => pinCue(cue),
@@ -610,7 +734,7 @@ export default function PositionReview({
 
           {revealed && review && (
             <DiagramStory
-              cues={review.explanation}
+              cues={explanation}
               activeCue={boardCue}
               onSelect={pinCue}
             />
@@ -724,9 +848,9 @@ export default function PositionReview({
                   </p>
                   <h1>{reviewState.review.hint.text}</h1>
                   <div className="annotation-list">
-                    {reviewState.review.explanation.map((cue, index) => (
+                    {explanation.map((cue, index) => (
                       <BoardReference
-                        key={`${cue.label}-${index}`}
+                        key={annotationKey(cue)}
                         className="annotation-reference"
                         cue={cue}
                         {...cueEvents(cue, index === 0)}
@@ -787,14 +911,18 @@ export default function PositionReview({
                   </p>
                   <h1>{attemptVerdict(firstAttempt, reviewState.review)}</h1>
                   <p className="review-explanation__lead">
-                    {reviewState.review.explanation.some(hasBoardCue)
+                    {explanation.some(hasBoardCue)
                       ? "Move through the board story to see the attempt, tactical idea, and checked alternative."
                       : "Use each note to compare your move with the checked engine lines."}
                   </p>
+                  <CoachingSummary
+                    state={coachingState}
+                    selectedCues={coachingPlan.selected}
+                  />
                   <div className="annotation-list">
-                    {reviewState.review.explanation.map((cue, index) => (
+                    {explanation.map((cue, index) => (
                       <BoardReference
-                        key={`${cue.label}-${index}`}
+                        key={annotationKey(cue)}
                         className="annotation-reference"
                         cue={cue}
                         {...cueEvents(cue, index === 0)}
@@ -936,6 +1064,117 @@ export default function PositionReview({
   );
 }
 
+function coachingPresentation(
+  state: CoachingState,
+  coachingAvailable: boolean,
+): {
+  coaching_status: CoachingPresentationStatus;
+  commentary_run_id: string | null;
+} {
+  if (state.status === "idle") {
+    return {
+      coaching_status: coachingAvailable ? "not_shown" : "disabled",
+      commentary_run_id: null,
+    };
+  }
+  if (state.status === "loading" || state.status === "unavailable") {
+    return { coaching_status: state.status, commentary_run_id: null };
+  }
+  if (state.coaching.status === "disabled") {
+    return { coaching_status: "disabled", commentary_run_id: null };
+  }
+  return {
+    coaching_status: state.coaching.status,
+    commentary_run_id: state.coaching.run_id,
+  };
+}
+
+function CoachingSummary({
+  state,
+  selectedCues,
+}: {
+  state: CoachingState;
+  selectedCues: ReviewAnnotation[];
+}) {
+  if (state.status === "idle") return null;
+  if (state.status === "loading") {
+    return (
+      <aside className="coaching-summary is-loading" role="status">
+        <span className="coaching-summary__pulse" aria-hidden="true" />
+        <span>
+          <strong>Coach is organizing the verified ideas…</strong>
+          <small>The local review is ready while this finishes.</small>
+        </span>
+      </aside>
+    );
+  }
+  if (state.status === "unavailable") {
+    return (
+      <aside className="coaching-summary is-fallback" role="status">
+        <span className="coaching-summary__eyebrow">Verified fallback</span>
+        <strong>Deeper coaching is unavailable right now.</strong>
+        <p>The evidence-backed review below is still complete.</p>
+      </aside>
+    );
+  }
+
+  const { coaching } = state;
+  if (coaching.status === "disabled") return null;
+  if (coaching.status === "fallback") {
+    return (
+      <aside className="coaching-summary is-fallback" role="status">
+        <span className="coaching-summary__eyebrow">Verified fallback</span>
+        <strong>{coaching.headline}</strong>
+        <p>{coaching.message}</p>
+      </aside>
+    );
+  }
+  return (
+    <aside
+      className="coaching-summary"
+      aria-label="Evidence-backed coach"
+      aria-atomic="true"
+      aria-live="polite"
+      role="status"
+    >
+      <span className="coaching-summary__eyebrow">Coach's focus</span>
+      <strong>{coaching.headline}</strong>
+      <p>Prioritized from verified board evidence.</p>
+      <div className="coaching-summary__sequence" aria-label="Lesson order">
+        {selectedCues.map((lesson, index) => (
+          <span key={lesson.id}>
+            <b>{String(index + 1).padStart(2, "0")}</b>
+            {lesson.label}
+          </span>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
+function coachingExplanationPlan(
+  cues: ReviewAnnotation[],
+  coaching: PositionCoaching | null,
+): { ordered: ReviewAnnotation[]; selected: ReviewAnnotation[] } {
+  if (coaching?.status !== "accepted") return { ordered: cues, selected: [] };
+  const byId = new Map(cues.map((cue) => [cue.id, cue]));
+  if (byId.size !== cues.length) throw new Error("Review contains duplicate annotation IDs");
+  const selected = coaching.lesson_ids.map((lessonId) => {
+    const cue = byId.get(lessonId);
+    if (!cue) throw new Error(`Coaching references unknown lesson: ${lessonId}`);
+    return cue;
+  });
+  const selectedIds = new Set(coaching.lesson_ids);
+  return {
+    ordered: [...selected, ...cues.filter((cue) => !selectedIds.has(cue.id))],
+    selected,
+  };
+}
+
+function annotationKey(cue: ReviewAnnotation): string {
+  return cue.id;
+}
+
 function DiagramStory({
   cues,
   activeCue,
@@ -979,7 +1218,7 @@ function DiagramStory({
           const active = cue === selected;
           return (
             <button
-              key={`${cue.scope}-${cue.ply}-${cue.label}-${index}`}
+              key={annotationKey(cue)}
               ref={active ? selectedStep : null}
               type="button"
               className={`diagram-step is-${cueRole(cue)}${active ? " is-active" : ""}`}
@@ -1006,7 +1245,7 @@ function DiagramStory({
       </div>
       {selected && (
         <p
-          key={`${selected.scope}-${selected.ply}-${selected.label}`}
+          key={annotationKey(selected)}
           className="diagram-story__caption"
         >
           {selected.text}
@@ -1271,9 +1510,9 @@ function hasBoardCue(cue: ReviewAnnotation): boolean {
 }
 
 function initialTeachingDiagram(
-  review: PositionReviewData,
+  explanation: ReviewAnnotation[],
 ): ReviewAnnotation | null {
-  const diagrams = review.explanation.filter(hasBoardCue);
+  const diagrams = explanation.filter(hasBoardCue);
   return (
     diagrams.find((cue) => cue.arrows[0]?.role !== "played") ??
     diagrams[0] ??
@@ -1310,24 +1549,7 @@ function attemptVerdict(
   review: PositionReviewData,
 ): string {
   if (!review.best_move) return review.evaluation;
-  if (review.attempt?.verdict === "best")
-    return `${review.attempt.move.san} is the best move.`;
-  if (review.attempt?.equivalent) {
-    return `${review.attempt.move.san} is effectively as strong as the first engine choice.`;
-  }
-  if (review.attempt?.verdict === "blunder") {
-    return `${review.attempt.move.san} is a blunder; compare the strongest reply with ${review.best_move.san}.`;
-  }
-  if (review.attempt?.lost_forced_mate) {
-    return `${review.attempt.move.san} stays favorable but gives up the forced mate.`;
-  }
-  if (review.attempt) {
-    const comparison =
-      review.attempt.verdict === "mistake"
-        ? "strongest reply"
-        : "checked continuation";
-    return `${review.attempt.move.san} is a ${review.attempt.verdict}; compare its ${comparison} with ${review.best_move.san}.`;
-  }
+  if (review.attempt) return review.attempt.headline;
   if (attempt) return `The comparison for ${attempt.san} was unavailable.`;
   return `The key move is ${review.best_move.san}.`;
 }

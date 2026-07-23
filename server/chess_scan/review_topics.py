@@ -135,6 +135,11 @@ _TOPIC_COPY = {
         "Find the pawn with no enemy pawn in front of it or on a neighbouring file. Can it advance with tempo?",
         "The passed pawn creates a promotion threat that forces enemy pieces into a passive defensive role.",
     ),
+    "pawn_break": (
+        "Pawn break",
+        "Look for a pawn advance that challenges the opponent's chain and changes which files or diagonals can open.",
+        "The pawn advance directly challenges an enemy pawn, forcing the structure to change or concede space.",
+    ),
     "pawn_endgame": (
         "Pawn ending",
         "King activity comes first. Calculate opposition, pawn races, and whether each pawn move can be taken back.",
@@ -159,6 +164,11 @@ _TOPIC_COPY = {
         "Promotion",
         "A pawn is close to the back rank. Check every promotion piece—not only the queen—and note any forcing check.",
         "Promotion changes the material immediately, and the choice of piece can create the exact check or defence required.",
+    ),
+    "prophylaxis": (
+        "Prophylaxis",
+        "Before improving your own plan, identify the opponent's easiest entry or freeing move and take it away.",
+        "The move controls a square the opponent could otherwise use, limiting their plan before continuing with its own.",
     ),
     "queen_endgame": (
         "Queen ending",
@@ -185,10 +195,25 @@ _TOPIC_COPY = {
         "Look for an entry onto the opponent's second rank, where pawns and the king can be attacked from the side.",
         "A heavy piece on the seventh rank attacks several targets at once and restricts the enemy king.",
     ),
+    "space": (
+        "Gain space",
+        "Which pawn can advance safely to claim useful squares and give your pieces more room?",
+        "The pawn advance claims territory on one flank and restricts where the opposing pieces can operate.",
+    ),
     "strong_square": (
         "Strong square",
         "Find a square in enemy territory that cannot be challenged by a pawn. Which piece would be hardest to remove there?",
         "The piece occupies a stable outpost where it controls important squares without being chased by a pawn.",
+    ),
+    "supports_pawn_advance": (
+        "Support a pawn advance",
+        "Can one piece move to protect the square where a pawn wants to arrive?",
+        "The piece improves while supporting an advanced pawn square, making the planned push harder to challenge.",
+    ),
+    "temporary_sacrifice": (
+        "Temporary sacrifice",
+        "Calculate beyond the first material loss. Can forcing replies recover the investment with a better position?",
+        "The line allows material to be taken temporarily, then uses forcing play to restore the balance or emerge ahead.",
     ),
     "threat": (
         "Create a threat",

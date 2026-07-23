@@ -322,6 +322,7 @@ export default function App() {
         orientation,
         changed_squares: result.changed_squares,
         lichess_url: result.lichess_url,
+        coaching_available: result.coaching_available,
       });
       setScan(null);
       navigate({ page: "review", feedbackId: result.feedback_id });

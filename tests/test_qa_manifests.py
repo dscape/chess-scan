@@ -96,6 +96,23 @@ def test_lichess_puzzle_manifest_is_portable_balanced_and_disjoint() -> None:
     assert "/Users/" not in json.dumps(manifest)
 
 
+def test_expert_commentary_manifest_is_portable_and_development_only() -> None:
+    manifest = json.loads((PROJECT_ROOT / "benchmarks" / "expert-commentary-v1.json").read_text())
+
+    assert manifest["version"] == "expert-commentary-2026-07-22-v1"
+    assert manifest["selection"]["splits"] == {"development": 10, "validation": 0}
+    assert manifest["source_policy"]["annotation_text_redistributed"] is False
+    assert len(manifest["cases"]) == 10
+    assert len({case["id"] for case in manifest["cases"]}) == 10
+    assert len({case["source"]["chapter_url"] for case in manifest["cases"]}) == 10
+    assert all(case["source"]["article_url"].startswith("https://") for case in manifest["cases"])
+    assert all(
+        case["source"]["chapter_pgn_url"].startswith("https://") for case in manifest["cases"]
+    )
+    assert "/tmp/" not in json.dumps(manifest)
+    assert "/Users/" not in json.dumps(manifest)
+
+
 def test_qa_results_match_v2_runtime_metadata() -> None:
     results = json.loads((PROJECT_ROOT / "benchmarks" / "qa-2026-07-18.json").read_text())
     metadata = json.loads((PROJECT_ROOT / "models" / "chess-steps-v2.json").read_text())

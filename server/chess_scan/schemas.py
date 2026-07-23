@@ -2,13 +2,40 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 import chess
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 from pydantic_core import PydanticCustomError
 
 from chess_scan.board import SQUARE_COUNT, validate_full_fen, validate_labels
+from chess_scan.commentary_limits import COMMENTARY_MAX_LESSONS
+
+ENGINE_ONLY_EVIDENCE_KINDS = frozenset({"engine_candidate", "engine_comparison"})
+COMMENTARY_FOCUS_HEADLINES = {
+    "cause": "Follow the cause and effect.",
+    "concept": "Focus on the verified concept.",
+    "comparison": "Compare the checked ideas.",
+}
+COMMENTARY_REVIEW_HEADLINE = "Verified review"
+COMMENTARY_FALLBACK_MESSAGE = (
+    "Deeper coaching is unavailable right now. "
+    "The verified evidence-backed lesson is shown instead."
+)
+COMMENTARY_NO_CLAIM_MESSAGE = "No deeper evidence-backed lesson is available for this position."
+
+AnnotationId = Annotated[
+    str,
+    StringConstraints(pattern=r"^[a-z][a-z0-9-]{0,63}$"),
+]
+RecordId = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
 
 
 class ReprocessRequest(BaseModel):
@@ -75,19 +102,21 @@ class ScanResponse(BaseModel):
 
 
 class ConfirmResponse(BaseModel):
-    feedback_id: str
+    feedback_id: RecordId
     full_fen: str
     lichess_url: str
     changed_squares: int
     warnings: list[str]
+    coaching_available: bool
 
 
 class ReviewPositionResponse(BaseModel):
-    feedback_id: str
+    feedback_id: RecordId
     full_fen: str
     orientation: Literal["white", "black"]
     changed_squares: int
     lichess_url: str
+    coaching_available: bool
 
 
 class EngineScore(BaseModel):
@@ -191,7 +220,7 @@ class PositionReviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     fen: str = Field(min_length=1, max_length=120)
-    feedback_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    feedback_id: RecordId | None = None
     analysis: ReviewAnalysisInput | None = None
 
 
@@ -276,6 +305,7 @@ class ReviewDiagramBadge(BaseModel):
 class ReviewAnnotation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    id: AnnotationId
     label: str
     text: str
     scope: Literal[
@@ -334,7 +364,7 @@ class ReviewEvidenceResponse(BaseModel):
     id: str
     kind: str
     scope: Literal["best_line", "attempt_line", "attempt_refutation", "terminal"]
-    proof: Literal["legal_geometry", "line_consequence", "direct_rule"]
+    proof: Literal["legal_geometry", "line_consequence", "counterfactual", "direct_rule"]
     ply: int = Field(ge=0)
     actor: ReviewPieceRef | None
     targets: list[ReviewPieceRef]
@@ -405,8 +435,44 @@ class ReviewLineResponse(BaseModel):
         return self
 
 
+def review_line_for_scope(
+    scope: str,
+    *,
+    best_line: ReviewLineResponse | None,
+    attempt_line: ReviewLineResponse | None,
+) -> ReviewLineResponse | None:
+    if scope == "best_line":
+        return best_line
+    if scope in {"attempt_line", "attempt_refutation"}:
+        return attempt_line
+    return None
+
+
+def review_attempt_headline(
+    san: str,
+    verdict: str,
+    *,
+    equivalent: bool,
+    lost_forced_mate: bool,
+) -> str:
+    if verdict == "best":
+        return f"{san} is the best move."
+    if equivalent:
+        return f"{san} is effectively equivalent to the first choice."
+    if verdict in {"mistake", "blunder"}:
+        consequence = " and gives up the forced mate" if lost_forced_mate else ""
+        return f"{san} is a {verdict}{consequence}."
+    if lost_forced_mate:
+        return f"{san} gives up the forced mate."
+    if verdict in {"excellent", "good"}:
+        return f"{san} is {verdict}."
+    article = "an" if verdict == "inaccuracy" else "a"
+    return f"{san} is {article} {verdict}."
+
+
 class ReviewAttemptResponse(BaseModel):
     move: ReviewMove
+    headline: str = Field(min_length=1, max_length=120)
     verdict: Literal["best", "excellent", "good", "inaccuracy", "mistake", "blunder"]
     equivalent: bool
     expected_score_loss: float = Field(ge=0, le=1)
@@ -415,10 +481,22 @@ class ReviewAttemptResponse(BaseModel):
     mate_delay: int | None = Field(default=None, ge=0)
     line: ReviewLineResponse
 
+    @model_validator(mode="after")
+    def validate_headline(self) -> ReviewAttemptResponse:
+        expected = review_attempt_headline(
+            self.move.san,
+            self.verdict,
+            equivalent=self.equivalent,
+            lost_forced_mate=self.lost_forced_mate,
+        )
+        if self.headline != expected:
+            raise ValueError("Review attempt headline contradicts its verdict")
+        return self
+
 
 class PositionReviewResponse(BaseModel):
-    schema_version: Literal["position-analysis-4"] = "position-analysis-4"
-    review_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    schema_version: Literal["position-analysis-5"] = "position-analysis-5"
+    review_id: RecordId | None = None
     fen: str
     engine: str
     evaluation: str
@@ -441,6 +519,9 @@ class PositionReviewResponse(BaseModel):
 
     @model_validator(mode="after")
     def validate_evidence_contract(self) -> PositionReviewResponse:
+        annotation_ids = [self.hint.id, *(annotation.id for annotation in self.explanation)]
+        if len(annotation_ids) != len(set(annotation_ids)):
+            raise ValueError("Position review annotation IDs must be assigned and unique")
         evidence_ids = [item.id for item in self.evidence]
         if len(set(evidence_ids)) != len(evidence_ids):
             raise ValueError("Position review evidence IDs must be unique")
@@ -465,23 +546,30 @@ class PositionReviewResponse(BaseModel):
                 for evidence_id in annotation.evidence_ids
             ):
                 raise ValueError("Position review diagram scope contradicts its evidence")
-        best_line_length = len(self.lines[0].moves) if self.lines else 0
-        attempt_line_length = len(self.attempt.line.moves) if self.attempt else 0
+        best_line = self.lines[0] if self.lines else None
+        attempt_line = self.attempt.line if self.attempt else None
+        for evidence in self.evidence:
+            if evidence.proof == "counterfactual":
+                _validate_counterfactual_evidence(
+                    self.fen,
+                    evidence,
+                    best_line=best_line,
+                    attempt_line=attempt_line,
+                )
         for annotation in (self.hint, *self.explanation):
-            line_length = {
-                "root": 0,
-                "terminal": 0,
-                "best_line": best_line_length,
-                "attempt_line": attempt_line_length,
-                "attempt_refutation": attempt_line_length,
-            }[annotation.scope]
+            annotation_line = review_line_for_scope(
+                annotation.scope,
+                best_line=best_line,
+                attempt_line=attempt_line,
+            )
+            line_length = len(annotation_line.moves) if annotation_line else 0
             if annotation.ply > line_length:
                 raise ValueError("Position review annotation exceeds its checked line")
             _validate_annotation_evidence(
                 annotation,
                 evidence_by_id=evidence_by_id,
-                best_line=self.lines[0] if self.lines else None,
-                attempt_line=self.attempt.line if self.attempt else None,
+                best_line=best_line,
+                attempt_line=attempt_line,
             )
         if self.score is None:
             if (
@@ -551,6 +639,56 @@ class PositionReviewResponse(BaseModel):
         return self
 
 
+class PositionCoachingResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["commentary-planner-1"] = "commentary-planner-1"
+    review_id: RecordId
+    run_id: RecordId | None = None
+    status: Literal["accepted", "fallback", "disabled"]
+    planner_version: str = Field(min_length=1, max_length=80)
+    headline: str = Field(min_length=1, max_length=160)
+    lesson_ids: list[AnnotationId] = Field(
+        default_factory=list,
+        max_length=COMMENTARY_MAX_LESSONS,
+    )
+    message: str | None = Field(default=None, max_length=240)
+
+    @field_validator("lesson_ids")
+    @classmethod
+    def validate_lesson_ids(cls, lesson_ids: list[str]) -> list[str]:
+        if len(lesson_ids) != len(set(lesson_ids)):
+            raise ValueError("Coaching lesson IDs must be unique annotation IDs")
+        return lesson_ids
+
+    @model_validator(mode="after")
+    def validate_status(self) -> PositionCoachingResponse:
+        if self.status == "disabled" and self.run_id is not None:
+            raise ValueError("Disabled coaching cannot reference a planner run")
+        if self.status != "disabled" and self.run_id is None:
+            raise ValueError("Presented coaching requires a planner run ID")
+        if self.status == "accepted" and not self.lesson_ids:
+            raise ValueError("Accepted coaching requires at least one verified lesson")
+        if self.status == "accepted" and self.message is not None:
+            raise ValueError("Accepted coaching cannot contain a fallback message")
+        if self.status == "accepted" and self.headline not in COMMENTARY_FOCUS_HEADLINES.values():
+            raise ValueError("Accepted coaching requires a fixed focus headline")
+        expected_fallback_message = (
+            COMMENTARY_FALLBACK_MESSAGE if self.lesson_ids else COMMENTARY_NO_CLAIM_MESSAGE
+        )
+        if self.status == "fallback" and (
+            self.headline != COMMENTARY_REVIEW_HEADLINE or self.message != expected_fallback_message
+        ):
+            raise ValueError("Fallback coaching requires fixed verified copy")
+        if self.status == "disabled" and (
+            self.headline != COMMENTARY_REVIEW_HEADLINE
+            or self.lesson_ids
+            or self.message is not None
+        ):
+            raise ValueError("Disabled coaching cannot contain generated content")
+        return self
+
+
 class PositionReviewFeedbackRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -566,6 +704,15 @@ class PositionReviewFeedbackRequest(BaseModel):
         "other",
     ]
     detail: str | None = Field(default=None, max_length=500)
+    coaching_status: Literal[
+        "not_shown",
+        "loading",
+        "accepted",
+        "fallback",
+        "unavailable",
+        "disabled",
+    ]
+    commentary_run_id: RecordId | None = None
 
     @model_validator(mode="after")
     def validate_reason(self) -> PositionReviewFeedbackRequest:
@@ -573,11 +720,14 @@ class PositionReviewFeedbackRequest(BaseModel):
             raise ValueError("helpful feedback requires the correct reason")
         if self.rating == "unhelpful" and self.reason == "correct":
             raise ValueError("unhelpful feedback requires a problem reason")
+        run_required = self.coaching_status in {"accepted", "fallback"}
+        if run_required != (self.commentary_run_id is not None):
+            raise ValueError("Presented coaching requires its immutable run ID")
         return self
 
 
 class PositionReviewFeedbackResponse(BaseModel):
-    feedback_id: str
+    feedback_id: RecordId
 
 
 class LearningStatusResponse(BaseModel):
@@ -600,9 +750,7 @@ def _validate_annotation_evidence(
 ) -> None:
     evidence_items = [evidence_by_id[evidence_id] for evidence_id in annotation.evidence_ids]
     finding_evidence = [
-        evidence
-        for evidence in evidence_items
-        if evidence.kind not in {"engine_candidate", "engine_comparison"}
+        evidence for evidence in evidence_items if evidence.kind not in ENGINE_ONLY_EVIDENCE_KINDS
     ]
     has_visuals = bool(annotation.markers or annotation.arrows or annotation.badge)
     if (annotation.scope != "root" or has_visuals) and any(
@@ -610,18 +758,16 @@ def _validate_annotation_evidence(
     ):
         raise ValueError("Position review diagram ply contradicts its evidence")
 
-    line = (
-        best_line
-        if annotation.scope == "best_line"
-        else attempt_line
-        if annotation.scope in {"attempt_line", "attempt_refutation"}
-        else None
+    line = review_line_for_scope(
+        annotation.scope,
+        best_line=best_line,
+        attempt_line=attempt_line,
     )
     supported_squares: set[str] = set()
     evidence_moves: set[tuple[str, str]] = set()
     relation_arrows: set[tuple[str, str]] = set()
     for evidence in evidence_items:
-        if evidence.kind in {"engine_candidate", "engine_comparison"}:
+        if evidence.kind in ENGINE_ONLY_EVIDENCE_KINDS:
             if line is not None and annotation.ply < len(line.moves):
                 endpoints = _move_endpoints(line.moves[annotation.ply].uci)
                 evidence_moves.add(endpoints)
@@ -661,6 +807,38 @@ def _validate_annotation_evidence(
         raise ValueError("Position review marker is not supported by its evidence")
     if annotation.badge is not None and annotation.badge.square not in supported_squares:
         raise ValueError("Position review badge is not supported by its evidence")
+
+
+def _validate_counterfactual_evidence(
+    fen: str,
+    evidence: ReviewEvidenceResponse,
+    *,
+    best_line: ReviewLineResponse | None,
+    attempt_line: ReviewLineResponse | None,
+) -> None:
+    line = review_line_for_scope(
+        evidence.scope,
+        best_line=best_line,
+        attempt_line=attempt_line,
+    )
+    if (
+        line is None
+        or evidence.ply >= len(line.moves)
+        or not evidence.moves
+        or evidence.moves[0] != line.moves[evidence.ply].uci
+    ):
+        raise ValueError("Counterfactual evidence does not start at its checked line ply")
+    board = validate_full_fen(fen)
+    for reviewed_move in line.moves[: evidence.ply]:
+        move = chess.Move.from_uci(reviewed_move.uci)
+        if move not in board.legal_moves:
+            raise ValueError("Counterfactual evidence has an invalid checked-line prefix")
+        board.push(move)
+    for uci in evidence.moves:
+        move = chess.Move.from_uci(uci)
+        if move not in board.legal_moves:
+            raise ValueError("Counterfactual evidence contains an illegal continuation")
+        board.push(move)
 
 
 def _move_endpoints(uci: str) -> tuple[str, str]:

@@ -16,9 +16,18 @@ import numpy as np
 
 from chess_scan.board import build_full_fen, lichess_analysis_url, validate_full_fen
 from chess_scan.classifier import BoardPrediction, ModelManager
+from chess_scan.commentary_planner import (
+    CommentaryCoach,
+    CommentaryPlannerRun,
+    eligible_commentary_lessons,
+)
 from chess_scan.config import Settings
 from chess_scan.database import Database
-from chess_scan.errors import StoredDataIntegrityError
+from chess_scan.errors import (
+    CommentaryBudgetExceededError,
+    CommentaryBusyError,
+    StoredDataIntegrityError,
+)
 from chess_scan.geometry import (
     DETECTION_MAX_DIMENSION,
     board_grid_fits,
@@ -34,6 +43,7 @@ from chess_scan.schemas import (
     ConfirmRequest,
     ConfirmResponse,
     LearningStatusResponse,
+    PositionCoachingResponse,
     PositionReviewFeedbackRequest,
     PositionReviewFeedbackResponse,
     PositionReviewRequest,
@@ -52,6 +62,19 @@ class CleanupResult:
     backlog: bool
 
 
+@dataclass(frozen=True, slots=True)
+class ImmediatePositionCoaching:
+    response: PositionCoachingResponse
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedPositionCoaching:
+    review: PositionReviewResponse
+
+
+PositionCoachingPreflight = ImmediatePositionCoaching | PreparedPositionCoaching
+
+
 class ScannerService:
     def __init__(
         self,
@@ -59,10 +82,15 @@ class ScannerService:
         settings: Settings,
         database: Database,
         models: ModelManager,
+        commentary_coach: CommentaryCoach | None = None,
     ) -> None:
         self.settings = settings
         self.database = database
         self.models = models
+        self.commentary_coach = commentary_coach or CommentaryCoach.from_settings(settings)
+
+    def close(self) -> None:
+        self.commentary_coach.close()
 
     def detect(self, file_bytes: bytes) -> BoardDetectionResponse:
         source = decode_uploaded_image(
@@ -254,6 +282,7 @@ class ScannerService:
             lichess_url=lichess_analysis_url(full_fen, orientation=request.orientation),
             changed_squares=int(confirmed["changed_squares"]),
             warnings=[],
+            coaching_available=self.commentary_coach.enabled,
         )
 
     def review_position(self, feedback_id: str) -> ReviewPositionResponse:
@@ -272,6 +301,7 @@ class ScannerService:
             orientation=orientation,
             changed_squares=int(review["changed_squares"]),
             lichess_url=lichess_analysis_url(full_fen, orientation=orientation),
+            coaching_available=self.commentary_coach.enabled,
         )
 
     def create_position_review(self, request: PositionReviewRequest) -> PositionReviewResponse:
@@ -300,6 +330,158 @@ class ScannerService:
                 f"Stored position review is invalid: {review_id}"
             ) from exc
 
+    def preflight_position_coaching(
+        self,
+        review_id: str,
+    ) -> PositionCoachingPreflight:
+        review = self.get_position_review(review_id)
+        if not self.commentary_coach.enabled:
+            return ImmediatePositionCoaching(
+                response=self.commentary_coach.plan(review).response,
+            )
+
+        stored = self._stored_position_coaching(review)
+        if stored is not None:
+            return ImmediatePositionCoaching(response=stored)
+
+        lessons = eligible_commentary_lessons(review)
+        if lessons:
+            return PreparedPositionCoaching(review=review)
+
+        run = self.commentary_coach.plan(review)
+        if not isinstance(run, CommentaryPlannerRun):
+            raise RuntimeError("Enabled coaching returned a disabled result")
+        response = self._persist_commentary_run(review, run)
+        return ImmediatePositionCoaching(response=response)
+
+    def create_position_coaching(
+        self,
+        review_id: str,
+        *,
+        preflight: PreparedPositionCoaching | None = None,
+    ) -> PositionCoachingResponse:
+        prepared = preflight or self.preflight_position_coaching(review_id)
+        if isinstance(prepared, ImmediatePositionCoaching):
+            return prepared.response
+
+        review = prepared.review
+        if review.review_id != review_id:
+            raise ValueError("Prepared coaching references a different review")
+        run_id = uuid.uuid4().hex
+        reservation = self.database.reserve_commentary_planner_run(
+            review_id=review_id,
+            reservation_id=run_id,
+            lease_seconds=self.settings.commentary_planner_timeout_seconds + 35,
+            max_runs_per_feedback=self.settings.commentary_planner_max_runs_per_feedback,
+            max_runs_per_hour=self.settings.commentary_planner_max_runs_per_hour,
+            max_concurrent=self.settings.commentary_planner_max_concurrent,
+        )
+        if reservation == "stored":
+            stored = self._stored_position_coaching(review)
+            if stored is None:
+                raise CommentaryBusyError("Coaching result is being committed")
+            return stored
+        if reservation == "busy":
+            raise CommentaryBusyError("Coaching is already being prepared")
+        if reservation == "global_busy":
+            raise CommentaryBusyError("Coaching is busy; try again shortly")
+        if reservation == "budget_exhausted":
+            raise CommentaryBudgetExceededError(
+                "This position has reached its external coaching limit"
+            )
+        if reservation == "global_budget_exhausted":
+            raise CommentaryBudgetExceededError(
+                "The external coaching budget is temporarily exhausted"
+            )
+        if reservation != "reserved":
+            raise RuntimeError(f"Unknown commentary reservation outcome: {reservation}")
+
+        run: CommentaryPlannerRun | None = None
+        try:
+            planned = self.commentary_coach.plan(
+                review,
+                run_id=run_id,
+            )
+            if not isinstance(planned, CommentaryPlannerRun):
+                raise RuntimeError("Enabled coaching returned a disabled result")
+            run = planned
+            return self._persist_commentary_run(
+                review,
+                run,
+                reservation_id=run_id,
+            )
+        except Exception:
+            if run is None or run.provider_completion is None:
+                self.database.release_commentary_planner_reservation(
+                    review_id=review_id,
+                    reservation_id=run_id,
+                )
+            raise
+
+    def _persist_commentary_run(
+        self,
+        review: PositionReviewResponse,
+        run: CommentaryPlannerRun,
+        *,
+        reservation_id: str | None = None,
+    ) -> PositionCoachingResponse:
+        if review.review_id is None:
+            raise ValueError("Stored review ID is required for coaching")
+        response = run.response
+        if response.run_id is None:
+            raise RuntimeError("Persisted coaching requires a run ID")
+        try:
+            inserted = self.database.save_commentary_planner_run(
+                run.record,
+                reservation_id=reservation_id,
+                release_reservation=run.provider_completion is None,
+            )
+        finally:
+            if reservation_id is not None and run.provider_completion is not None:
+                run.provider_completion.add_done_callback(
+                    lambda _future: self._release_commentary_reservation(
+                        review.review_id,
+                        reservation_id,
+                    )
+                )
+        if inserted:
+            return response
+        if reservation_id is not None and run.provider_completion is None:
+            self.database.release_commentary_planner_reservation(
+                review_id=review.review_id,
+                reservation_id=reservation_id,
+            )
+        stored = self._stored_position_coaching(review)
+        if stored is None:
+            raise CommentaryBusyError("Coaching result is being committed")
+        return stored
+
+    def _release_commentary_reservation(
+        self,
+        review_id: str,
+        reservation_id: str,
+    ) -> None:
+        try:
+            self.database.release_commentary_planner_reservation(
+                review_id=review_id,
+                reservation_id=reservation_id,
+            )
+        except Exception:
+            logger.exception("Could not release commentary reservation %s", reservation_id)
+
+    def _stored_position_coaching(
+        self,
+        review: PositionReviewResponse,
+    ) -> PositionCoachingResponse | None:
+        if review.review_id is None:
+            raise ValueError("Stored review ID is required for coaching")
+        try:
+            return self.database.position_coaching(review.review_id, review=review)
+        except ValueError as exc:
+            raise StoredDataIntegrityError(
+                f"Stored position coaching is invalid: {review.review_id}"
+            ) from exc
+
     def add_position_review_feedback(
         self,
         review_id: str,
@@ -312,6 +494,8 @@ class ScannerService:
             rating=request.rating,
             reason=request.reason,
             detail=request.detail,
+            coaching_status=request.coaching_status,
+            commentary_run_id=request.commentary_run_id,
         )
         return PositionReviewFeedbackResponse(feedback_id=feedback_id)
 

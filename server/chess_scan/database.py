@@ -4,14 +4,25 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import closing
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from chess_scan.errors import ScanAlreadyConfirmedError, ScanExpiredError
+from chess_scan.commentary_contract import (
+    CommentaryRunRecord,
+    commentary_claim_candidates,
+)
+from chess_scan.commentary_limits import COMMENTARY_MAX_LESSONS
+from chess_scan.errors import (
+    PositionReviewFeedbackConflictError,
+    PositionReviewNotFoundError,
+    ScanAlreadyConfirmedError,
+    ScanExpiredError,
+)
 from chess_scan.learning import (
     INITIAL_TRAINING_BOARDS,
     MAX_BOARDS_PER_CLIENT,
@@ -19,6 +30,22 @@ from chess_scan.learning import (
     diverse_shadow_rows,
 )
 from chess_scan.model_artifact import verify_model_artifact
+from chess_scan.schemas import (
+    PositionCoachingResponse,
+    PositionReviewResponse,
+    review_attempt_headline,
+)
+
+_DATABASE_SCHEMA_VERSION = 1
+
+CommentaryReservationStatus = Literal[
+    "stored",
+    "busy",
+    "global_busy",
+    "budget_exhausted",
+    "global_budget_exhausted",
+    "reserved",
+]
 
 
 class Database:
@@ -34,19 +61,21 @@ class Database:
         base_model_metadata: dict[str, Any],
     ) -> None:
         with closing(self._connect()) as connection:
+            _enable_wal(connection)
             connection.executescript(_SCHEMA)
             _migrate_scans_table(connection)
-            existing = connection.execute(
-                "SELECT version FROM model_versions WHERE version = ?",
-                (base_model_version,),
-            ).fetchone()
-            if existing is None:
+            _migrate_commentary_tables(connection)
+            connection.execute("BEGIN IMMEDIATE")
+            try:
                 now = _now()
                 connection.execute(
                     """
                     INSERT INTO model_versions (
                         version, artifact_path, metadata_json, created_at, activated_at, is_active
                     ) VALUES (?, ?, ?, ?, ?, 0)
+                    ON CONFLICT(version) DO UPDATE SET
+                        artifact_path = excluded.artifact_path,
+                        metadata_json = excluded.metadata_json
                     """,
                     (
                         base_model_version,
@@ -56,28 +85,24 @@ class Database:
                         now,
                     ),
                 )
-            else:
-                connection.execute(
-                    """
-                    UPDATE model_versions
-                    SET artifact_path = ?, metadata_json = ?
-                    WHERE version = ?
-                    """,
-                    (
-                        str(base_model_path.resolve()),
-                        json.dumps(base_model_metadata),
-                        base_model_version,
-                    ),
-                )
-            if (
-                connection.execute("SELECT 1 FROM model_versions WHERE is_active = 1").fetchone()
-                is None
-            ):
-                connection.execute(
-                    "UPDATE model_versions SET is_active = 1, activated_at = ? WHERE version = ?",
-                    (_now(), base_model_version),
-                )
-            connection.commit()
+                if (
+                    connection.execute(
+                        "SELECT 1 FROM model_versions WHERE is_active = 1"
+                    ).fetchone()
+                    is None
+                ):
+                    connection.execute(
+                        """
+                        UPDATE model_versions
+                        SET is_active = 1, activated_at = ?
+                        WHERE version = ?
+                        """,
+                        (now, base_model_version),
+                    )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
 
     def create_scan(
         self,
@@ -352,11 +377,301 @@ class Database:
                 (review_id,),
             ).fetchone()
         if row is None:
-            raise KeyError(f"Unknown position review: {review_id}")
-        payload = json.loads(row["response_json"])
-        if not isinstance(payload, dict):
-            raise ValueError(f"Invalid stored position review: {review_id}")
-        return payload
+            raise PositionReviewNotFoundError(f"Unknown position review: {review_id}")
+        payload = _json_object(str(row["response_json"]), label="position review")
+        return _served_position_review(payload)
+
+    def reserve_commentary_planner_run(
+        self,
+        *,
+        review_id: str,
+        reservation_id: str,
+        lease_seconds: float,
+        max_runs_per_feedback: int,
+        max_runs_per_hour: int,
+        max_concurrent: int,
+    ) -> CommentaryReservationStatus:
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            now = datetime.now(UTC)
+            if connection.execute(
+                "SELECT 1 FROM commentary_planner_runs WHERE review_id = ?",
+                (review_id,),
+            ).fetchone():
+                return "stored"
+            review = connection.execute(
+                "SELECT feedback_id FROM position_review_runs WHERE id = ?",
+                (review_id,),
+            ).fetchone()
+            if review is None:
+                raise PositionReviewNotFoundError(f"Unknown position review: {review_id}")
+            connection.execute(
+                "DELETE FROM commentary_planner_reservations WHERE lease_expires_at <= ?",
+                (now.isoformat(),),
+            )
+            if connection.execute(
+                "SELECT 1 FROM commentary_planner_reservations WHERE review_id = ?",
+                (review_id,),
+            ).fetchone():
+                connection.commit()
+                return "busy"
+            feedback_id = str(review["feedback_id"])
+            hourly_cutoff = (now - timedelta(hours=1)).isoformat()
+            recent_attempts = connection.execute(
+                """
+                SELECT COUNT(*) AS count FROM commentary_planner_attempts
+                WHERE admitted_at >= ?
+                """,
+                (hourly_cutoff,),
+            ).fetchone()["count"]
+            if int(recent_attempts) >= max_runs_per_hour:
+                connection.commit()
+                return "global_budget_exhausted"
+            feedback_attempts = connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM commentary_planner_attempts attempt
+                JOIN position_review_runs review ON review.id = attempt.review_id
+                WHERE review.feedback_id = ?
+                """,
+                (feedback_id,),
+            ).fetchone()["count"]
+            if int(feedback_attempts) >= max_runs_per_feedback:
+                connection.commit()
+                return "budget_exhausted"
+            active = connection.execute(
+                "SELECT COUNT(*) AS count FROM commentary_planner_reservations"
+            ).fetchone()["count"]
+            if int(active) >= max_concurrent:
+                connection.commit()
+                return "global_busy"
+            connection.execute(
+                """
+                INSERT INTO commentary_planner_attempts (
+                    id, review_id, admitted_at
+                ) VALUES (?, ?, ?)
+                """,
+                (reservation_id, review_id, now.isoformat()),
+            )
+            connection.execute(
+                """
+                INSERT INTO commentary_planner_reservations (
+                    review_id, reservation_id, reserved_at, lease_expires_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (
+                    review_id,
+                    reservation_id,
+                    now.isoformat(),
+                    (now + timedelta(seconds=lease_seconds)).isoformat(),
+                ),
+            )
+            connection.commit()
+        return "reserved"
+
+    def save_commentary_planner_run(
+        self,
+        record: CommentaryRunRecord,
+        *,
+        reservation_id: str | None = None,
+        release_reservation: bool = True,
+    ) -> bool:
+        _validate_commentary_run_record(record)
+        response = record.response
+        if reservation_id is not None and reservation_id != response.run_id:
+            raise ValueError("Commentary reservation must match its planner run ID")
+        if record.provider_called and reservation_id is None:
+            raise ValueError("Provider calls require a matching spend reservation")
+        if response.run_id is None:
+            raise ValueError("Persisted coaching requires a run ID")
+        run_id = response.run_id
+        review_id = response.review_id
+        review = PositionReviewResponse.model_validate(self.position_review_run(review_id))
+        _validate_commentary_candidates(record, review=review)
+        request_json = json.dumps(record.request, separators=(",", ":"))
+        accepted_claims_json = json.dumps(record.accepted_claim_ids, separators=(",", ":"))
+        claim_candidates_json = json.dumps(
+            [candidate.model_dump(mode="json") for candidate in record.claim_candidates],
+            separators=(",", ":"),
+        )
+        response_json = response.model_dump_json()
+        created_at = _now()
+
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if reservation_id is not None:
+                reservation = connection.execute(
+                    """
+                    SELECT 1 FROM commentary_planner_reservations
+                    WHERE review_id = ? AND reservation_id = ?
+                    """,
+                    (review_id, reservation_id),
+                ).fetchone()
+                if reservation is None:
+                    return False
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO commentary_planner_runs (
+                        id, review_id, created_at, status, provider, model,
+                        prompt_version, planner_version, request_json, raw_output,
+                        accepted_claims_json, claim_candidates_json, response_json,
+                        latency_ms, input_tokens, output_tokens, error_code, provider_called
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        run_id,
+                        review_id,
+                        created_at,
+                        response.status,
+                        record.provider,
+                        record.model,
+                        record.prompt_version,
+                        response.planner_version,
+                        request_json,
+                        record.raw_output,
+                        accepted_claims_json,
+                        claim_candidates_json,
+                        response_json,
+                        record.latency_ms,
+                        record.input_tokens,
+                        record.output_tokens,
+                        record.error_code,
+                        int(record.provider_called),
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                existing = connection.execute(
+                    "SELECT 1 FROM commentary_planner_runs WHERE review_id = ?",
+                    (review_id,),
+                ).fetchone()
+                if existing is not None:
+                    return False
+                if _is_foreign_key_violation(exc):
+                    raise PositionReviewNotFoundError(
+                        f"Unknown position review: {review_id}"
+                    ) from exc
+                raise
+            if reservation_id is not None and release_reservation:
+                connection.execute(
+                    """
+                    DELETE FROM commentary_planner_reservations
+                    WHERE review_id = ? AND reservation_id = ?
+                    """,
+                    (review_id, reservation_id),
+                )
+            connection.commit()
+        return True
+
+    def release_commentary_planner_reservation(
+        self,
+        *,
+        review_id: str,
+        reservation_id: str,
+    ) -> bool:
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """
+                DELETE FROM commentary_planner_reservations
+                WHERE review_id = ? AND reservation_id = ?
+                """,
+                (review_id, reservation_id),
+            )
+            connection.commit()
+        return cursor.rowcount == 1
+
+    def position_coaching(
+        self,
+        review_id: str,
+        *,
+        review: PositionReviewResponse | None = None,
+    ) -> PositionCoachingResponse | None:
+        validated = self._validated_commentary_run(review_id, review=review)
+        return validated[0].response if validated is not None else None
+
+    def commentary_planner_snapshot(self, review_id: str) -> dict[str, Any]:
+        validated = self._validated_commentary_run(review_id)
+        if validated is None:
+            raise KeyError(f"Unknown commentary planner run: {review_id}")
+        record, created_at, stored_response = validated
+        return _commentary_snapshot(
+            record,
+            created_at=created_at,
+            stored_response=stored_response,
+        )
+
+    def commentary_snapshot_from_feedback_row(
+        self,
+        row: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        review_id = str(row["review_id"])
+        review_response_json = str(row["response_json"])
+        review = PositionReviewResponse.model_validate(
+            _served_position_review(_json_object(review_response_json, label="position review"))
+        )
+        record = _commentary_run_record(
+            row,
+            review_id=review_id,
+            review=review,
+            prefix="commentary_",
+        )
+        if record.provider_called and row["commentary_attempt_id"] != record.response.run_id:
+            raise ValueError(f"Stored commentary has no matching admission: {review_id}")
+        return _commentary_snapshot(
+            record,
+            created_at=str(row["commentary_created_at"]),
+            stored_response=_json_object(
+                str(row["commentary_response_json"]),
+                label="planner response",
+            ),
+        )
+
+    def _validated_commentary_run(
+        self,
+        review_id: str,
+        *,
+        review: PositionReviewResponse | None = None,
+    ) -> tuple[CommentaryRunRecord, str, dict[str, Any]] | None:
+        if review is not None and review.review_id != review_id:
+            raise ValueError("Stored coaching validation received a different review")
+        review_join = (
+            "JOIN position_review_runs review ON review.id = planner.review_id"
+            if review is None
+            else ""
+        )
+        review_column = ", review.response_json AS review_response_json" if review is None else ""
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                f"""
+                SELECT planner.*, attempt.id AS admitted_id {review_column}
+                FROM commentary_planner_runs planner
+                {review_join}
+                LEFT JOIN commentary_planner_attempts attempt
+                  ON attempt.id = planner.id AND attempt.review_id = planner.review_id
+                WHERE planner.review_id = ?
+                """,
+                (review_id,),
+            ).fetchone()
+            if row is None:
+                return None
+        if review is None:
+            review = PositionReviewResponse.model_validate(
+                _served_position_review(
+                    _json_object(str(row["review_response_json"]), label="position review")
+                )
+            )
+        record = _commentary_run_record(
+            row,
+            review_id=review_id,
+            review=review,
+        )
+        if record.provider_called and row["admitted_id"] is None:
+            raise ValueError(f"Stored commentary has no matching admission: {review_id}")
+        stored_response = _json_object(
+            str(row["response_json"]),
+            label="planner response",
+        )
+        return record, str(row["created_at"]), stored_response
 
     def append_position_review_feedback(
         self,
@@ -366,20 +681,43 @@ class Database:
         rating: str,
         reason: str,
         detail: str | None,
+        coaching_status: str,
+        commentary_run_id: str | None,
     ) -> None:
+        run_required = coaching_status in {"accepted", "fallback"}
+        if run_required != (commentary_run_id is not None):
+            raise PositionReviewFeedbackConflictError(
+                "Presented coaching requires its immutable run ID"
+            )
         with closing(self._connect()) as connection:
             try:
                 connection.execute(
                     """
                     INSERT INTO position_review_feedback (
-                        id, review_id, created_at, rating, reason, detail
-                    ) VALUES (?, ?, ?, ?, ?, ?)
+                        id, review_id, created_at, rating, reason, detail,
+                        coaching_status, commentary_run_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (feedback_id, review_id, _now(), rating, reason, detail),
+                    (
+                        feedback_id,
+                        review_id,
+                        _now(),
+                        rating,
+                        reason,
+                        detail,
+                        coaching_status,
+                        commentary_run_id,
+                    ),
                 )
             except sqlite3.IntegrityError as exc:
                 if _is_foreign_key_violation(exc):
-                    raise KeyError(f"Unknown position review: {review_id}") from exc
+                    raise PositionReviewNotFoundError(
+                        f"Unknown position review: {review_id}"
+                    ) from exc
+                if getattr(exc, "sqlite_errorname", None) == "SQLITE_CONSTRAINT_TRIGGER":
+                    raise PositionReviewFeedbackConflictError(
+                        "Feedback contradicts its stored coaching run"
+                    ) from exc
                 raise
             connection.commit()
 
@@ -442,14 +780,39 @@ class Database:
                 feedback.rating,
                 feedback.reason,
                 feedback.detail,
+                feedback.coaching_status,
+                feedback.commentary_run_id AS presented_commentary_run_id,
                 run.id AS review_id,
                 run.feedback_id AS position_feedback_id,
                 run.schema_version,
                 run.engine,
                 run.request_json,
-                run.response_json
+                run.response_json,
+                planner.id AS commentary_id,
+                planner.review_id AS commentary_review_id,
+                planner.created_at AS commentary_created_at,
+                planner.status AS commentary_status,
+                planner.provider AS commentary_provider,
+                planner.model AS commentary_model,
+                planner.prompt_version AS commentary_prompt_version,
+                planner.planner_version AS commentary_planner_version,
+                planner.request_json AS commentary_request_json,
+                planner.raw_output AS commentary_raw_output,
+                planner.accepted_claims_json AS commentary_accepted_claims_json,
+                planner.claim_candidates_json AS commentary_claim_candidates_json,
+                planner.response_json AS commentary_response_json,
+                planner.latency_ms AS commentary_latency_ms,
+                planner.input_tokens AS commentary_input_tokens,
+                planner.output_tokens AS commentary_output_tokens,
+                planner.error_code AS commentary_error_code,
+                planner.provider_called AS commentary_provider_called,
+                attempt.id AS commentary_attempt_id
             FROM position_review_feedback feedback
             JOIN position_review_runs run ON run.id = feedback.review_id
+            LEFT JOIN commentary_planner_runs planner
+              ON planner.id = feedback.commentary_run_id
+            LEFT JOIN commentary_planner_attempts attempt
+              ON attempt.id = planner.id AND attempt.review_id = planner.review_id
             {predicate}
             ORDER BY feedback.created_at, feedback.id
             """,
@@ -1313,8 +1676,222 @@ class Database:
         connection = sqlite3.connect(self.path, timeout=30)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA journal_mode = WAL")
         return connection
+
+
+def _json_object(raw: str, *, label: str) -> dict[str, Any]:
+    try:
+        value = json.loads(raw)
+    except (ValueError, RecursionError) as error:
+        raise ValueError(f"Stored {label} is invalid JSON") from error
+    if not isinstance(value, dict):
+        raise ValueError(f"Stored {label} must be a JSON object")
+    return value
+
+
+def _json_array(raw: str, *, label: str) -> list[Any]:
+    try:
+        value = json.loads(raw)
+    except (ValueError, RecursionError) as error:
+        raise ValueError(f"Stored {label} is invalid JSON") from error
+    if not isinstance(value, list):
+        raise ValueError(f"Stored {label} must be a JSON array")
+    return value
+
+
+def _served_position_review(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ValueError("Stored position review must be a JSON object")
+    if payload.get("schema_version") != "position-analysis-4":
+        return payload
+    adapted = json.loads(json.dumps(payload))
+    adapted["schema_version"] = "position-analysis-5"
+    attempt = adapted.get("attempt")
+    if isinstance(attempt, dict) and "headline" not in attempt:
+        move = attempt.get("move")
+        if not isinstance(move, dict):
+            raise ValueError("Legacy position-review attempt has no move")
+        attempt["headline"] = review_attempt_headline(
+            san=str(move.get("san", "")),
+            verdict=str(attempt.get("verdict", "")),
+            equivalent=bool(attempt.get("equivalent")),
+            lost_forced_mate=bool(attempt.get("lost_forced_mate")),
+        )
+    hint = adapted.get("hint")
+    if isinstance(hint, dict):
+        hint["id"] = "hint"
+    explanation = adapted.get("explanation")
+    if isinstance(explanation, list):
+        for index, annotation in enumerate(explanation, start=1):
+            if isinstance(annotation, dict):
+                annotation["id"] = f"explanation-{index}"
+    return PositionReviewResponse.model_validate(adapted).model_dump(mode="json")
+
+
+def _commentary_run_record(
+    row: Mapping[str, Any],
+    *,
+    review_id: str,
+    review: PositionReviewResponse,
+    prefix: str = "",
+) -> CommentaryRunRecord:
+    def value(column: str) -> Any:
+        return row[f"{prefix}{column}"]
+
+    response_json, claim_candidates_json = _normalized_commentary_storage(
+        response_json=str(value("response_json")),
+        claim_candidates_json=str(value("claim_candidates_json")),
+        review=review,
+        run_id=str(value("id")),
+    )
+    response = PositionCoachingResponse.model_validate_json(response_json)
+    expected = {
+        "run_id": str(value("id")),
+        "review_id": str(value("review_id")),
+        "status": str(value("status")),
+        "planner_version": str(value("planner_version")),
+    }
+    response_payload = response.model_dump(mode="json")
+    if expected["review_id"] != review_id or any(
+        response_payload.get(key) != expected_value for key, expected_value in expected.items()
+    ):
+        raise ValueError(f"Stored position coaching has conflicting metadata: {review_id}")
+    record = CommentaryRunRecord(
+        response=response,
+        provider=str(value("provider")),
+        model=str(value("model")),
+        prompt_version=str(value("prompt_version")),
+        request=_json_object(str(value("request_json")), label="planner request"),
+        raw_output=value("raw_output"),
+        accepted_claim_ids=tuple(
+            _json_array(str(value("accepted_claims_json")), label="accepted claims")
+        ),
+        claim_candidates=tuple(_json_array(claim_candidates_json, label="claim candidates")),
+        latency_ms=int(value("latency_ms")),
+        input_tokens=value("input_tokens"),
+        output_tokens=value("output_tokens"),
+        error_code=value("error_code"),
+        provider_called=bool(value("provider_called")),
+    )
+    _validate_commentary_run_record(record)
+    _validate_commentary_candidates(record, review=review)
+    return record
+
+
+def _normalized_commentary_storage(
+    *,
+    response_json: str,
+    claim_candidates_json: str,
+    review: PositionReviewResponse,
+    run_id: str,
+) -> tuple[str, str]:
+    response = _json_object(response_json, label="planner response")
+    legacy_lessons = response.get("lessons")
+    if not isinstance(legacy_lessons, list):
+        return response_json, claim_candidates_json
+
+    candidates = commentary_claim_candidates(review.evidence, review.explanation)
+
+    selected_lesson_ids: list[str] = []
+    for legacy_lesson in legacy_lessons:
+        match = next(
+            (
+                candidate
+                for candidate in candidates
+                if candidate.lesson.model_dump(mode="json", exclude={"id"}) == legacy_lesson
+            ),
+            None,
+        )
+        if match is None:
+            raise ValueError("Stored legacy coaching lesson is absent from its review")
+        selected_lesson_ids.append(match.lesson.id)
+
+    response["run_id"] = run_id
+    response["lesson_ids"] = selected_lesson_ids
+    del response["lessons"]
+    return (
+        json.dumps(response, separators=(",", ":")),
+        json.dumps(
+            [candidate.model_dump(mode="json") for candidate in candidates],
+            separators=(",", ":"),
+        ),
+    )
+
+
+def _commentary_snapshot(
+    record: CommentaryRunRecord,
+    *,
+    created_at: str,
+    stored_response: dict[str, Any],
+) -> dict[str, Any]:
+    response = record.response
+    return {
+        "run_id": response.run_id,
+        "created_at": created_at,
+        "status": response.status,
+        "provider": record.provider,
+        "model": record.model,
+        "prompt_version": record.prompt_version,
+        "planner_version": response.planner_version,
+        "request": record.request,
+        "raw_output": record.raw_output,
+        "accepted_claim_ids": list(record.accepted_claim_ids),
+        "claim_candidates": [
+            candidate.model_dump(mode="json") for candidate in record.claim_candidates
+        ],
+        "response": response.model_dump(mode="json"),
+        "stored_response": stored_response,
+        "latency_ms": record.latency_ms,
+        "input_tokens": record.input_tokens,
+        "output_tokens": record.output_tokens,
+        "error_code": record.error_code,
+        "provider_called": record.provider_called,
+    }
+
+
+def _validate_commentary_candidates(
+    record: CommentaryRunRecord,
+    *,
+    review: PositionReviewResponse,
+) -> None:
+    if review.review_id != record.response.review_id:
+        raise ValueError("Stored commentary candidates reference a different review")
+    expected = commentary_claim_candidates(review.evidence, review.explanation)
+    if record.claim_candidates != expected:
+        raise ValueError(
+            f"Stored commentary candidates contradict their review: {record.response.review_id}"
+        )
+
+
+def _validate_commentary_run_record(record: CommentaryRunRecord) -> None:
+    response = record.response
+    if response.status == "disabled":
+        raise ValueError("Disabled coaching is not a planner run")
+    candidate_ids = [candidate.id for candidate in record.claim_candidates]
+    if len(candidate_ids) != len(set(candidate_ids)):
+        raise ValueError("Commentary claim candidates must be unique")
+    if response.status == "accepted":
+        if not 1 <= len(record.accepted_claim_ids) <= COMMENTARY_MAX_LESSONS:
+            raise ValueError("Accepted commentary requires one or two claim IDs")
+        if len(record.accepted_claim_ids) != len(set(record.accepted_claim_ids)):
+            raise ValueError("Accepted commentary claim IDs must be unique")
+        candidates = {candidate.id: candidate.lesson for candidate in record.claim_candidates}
+        try:
+            selected_lessons = [candidates[claim_id] for claim_id in record.accepted_claim_ids]
+        except KeyError as exc:
+            raise ValueError("Accepted commentary contains an unsupported claim ID") from exc
+        if [lesson.id for lesson in selected_lessons] != response.lesson_ids:
+            raise ValueError("Accepted claim order contradicts the presented lessons")
+    elif record.accepted_claim_ids:
+        raise ValueError("Fallback commentary cannot contain accepted claim IDs")
+    else:
+        expected_fallback = [candidate.lesson.id for candidate in record.claim_candidates[:1]]
+        if response.lesson_ids != expected_fallback:
+            raise ValueError("Fallback lessons contradict the deterministic policy")
+    if response.status == "accepted" and record.error_code is not None:
+        raise ValueError("Accepted commentary cannot contain a planner error")
+    if response.status == "accepted" and not record.provider_called:
+        raise ValueError("Accepted commentary requires a provider call")
 
 
 def _is_foreign_key_violation(error: sqlite3.IntegrityError) -> bool:
@@ -1345,10 +1922,156 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def _migrate_scans_table(connection: sqlite3.Connection) -> None:
-    columns = {
-        str(row["name"]) for row in connection.execute("PRAGMA table_info(scans)").fetchall()
+def _enable_wal(connection: sqlite3.Connection) -> None:
+    deadline = time.monotonic() + 30
+    while True:
+        try:
+            mode = connection.execute("PRAGMA journal_mode = WAL").fetchone()[0]
+            if str(mode).lower() == "wal":
+                return
+        except sqlite3.OperationalError as exc:
+            if getattr(exc, "sqlite_errorcode", None) not in {
+                sqlite3.SQLITE_BUSY,
+                sqlite3.SQLITE_LOCKED,
+            }:
+                raise
+        if time.monotonic() >= deadline:
+            raise sqlite3.OperationalError("Timed out while enabling SQLite WAL mode")
+        time.sleep(0.05)
+
+
+def _migrate_commentary_tables(connection: sqlite3.Connection) -> None:
+    if int(connection.execute("PRAGMA user_version").fetchone()[0]) >= _DATABASE_SCHEMA_VERSION:
+        return
+    connection.commit()
+    connection.execute("BEGIN EXCLUSIVE")
+    try:
+        if int(connection.execute("PRAGMA user_version").fetchone()[0]) >= _DATABASE_SCHEMA_VERSION:
+            connection.commit()
+            return
+        planner_columns = _table_columns(connection, "commentary_planner_runs")
+        if "claim_candidates_json" not in planner_columns:
+            connection.execute(
+                """
+                ALTER TABLE commentary_planner_runs
+                ADD COLUMN claim_candidates_json TEXT NOT NULL DEFAULT '[]'
+                """
+            )
+        _migrate_commentary_admission_tables(connection)
+        columns = _table_columns(connection, "position_review_feedback")
+        if "coaching_status" not in columns:
+            connection.execute(
+                """
+                ALTER TABLE position_review_feedback
+                ADD COLUMN coaching_status TEXT NOT NULL DEFAULT 'not_shown'
+                    CHECK (
+                        coaching_status IN (
+                            'not_shown', 'loading', 'accepted', 'fallback',
+                            'unavailable', 'disabled'
+                        )
+                    )
+                """
+            )
+        if "commentary_run_id" not in columns:
+            connection.execute(
+                """
+                ALTER TABLE position_review_feedback
+                ADD COLUMN commentary_run_id TEXT REFERENCES commentary_planner_runs(id)
+                """
+            )
+        _execute_sql_script(connection, _COMMENTARY_FEEDBACK_TRIGGERS)
+        connection.execute(f"PRAGMA user_version = {_DATABASE_SCHEMA_VERSION}")
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+
+
+def _migrate_commentary_admission_tables(connection: sqlite3.Connection) -> None:
+    attempt_columns = _table_columns(connection, "commentary_planner_attempts")
+    if "feedback_id" in attempt_columns:
+        connection.execute("DROP INDEX IF EXISTS idx_commentary_attempts_feedback")
+        connection.execute("DROP INDEX IF EXISTS idx_commentary_attempts_review")
+        connection.execute("DROP INDEX IF EXISTS idx_commentary_attempts_admitted")
+        _execute_sql_script(
+            connection,
+            """
+            ALTER TABLE commentary_planner_attempts RENAME TO legacy_commentary_attempts;
+            CREATE TABLE commentary_planner_attempts (
+                id TEXT PRIMARY KEY,
+                review_id TEXT NOT NULL REFERENCES position_review_runs(id),
+                admitted_at TEXT NOT NULL
+            );
+            INSERT INTO commentary_planner_attempts (id, review_id, admitted_at)
+            SELECT id, review_id, admitted_at FROM legacy_commentary_attempts;
+            DROP TABLE legacy_commentary_attempts;
+            """,
+        )
+
+    reservation_columns = _table_columns(connection, "commentary_planner_reservations")
+    connection.execute("DROP INDEX IF EXISTS idx_commentary_reservations_lease")
+    connection.execute("DROP INDEX IF EXISTS idx_commentary_reservations_reserved")
+    if "feedback_id" in reservation_columns:
+        connection.execute("DROP INDEX IF EXISTS idx_commentary_reservations_feedback")
+        connection.execute("DROP INDEX IF EXISTS idx_commentary_reservations_expiry")
+        connection.execute("DROP INDEX IF EXISTS idx_commentary_reservations_created")
+        _execute_sql_script(
+            connection,
+            """
+            ALTER TABLE commentary_planner_reservations
+            RENAME TO legacy_commentary_reservations;
+            CREATE TABLE commentary_planner_reservations (
+                review_id TEXT PRIMARY KEY REFERENCES position_review_runs(id),
+                reservation_id TEXT NOT NULL UNIQUE,
+                reserved_at TEXT NOT NULL,
+                lease_expires_at TEXT NOT NULL
+            );
+            INSERT INTO commentary_planner_reservations (
+                review_id, reservation_id, reserved_at, lease_expires_at
+            )
+            SELECT review_id, reservation_id, reserved_at, lease_expires_at
+            FROM legacy_commentary_reservations;
+            DROP TABLE legacy_commentary_reservations;
+            """,
+        )
+
+    _execute_sql_script(
+        connection,
+        """
+        CREATE INDEX IF NOT EXISTS idx_commentary_attempts_review
+        ON commentary_planner_attempts(review_id);
+        CREATE INDEX IF NOT EXISTS idx_commentary_attempts_admitted
+        ON commentary_planner_attempts(admitted_at);
+        CREATE INDEX IF NOT EXISTS idx_commentary_reservations_expiry
+        ON commentary_planner_reservations(lease_expires_at);
+        CREATE INDEX IF NOT EXISTS idx_commentary_reservations_created
+        ON commentary_planner_reservations(reserved_at);
+        """,
+    )
+
+
+def _table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
+    if not table_name.isidentifier():
+        raise ValueError("SQLite table name must be an identifier")
+    return {
+        str(row["name"])
+        for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
     }
+
+
+def _execute_sql_script(connection: sqlite3.Connection, script: str) -> None:
+    statement = ""
+    for line in script.splitlines():
+        statement += f"{line}\n"
+        if sqlite3.complete_statement(statement):
+            connection.execute(statement)
+            statement = ""
+    if statement.strip():
+        raise ValueError("Incomplete SQLite migration statement")
+
+
+def _migrate_scans_table(connection: sqlite3.Connection) -> None:
+    columns = _table_columns(connection, "scans")
     state_added = "state" not in columns
     if state_added:
         connection.execute(
@@ -1386,6 +2109,45 @@ def _migrate_scans_table(connection: sqlite3.Connection) -> None:
         WHERE state != 'open' AND cleanup_completed_at IS NULL;
         """
     )
+
+
+_COMMENTARY_FEEDBACK_TRIGGERS = """
+CREATE TRIGGER IF NOT EXISTS validate_review_feedback_coaching_insert
+BEFORE INSERT ON position_review_feedback
+WHEN (
+    (NEW.coaching_status IN ('accepted', 'fallback')) != (NEW.commentary_run_id IS NOT NULL)
+    OR (
+        NEW.commentary_run_id IS NOT NULL
+        AND NOT EXISTS (
+            SELECT 1 FROM commentary_planner_runs planner
+            WHERE planner.id = NEW.commentary_run_id
+              AND planner.review_id = NEW.review_id
+              AND planner.status = NEW.coaching_status
+        )
+    )
+)
+BEGIN
+    SELECT RAISE(ABORT, 'invalid coaching feedback snapshot');
+END;
+
+CREATE TRIGGER IF NOT EXISTS validate_review_feedback_coaching_update
+BEFORE UPDATE OF review_id, coaching_status, commentary_run_id ON position_review_feedback
+WHEN (
+    (NEW.coaching_status IN ('accepted', 'fallback')) != (NEW.commentary_run_id IS NOT NULL)
+    OR (
+        NEW.commentary_run_id IS NOT NULL
+        AND NOT EXISTS (
+            SELECT 1 FROM commentary_planner_runs planner
+            WHERE planner.id = NEW.commentary_run_id
+              AND planner.review_id = NEW.review_id
+              AND planner.status = NEW.coaching_status
+        )
+    )
+)
+BEGIN
+    SELECT RAISE(ABORT, 'invalid coaching feedback snapshot');
+END;
+"""
 
 
 _SCHEMA = """
@@ -1500,6 +2262,43 @@ CREATE TABLE IF NOT EXISTS position_review_runs (
     response_json TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS commentary_planner_runs (
+    id TEXT PRIMARY KEY,
+    review_id TEXT NOT NULL UNIQUE REFERENCES position_review_runs(id),
+    created_at TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('accepted', 'fallback')),
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    planner_version TEXT NOT NULL,
+    request_json TEXT NOT NULL,
+    raw_output TEXT,
+    accepted_claims_json TEXT NOT NULL,
+    claim_candidates_json TEXT NOT NULL,
+    response_json TEXT NOT NULL,
+    latency_ms INTEGER NOT NULL CHECK (latency_ms >= 0),
+    input_tokens INTEGER CHECK (input_tokens IS NULL OR input_tokens >= 0),
+    output_tokens INTEGER CHECK (output_tokens IS NULL OR output_tokens >= 0),
+    error_code TEXT,
+    provider_called INTEGER NOT NULL DEFAULT 1 CHECK (provider_called IN (0, 1))
+);
+
+CREATE TABLE IF NOT EXISTS commentary_planner_attempts (
+    id TEXT PRIMARY KEY,
+    review_id TEXT NOT NULL REFERENCES position_review_runs(id),
+    admitted_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_commentary_attempts_review
+ON commentary_planner_attempts(review_id);
+
+CREATE TABLE IF NOT EXISTS commentary_planner_reservations (
+    review_id TEXT PRIMARY KEY REFERENCES position_review_runs(id),
+    reservation_id TEXT NOT NULL UNIQUE,
+    reserved_at TEXT NOT NULL,
+    lease_expires_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS position_review_feedback (
     id TEXT PRIMARY KEY,
     review_id TEXT NOT NULL REFERENCES position_review_runs(id),
@@ -1511,7 +2310,17 @@ CREATE TABLE IF NOT EXISTS position_review_feedback (
             'equivalent_move_rejected', 'too_verbose', 'missing_detail', 'other'
         )
     ),
-    detail TEXT
+    detail TEXT,
+    coaching_status TEXT NOT NULL DEFAULT 'not_shown' CHECK (
+        coaching_status IN (
+            'not_shown', 'loading', 'accepted', 'fallback', 'unavailable', 'disabled'
+        )
+    ),
+    commentary_run_id TEXT REFERENCES commentary_planner_runs(id),
+    CHECK (
+        (coaching_status IN ('accepted', 'fallback') AND commentary_run_id IS NOT NULL)
+        OR (coaching_status NOT IN ('accepted', 'fallback') AND commentary_run_id IS NULL)
+    )
 );
 
 CREATE TABLE IF NOT EXISTS position_review_feedback_adjudications (
@@ -1559,6 +2368,18 @@ ON position_review_runs(feedback_id, created_at);
 
 CREATE INDEX IF NOT EXISTS idx_position_review_ratings
 ON position_review_feedback(review_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_commentary_planner_created
+ON commentary_planner_runs(created_at);
+
+CREATE INDEX IF NOT EXISTS idx_commentary_attempts_admitted
+ON commentary_planner_attempts(admitted_at);
+
+CREATE INDEX IF NOT EXISTS idx_commentary_reservations_expiry
+ON commentary_planner_reservations(lease_expires_at);
+
+CREATE INDEX IF NOT EXISTS idx_commentary_reservations_created
+ON commentary_planner_reservations(reserved_at);
 
 CREATE INDEX IF NOT EXISTS idx_position_review_adjudications
 ON position_review_feedback_adjudications(review_feedback_id, created_at);

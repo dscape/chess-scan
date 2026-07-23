@@ -31,7 +31,7 @@ from chess_scan.classifier import (
     preprocess_board,
 )
 from chess_scan.config import Settings
-from chess_scan.model_artifact import sha256_file, verify_model_artifact
+from chess_scan.model_artifact import is_sha256, sha256_file, verify_model_artifact
 from chess_scan.platform_data import default_data_dir as default_platform_data_dir
 from chess_scan.platform_data import load_records as load_platform_records
 from chess_scan.platform_data import verify_data_manifest as verify_platform_data_manifest
@@ -479,7 +479,7 @@ def load_active_model(
         return load_fused_wide_onnx(path)
     if architecture == "wide_square_cnn":
         checkpoint_path = path.with_suffix(".pt")
-        if not isinstance(checkpoint_sha256, str) or len(checkpoint_sha256) != 64:
+        if not is_sha256(checkpoint_sha256):
             raise ValueError("Wide model metadata has no valid checkpoint hash")
         if not checkpoint_path.is_file():
             raise FileNotFoundError(f"Wide model checkpoint not found: {checkpoint_path}")

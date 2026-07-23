@@ -9,6 +9,7 @@ import chess
 
 from chess_scan.board import validate_full_fen
 from chess_scan.review_detectors import (
+    MAX_TEACHING_FINDINGS,
     AnalyzedLine,
     DetectedSubject,
     Evidence,
@@ -36,10 +37,14 @@ from chess_scan.schemas import (
     ReviewMove,
     ReviewPieceRef,
     ReviewSquareMarker,
+    review_attempt_headline,
 )
 
 _STOCKFISH_ENGINE = "Stockfish 18 lite"
 _RULES_ENGINE = "Deterministic rules"
+_EQUIVALENT_EXPECTED_LOSS = 0.02
+_NEAR_EQUAL_CENTIPAWNS = 20
+_NEAR_EQUAL_EXPECTED_LOSS = 0.05
 _FindingScope = Literal["best_line", "attempt_refutation"]
 
 
@@ -192,6 +197,7 @@ def build_position_review(
         findings=findings,
         evidence=evidence,
         hint=ReviewAnnotation(
+            id="hint",
             label=topic.name,
             text=topic.hint,
             markers=hint_markers,
@@ -243,10 +249,17 @@ def _review_attempt(
         lost_forced_mate=lost_forced_mate,
         score_deterioration=_score_deterioration_verdict(best.score, attempt_score),
     )
+    presented_equivalent = equivalent or attempt_input.move == best.pv[0]
     response = ReviewAttemptResponse(
         move=move,
+        headline=review_attempt_headline(
+            move.san,
+            verdict,
+            equivalent=presented_equivalent,
+            lost_forced_mate=lost_forced_mate,
+        ),
         verdict=verdict,
-        equivalent=equivalent or attempt_input.move == best.pv[0],
+        equivalent=presented_equivalent,
         expected_score_loss=round(expected_loss, 4),
         centipawn_loss=centipawn_loss,
         lost_forced_mate=lost_forced_mate,
@@ -286,7 +299,7 @@ def _select_findings(
             continue
         seen.add(key)
         deduplicated.append(item)
-        if len(deduplicated) == 3:
+        if len(deduplicated) == MAX_TEACHING_FINDINGS:
             break
     return tuple(deduplicated)
 
@@ -407,7 +420,13 @@ def _explanation(
     if attempt is not None:
         if attempt_evidence_id is None:
             raise ValueError("Attempt commentary requires engine evidence")
-        notes.append(_attempt_annotation(attempt, evidence_id=attempt_evidence_id))
+        notes.append(
+            _attempt_annotation(
+                attempt,
+                annotation_id="explanation-1",
+                evidence_id=attempt_evidence_id,
+            )
+        )
 
     visible_plans = _distinct_plans(plans, limit=2)
     if (
@@ -416,7 +435,13 @@ def _explanation(
         and len(attempt.line.moves) > 1
         and not _shows_first_refutation(visible_plans, attempt.line.moves[1].uci)
     ):
-        notes.append(_reply_annotation(attempt, evidence_id=attempt_evidence_id))
+        notes.append(
+            _reply_annotation(
+                attempt,
+                annotation_id=f"explanation-{len(notes) + 1}",
+                evidence_id=attempt_evidence_id,
+            )
+        )
     for plan in visible_plans:
         if plan.finding is not None:
             text = f"{plan.finding.evidence[0].summary} {plan.topic.idea}"
@@ -429,6 +454,7 @@ def _explanation(
             )
         notes.append(
             ReviewAnnotation(
+                id=f"explanation-{len(notes) + 1}",
                 label=_plan_label(plan, has_attempt=attempt is not None),
                 text=text,
                 scope=plan.scope,
@@ -452,6 +478,7 @@ def _explanation(
     ):
         notes.append(
             ReviewAnnotation(
+                id=f"explanation-{len(notes) + 1}",
                 label="Better move",
                 text=f"Compare the attempt with {best_move.san}, Stockfish's first choice.",
                 scope="best_line",
@@ -499,10 +526,12 @@ def _shows_first_refutation(
 def _reply_annotation(
     attempt: ReviewAttemptResponse,
     *,
+    annotation_id: str,
     evidence_id: str,
 ) -> ReviewAnnotation:
     reply = attempt.line.moves[1]
     return ReviewAnnotation(
+        id=annotation_id,
         label="Strongest reply",
         text=(
             f"After {attempt.move.san}, Stockfish checks {reply.san} as the strongest reply. "
@@ -543,11 +572,14 @@ def _distinct_plans(
 def _attempt_annotation(
     attempt: ReviewAttemptResponse,
     *,
+    annotation_id: str,
     evidence_id: str,
 ) -> ReviewAnnotation:
     percent = round(attempt.expected_score_loss * 100)
-    if attempt.equivalent:
-        text = f"{attempt.move.san} is effectively equivalent to the engine's first choice."
+    if attempt.verdict == "best":
+        text = f"{attempt.move.san} matches Stockfish's first choice."
+    elif attempt.equivalent:
+        text = f"{attempt.move.san} is effectively equivalent to Stockfish's first choice."
     elif attempt.verdict == "blunder" and percent > 0:
         text = (
             f"{attempt.move.san} loses about {percent} percentage points of expected score. "
@@ -565,8 +597,8 @@ def _attempt_annotation(
         )
     elif percent > 0:
         text = (
-            f"{attempt.move.san} is a {attempt.verdict}. It gives up about {percent} "
-            "percentage points of expected score."
+            f"Stockfish rates {attempt.move.san} as {attempt.verdict}. It gives up about "
+            f"{percent} percentage points of expected score."
         )
     elif attempt.centipawn_loss is not None:
         text = (
@@ -580,6 +612,7 @@ def _attempt_annotation(
         "danger" if attempt.verdict in {"mistake", "blunder"} else "focus"
     )
     return ReviewAnnotation(
+        id=annotation_id,
         label="Your move",
         text=text,
         scope=scope,
@@ -856,8 +889,6 @@ def _scores_are_equivalent(
     attempted: EngineScore,
     expected_loss: float,
 ) -> bool:
-    if expected_loss > 0.02:
-        return False
     best_kind = best.kind
     best_value = best.value
     attempted_kind = attempted.kind
@@ -870,7 +901,10 @@ def _scores_are_equivalent(
         return attempted_value > 0 or abs(attempted_value) >= abs(best_value) - 1
     if attempted_kind == "mate":
         return attempted_value > 0
-    return attempted_value >= best_value - 50
+    centipawn_loss = best_value - attempted_value
+    if centipawn_loss <= _NEAR_EQUAL_CENTIPAWNS:
+        return expected_loss <= _NEAR_EQUAL_EXPECTED_LOSS
+    return expected_loss <= _EQUIVALENT_EXPECTED_LOSS and centipawn_loss <= 50
 
 
 def _attempt_verdict(
@@ -988,6 +1022,7 @@ def _terminal_review(
         findings=[finding],
         evidence=[evidence],
         hint=ReviewAnnotation(
+            id="hint",
             label=topic.name,
             text=hint,
             scope="terminal",
@@ -999,6 +1034,7 @@ def _terminal_review(
         ),
         explanation=[
             ReviewAnnotation(
+                id="explanation-1",
                 label="Final position",
                 text=explanation,
                 scope="terminal",

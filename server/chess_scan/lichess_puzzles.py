@@ -14,7 +14,12 @@ from urllib.parse import urlsplit
 import chess
 
 from chess_scan.model_artifact import sha256_file
-from chess_scan.review_detectors import ReviewContext, build_analyzed_line, teaching_subjects
+from chess_scan.review_detectors import (
+    MAX_TEACHING_FINDINGS,
+    ReviewContext,
+    build_analyzed_line,
+    teaching_subjects,
+)
 from chess_scan.review_themes import SUPPORTED_LICHESS_THEMES, detect_solution_theme_modes
 
 _MANIFEST_NAME = "lichess-puzzle-corpus.json"
@@ -177,7 +182,7 @@ def evaluate_theme_agreement(puzzles: list[LichessPuzzle]) -> dict[str, Any]:
             for finding in teaching_subjects(
                 context,
                 theme_evidence=history_free_evidence,
-            )[:3]
+            )[:MAX_TEACHING_FINDINGS]
             if (theme := _PRODUCTION_THEME_BY_HANDLER.get(finding.handler)) is not None
         }
         target = puzzle.benchmark_theme

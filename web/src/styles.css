@@ -2796,6 +2796,115 @@ button:disabled,
   margin-bottom: 22px;
 }
 
+.coaching-summary {
+  position: relative;
+  margin: -4px 0 18px;
+  padding: 15px 16px 14px;
+  display: grid;
+  gap: 5px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--forest) 7%, var(--paper-clean));
+  box-shadow:
+    inset 3px 0 0 var(--forest-bright),
+    inset 0 0 0 1px rgba(23, 61, 44, 0.1);
+}
+
+.coaching-summary::after {
+  content: "";
+  position: absolute;
+  top: -20px;
+  right: -18px;
+  width: 74px;
+  height: 74px;
+  border: 1px solid rgba(23, 61, 44, 0.08);
+  border-radius: 50%;
+}
+
+.coaching-summary__eyebrow {
+  color: var(--forest-bright);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.coaching-summary > strong {
+  position: relative;
+  z-index: 1;
+  font: 600 17px/1.2 var(--display);
+}
+
+.coaching-summary > p,
+.coaching-summary small {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.coaching-summary__sequence {
+  position: relative;
+  z-index: 1;
+  margin-top: 5px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.coaching-summary__sequence > span {
+  padding: 5px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.52);
+  box-shadow: inset 0 0 0 1px rgba(23, 61, 44, 0.1);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.coaching-summary__sequence b {
+  color: var(--teacher-red);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.coaching-summary.is-loading {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  background: rgba(23, 61, 44, 0.035);
+  box-shadow: inset 0 0 0 1px rgba(23, 61, 44, 0.08);
+}
+
+.coaching-summary.is-loading > span:last-child {
+  display: grid;
+  gap: 2px;
+}
+
+.coaching-summary__pulse {
+  width: 9px;
+  height: 9px;
+  border: 2px solid rgba(23, 61, 44, 0.22);
+  border-top-color: var(--forest-bright);
+  border-radius: 50%;
+  animation: coach-spin 800ms linear infinite;
+}
+
+@keyframes coach-spin {
+  to { transform: rotate(360deg); }
+}
+
+.coaching-summary.is-fallback {
+  background: rgba(220, 172, 61, 0.1);
+  box-shadow:
+    inset 3px 0 0 var(--gold),
+    inset 0 0 0 1px rgba(174, 126, 20, 0.14);
+}
+
+.coaching-summary.is-fallback .coaching-summary__eyebrow {
+  color: #8a6719;
+}
+
 .annotation-list {
   display: grid;
   gap: 8px;

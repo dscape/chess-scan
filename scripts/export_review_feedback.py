@@ -10,6 +10,7 @@ from pathlib import Path
 
 from chess_scan.bootstrap import initialize_database
 from chess_scan.config import Settings
+from chess_scan.database import Database
 
 
 def main() -> None:
@@ -55,12 +56,27 @@ def main() -> None:
                 "engine": row["engine"],
                 "request": json.loads(row["request_json"]),
                 "response": json.loads(row["response_json"]),
+                "coaching_status_at_rating": row["coaching_status"],
+                "coaching": _coaching(database, row),
                 "adjudications": adjudications,
             }
             handle.write(json.dumps(record, separators=(",", ":")) + "\n")
             exported += 1
 
     print(f"Exported {exported} position-review ratings to {args.output}")
+
+
+def _coaching(
+    database: Database,
+    row: dict[str, object],
+) -> dict[str, object] | None:
+    presented_run_id = row["presented_commentary_run_id"]
+    if presented_run_id is None:
+        return None
+    snapshot = database.commentary_snapshot_from_feedback_row(row)
+    if snapshot["run_id"] != presented_run_id:
+        raise ValueError("Exported feedback coaching snapshot is inconsistent")
+    return snapshot
 
 
 def _adjudication(row: dict[str, object]) -> dict[str, object]:

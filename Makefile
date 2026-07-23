@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: install dev dev-api dev-web test web-test lint format-check typecheck build check prepare-argus-data prepare-platform-data prepare-lichess-puzzles train-argus-recovery train-platform-model train-print-recovery qa-argus qa-platform qa-print qa-review qa-online qa-stress docker-build
+.PHONY: install dev dev-api dev-web test web-test lint format-check typecheck build check prepare-argus-data prepare-platform-data prepare-lichess-puzzles prepare-commentary prepare-commentary-shadow train-argus-recovery train-platform-model train-print-recovery qa-argus qa-platform qa-print qa-review qa-commentary qa-coaching qa-online qa-stress docker-build
 
 install:
 	uv sync --extra dev
@@ -44,6 +44,12 @@ prepare-platform-data:
 prepare-lichess-puzzles:
 	uv run python scripts/prepare_lichess_puzzles.py --download
 
+prepare-commentary:
+	uv run python scripts/prepare_expert_commentary.py
+
+prepare-commentary-shadow:
+	uv run python scripts/prepare_expert_commentary.py --manifest benchmarks/expert-commentary-shadow-v1.json
+
 train-argus-recovery:
 	uv run --extra ml --with 'pymupdf>=1.25,<2' python scripts/train_argus_recovery.py
 
@@ -64,6 +70,14 @@ qa-print:
 
 qa-review:
 	uv run python scripts/evaluate_lichess_puzzles.py --split validation
+
+qa-commentary:
+	uv run python scripts/evaluate_expert_commentary.py --split development
+	uv run python scripts/evaluate_expert_commentary.py --split validation
+	uv run python scripts/evaluate_expert_commentary.py --manifest benchmarks/expert-commentary-shadow-v1.json --split shadow
+
+qa-coaching:
+	uv run python scripts/evaluate_commentary_planner.py --split validation
 
 qa-online:
 	uv run --with 'pymupdf>=1.25,<2' python scripts/evaluate_online_examples.py --cache-dir data/qa-cache

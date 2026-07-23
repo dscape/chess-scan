@@ -5,32 +5,26 @@ from __future__ import annotations
 import json
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 from chess_scan.board import CLASS_NAMES
-from chess_scan.model_artifact import sha256_file
+from chess_scan.verified_download import install_verified_download
 
 
 def download_verified(url: str, expected_sha256: str, destination: Path) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    if destination.exists() and sha256_file(destination) == expected_sha256:
-        return
+    install_verified_download(
+        source=url,
+        expected_sha256=expected_sha256,
+        destination=destination,
+        download=lambda target: _download_source(url, target),
+    )
 
-    temporary = destination.with_suffix(destination.suffix + ".part")
+
+def _download_source(url: str, target: BinaryIO) -> None:
     request = urllib.request.Request(url, headers={"User-Agent": "Chess-Scan-QA/1"})
-    try:
-        with urllib.request.urlopen(request, timeout=60) as source, temporary.open("wb") as target:
-            while chunk := source.read(1024 * 1024):
-                target.write(chunk)
-        actual_sha256 = sha256_file(temporary)
-        if actual_sha256 != expected_sha256:
-            raise ValueError(
-                f"Official source hash changed for {url}: "
-                f"expected {expected_sha256}, got {actual_sha256}"
-            )
-        temporary.replace(destination)
-    finally:
-        temporary.unlink(missing_ok=True)
+    with urllib.request.urlopen(request, timeout=60) as source:
+        while chunk := source.read(1024 * 1024):
+            target.write(chunk)
 
 
 def labels_from_fen(fen: str) -> list[int]:

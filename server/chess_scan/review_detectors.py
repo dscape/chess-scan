@@ -18,6 +18,8 @@ from chess_scan.review_themes import (
     detect_solution_themes,
 )
 
+MAX_TEACHING_FINDINGS = 4
+
 PIECE_VALUES = {
     chess.PAWN: 1,
     chess.KNIGHT: 3,
@@ -25,6 +27,10 @@ PIECE_VALUES = {
     chess.ROOK: 5,
     chess.QUEEN: 9,
     chess.KING: 0,
+}
+_MINOR_STARTING_SQUARES = {
+    chess.WHITE: frozenset({chess.B1, chess.C1, chess.F1, chess.G1}),
+    chess.BLACK: frozenset({chess.B8, chess.C8, chess.F8, chess.G8}),
 }
 
 
@@ -42,7 +48,7 @@ class Evidence:
     to_square: str | None = None
 
     def __post_init__(self) -> None:
-        if self.proof not in {"legal_geometry", "line_consequence"}:
+        if self.proof not in {"legal_geometry", "line_consequence", "counterfactual"}:
             raise ValueError(f"Unknown evidence proof: {self.proof}")
         for square in (*self.squares, self.from_square, self.to_square):
             if square is not None:
@@ -194,7 +200,13 @@ def _detect_subjects(
         previous = best_by_handler.get(finding.handler)
         if previous is None or finding.confidence > previous.confidence:
             best_by_handler[finding.handler] = finding
-    return tuple(sorted(best_by_handler.values(), key=_subject_sort_key))
+    ordered = sorted(best_by_handler.values(), key=_subject_sort_key)
+    if not ordered:
+        return ()
+    primary = ordered[0]
+    validated = [finding for finding in ordered[1:] if finding.validated_theme]
+    remaining = [finding for finding in ordered[1:] if not finding.validated_theme]
+    return tuple((primary, *validated, *remaining))
 
 
 def _theme_findings(
@@ -329,6 +341,7 @@ def _mate(context: ReviewContext) -> DetectedSubject | None:
 def _defence(context: ReviewContext) -> DetectedSubject | None:
     board, move, after = context.board, context.move, context.after
     san = board.san(move)
+    moving_piece = board.piece_at(move.from_square)
     if board.is_check() and not after.is_check():
         return _finding(
             "defence",
@@ -336,9 +349,13 @@ def _defence(context: ReviewContext) -> DetectedSubject | None:
             "answer_check",
             f"{san} gets the king out of check.",
             moves=(move.uci(),),
+            actor=(
+                _piece_reference(after.piece_at(move.to_square) or moving_piece, move.to_square)
+                if moving_piece is not None
+                else None
+            ),
         )
 
-    moving_piece = board.piece_at(move.from_square)
     if moving_piece is None:
         return None
     enemy = not context.mover
@@ -357,6 +374,7 @@ def _defence(context: ReviewContext) -> DetectedSubject | None:
         f"{san} saves an attacked {chess.piece_name(moving_piece.piece_type)} by {method}.",
         squares=(chess.square_name(move.from_square), chess.square_name(move.to_square)),
         moves=(move.uci(),),
+        actor=_piece_reference(after.piece_at(move.to_square) or moving_piece, move.to_square),
     )
 
 
@@ -660,20 +678,12 @@ def _promotion(context: ReviewContext) -> DetectedSubject | None:
     move = context.move
     if move.promotion is None:
         return None
-    if move.promotion == chess.QUEEN:
-        return None
-    queen_promotion = chess.Move(move.from_square, move.to_square, promotion=chess.QUEEN)
-    if queen_promotion not in context.board.legal_moves:
-        return None
-    queen_board = context.board.copy(stack=False)
-    queen_board.push(queen_promotion)
-    chosen_is_distinct = (context.after.is_check() and not queen_board.is_check()) or (
-        not context.after.is_stalemate() and queen_board.is_stalemate()
-    )
-    if not chosen_is_distinct:
-        return None
     promoted = chess.piece_name(move.promotion)
-    summary = f"{context.board.san(move)} uses underpromotion to a {promoted}."
+    summary = (
+        f"{context.board.san(move)} promotes the pawn to a queen."
+        if move.promotion == chess.QUEEN
+        else f"{context.board.san(move)} uses underpromotion to a {promoted}."
+    )
     return _finding(
         "promotion",
         1.0,
@@ -710,6 +720,8 @@ def _threat(context: ReviewContext) -> DetectedSubject | None:
                 f"{chess.square_name(future_move.to_square)}.",
                 squares=(chess.square_name(future_move.to_square),),
                 moves=(context.move.uci(), future_move.uci()),
+                proof="line_consequence",
+                targets=(_piece_reference(captured, target_square),),
             )
     if context.line.boards[2].is_checkmate():
         return _finding(
@@ -718,6 +730,7 @@ def _threat(context: ReviewContext) -> DetectedSubject | None:
             "mate_threat",
             "The first move creates a mating threat.",
             moves=(context.move.uci(), future_move.uci()),
+            proof="line_consequence",
         )
     return None
 
@@ -920,6 +933,276 @@ def _clearing(context: ReviewContext) -> DetectedSubject | None:
     return None
 
 
+def _temporary_sacrifice(context: ReviewContext) -> DetectedSubject | None:
+    initial_balance = _material_balance(context.board, context.mover)
+    for capture_index in range(1, min(len(context.line.moves), 2), 2):
+        before_capture = context.line.boards[capture_index - 1]
+        capture = context.line.moves[capture_index]
+        sacrificed = _captured_piece(before_capture, capture)
+        if (
+            sacrificed is None
+            or sacrificed.color != context.mover
+            or PIECE_VALUES[sacrificed.piece_type] < 3
+            or not _root_caused_capture_offer(context, capture, sacrificed)
+        ):
+            continue
+        deficit = _material_balance(context.line.boards[capture_index], context.mover)
+        if deficit > initial_balance - 2:
+            continue
+        recovery_index = next(
+            (
+                index
+                for index in range(capture_index + 1, len(context.line.boards), 2)
+                if _material_balance(context.line.boards[index], context.mover) >= initial_balance
+            ),
+            None,
+        )
+        if recovery_index is None or recovery_index < capture_index + 3:
+            continue
+        capture_square = chess.square_name(capture.to_square)
+        recovery_board = context.line.boards[recovery_index - 1]
+        recovery_move = context.line.moves[recovery_index]
+        return _finding(
+            "temporary_sacrifice",
+            0.96,
+            "temporary_sacrifice",
+            (
+                f"{context.board.san(context.move)} allows the "
+                f"{chess.piece_name(sacrificed.piece_type)} on {capture_square} "
+                f"to be taken before {recovery_board.san(recovery_move)} restores "
+                "the material balance."
+            ),
+            squares=(capture_square,),
+            moves=tuple(move.uci() for move in context.line.moves[: recovery_index + 1]),
+            proof="line_consequence",
+            ply=0,
+            actor=_piece_reference(sacrificed, capture.to_square),
+            from_square=chess.square_name(context.move.from_square),
+            to_square=chess.square_name(context.move.to_square),
+        )
+    return None
+
+
+def _root_caused_capture_offer(
+    context: ReviewContext,
+    capture: chess.Move,
+    sacrificed: chess.Piece,
+) -> bool:
+    moving_piece = context.board.piece_at(context.move.from_square)
+    moved_into_capture = (
+        moving_piece is not None
+        and moving_piece == sacrificed
+        and context.move.to_square == capture.to_square
+    )
+    if moved_into_capture:
+        return True
+    before_offer = context.board.copy(stack=False)
+    before_offer.turn = not context.mover
+    return capture not in before_offer.legal_moves
+
+
+def _prophylaxis(context: ReviewContext) -> DetectedSubject | None:
+    board, move, after = context.board, context.move, context.after
+    moving_piece = board.piece_at(move.from_square)
+    if (
+        moving_piece is None
+        or move.promotion is not None
+        or board.is_capture(move)
+        or after.is_check()
+        or moving_piece.piece_type not in {chess.PAWN, chess.BISHOP, chess.ROOK, chess.QUEEN}
+    ):
+        return None
+
+    before_controlled = {
+        square for square in chess.SQUARES if board.is_attacked_by(context.mover, square)
+    }
+    after_controlled = {
+        square for square in chess.SQUARES if after.is_attacked_by(context.mover, square)
+    }
+    newly_controlled = after_controlled - before_controlled
+    enemy_king = after.king(not context.mover)
+    if moving_piece.piece_type == chess.PAWN and enemy_king is not None:
+        king_ring = set(chess.SquareSet(chess.BB_KING_ATTACKS[enemy_king]))
+        restricted = sorted(
+            square
+            for square in newly_controlled & king_ring
+            if after.piece_at(square) is None
+            and _king_route_was_available(board, enemy_king, square, not context.mover)
+        )
+        if restricted:
+            names = ", ".join(chess.square_name(square) for square in restricted)
+            return _finding(
+                "prophylaxis",
+                0.92,
+                "king_route_restricted",
+                (
+                    f"{board.san(move)} controls {names} next to the opposing king, "
+                    "limiting its route."
+                ),
+                squares=tuple(chess.square_name(square) for square in restricted),
+                moves=(move.uci(),),
+                actor=_piece_reference(moving_piece, move.to_square),
+            )
+
+    if moving_piece.piece_type not in {chess.BISHOP, chess.ROOK, chess.QUEEN}:
+        return None
+    candidates: list[tuple[int, chess.Move, chess.Square, chess.Piece]] = []
+    before_reply = board.copy(stack=False)
+    before_reply.turn = not context.mover
+    for reply in after.legal_moves:
+        target = after.piece_at(reply.from_square)
+        if (
+            reply.to_square not in newly_controlled
+            or after.is_capture(reply)
+            or target is None
+            or target.piece_type in {chess.PAWN, chess.KING}
+            or reply not in before_reply.legal_moves
+            or PIECE_VALUES[target.piece_type] < PIECE_VALUES[moving_piece.piece_type] + 2
+        ):
+            continue
+        counterfactual = after.copy(stack=False)
+        counterfactual.push(reply)
+        capture = chess.Move(move.to_square, reply.to_square)
+        if capture in counterfactual.legal_moves:
+            candidates.append((PIECE_VALUES[target.piece_type], reply, reply.to_square, target))
+    if not candidates:
+        return None
+    _, reply, key_square, target = max(candidates, key=lambda item: (item[0], -item[2]))
+    return _finding(
+        "prophylaxis",
+        0.9,
+        "key_square_control",
+        f"{board.san(move)} controls {chess.square_name(key_square)}, so "
+        f"{after.san(reply)} would leave the {chess.piece_name(target.piece_type)} en prise.",
+        squares=(chess.square_name(move.to_square), chess.square_name(key_square)),
+        moves=(move.uci(), reply.uci()),
+        proof="counterfactual",
+        actor=_piece_reference(moving_piece, move.to_square),
+        targets=(_piece_reference(target, key_square),),
+    )
+
+
+def _pawn_break(context: ReviewContext) -> DetectedSubject | None:
+    board, move, after = context.board, context.move, context.after
+    piece = board.piece_at(move.from_square)
+    if (
+        piece is None
+        or piece.piece_type != chess.PAWN
+        or move.promotion is not None
+        or board.is_capture(move)
+    ):
+        return None
+    targets = [
+        square
+        for square in (
+            _enemy_targets(after, move.to_square, context.mover)
+            - _enemy_targets(board, move.from_square, context.mover)
+        )
+        if after.piece_type_at(square) == chess.PAWN
+    ]
+    if not targets:
+        return None
+    target_names = " and ".join(chess.square_name(square) for square in sorted(targets))
+    return _finding(
+        "pawn_break",
+        0.9,
+        "pawn_chain_challenged",
+        (
+            f"{board.san(move)} directly challenges the "
+            f"pawn{'s' if len(targets) > 1 else ''} on {target_names}."
+        ),
+        squares=tuple(chess.square_name(square) for square in sorted(targets)),
+        moves=(move.uci(),),
+        actor=_piece_reference(piece, move.to_square),
+        targets=tuple(
+            _piece_reference(after.piece_at(square), square)  # type: ignore[arg-type]
+            for square in sorted(targets)
+        ),
+    )
+
+
+def _space(context: ReviewContext) -> DetectedSubject | None:
+    board, move = context.board, context.move
+    piece = board.piece_at(move.from_square)
+    if (
+        piece is None
+        or piece.piece_type != chess.PAWN
+        or move.promotion is not None
+        or board.is_capture(move)
+        or chess.square_file(move.to_square) in {3, 4}
+    ):
+        return None
+    destination_rank = chess.square_rank(move.to_square)
+    advanced = destination_rank >= 3 if context.mover == chess.WHITE else destination_rank <= 4
+    if not advanced:
+        return None
+    flank = "queenside" if chess.square_file(move.to_square) <= 2 else "kingside"
+    return _finding(
+        "space",
+        0.78,
+        "space_gain",
+        f"{board.san(move)} gains space on the {flank}.",
+        squares=(chess.square_name(move.to_square),),
+        moves=(move.uci(),),
+        actor=_piece_reference(piece, move.to_square),
+    )
+
+
+def _supports_pawn_advance(context: ReviewContext) -> DetectedSubject | None:
+    board, move, after = context.board, context.move, context.after
+    piece = board.piece_at(move.from_square)
+    starting_squares = _MINOR_STARTING_SQUARES[context.mover]
+    if (
+        piece is None
+        or piece.piece_type in {chess.PAWN, chess.KING}
+        or move.from_square in starting_squares
+    ):
+        return None
+    before_attacks = set(board.attacks(move.from_square))
+    after_attacks = set(after.attacks(move.to_square))
+    candidates: list[tuple[int, chess.Square, chess.Square, tuple[str, ...]]] = []
+    direction = 1 if context.mover == chess.WHITE else -1
+    starting_rank = 1 if context.mover == chess.WHITE else 6
+    for pawn_square in after.pieces(chess.PAWN, context.mover):
+        file = chess.square_file(pawn_square)
+        if file not in {0, 7}:
+            continue
+        rank = chess.square_rank(pawn_square)
+        max_distance = 3 if rank == starting_rank else 2
+        for distance in range(2, max_distance + 1):
+            target_rank = rank + direction * distance
+            if not 0 <= target_rank < 8:
+                continue
+            target_square = chess.square(file, target_rank)
+            path = [chess.square(file, rank + direction * step) for step in range(1, distance + 1)]
+            if any(after.piece_at(square) is not None for square in path):
+                break
+            if target_square in after_attacks and target_square not in before_attacks:
+                plan = _legal_pawn_advance_plan(after, pawn_square, target_square, context.mover)
+                if plan is not None:
+                    candidates.append((distance, pawn_square, target_square, plan))
+    if not candidates:
+        return None
+    _, pawn_square, target_square, advance_moves = max(
+        candidates,
+        key=lambda item: (item[0], item[2]),
+    )
+    return _finding(
+        "supports_pawn_advance",
+        0.76,
+        "advanced_pawn_square_supported",
+        f"{board.san(move)} supports {chess.square_name(target_square)}, helping the "
+        f"pawn on {chess.square_name(pawn_square)} advance.",
+        squares=(
+            chess.square_name(move.to_square),
+            chess.square_name(pawn_square),
+            chess.square_name(target_square),
+        ),
+        moves=(move.uci(), *advance_moves),
+        actor=_piece_reference(piece, move.to_square),
+    )
+
+
 def _breakthrough(context: ReviewContext) -> DetectedSubject | None:
     piece = context.board.piece_at(context.move.from_square)
     if piece is None or piece.piece_type != chess.PAWN:
@@ -950,6 +1233,7 @@ def _check(context: ReviewContext) -> DetectedSubject | None:
         f"{context.board.san(context.move)} gives check.",
         moves=(context.move.uci(),),
         squares=(chess.square_name(context.move.to_square),),
+        proof="line_consequence",
     )
 
 
@@ -1010,11 +1294,7 @@ def _opening(context: ReviewContext) -> DetectedSubject | None:
     if len(board.piece_map()) < 24 or board.fullmove_number > 20:
         return None
     piece = board.piece_at(context.move.from_square)
-    starting_squares = (
-        {chess.B1, chess.G1, chess.C1, chess.F1}
-        if context.mover == chess.WHITE
-        else {chess.B8, chess.G8, chess.C8, chess.F8}
-    )
+    starting_squares = _MINOR_STARTING_SQUARES[context.mover]
     central_pawn = (
         piece is not None
         and piece.piece_type == chess.PAWN
@@ -1367,6 +1647,7 @@ DetectorRegistration = tuple[str, Detector]
 DETECTORS: tuple[DetectorRegistration, ...] = (
     ("mate", _mate),
     ("defence", _defence),
+    ("temporary_sacrifice", _temporary_sacrifice),
     ("material", _material),
     ("double_attack", _double_attack),
     ("pin", _pin),
@@ -1390,6 +1671,10 @@ POSITION_EVALUATORS: tuple[DetectorRegistration, ...] = (
     ("check", _check),
     ("draw", _draw),
     ("passed_pawn", _passed_pawn),
+    ("prophylaxis", _prophylaxis),
+    ("pawn_break", _pawn_break),
+    ("space", _space),
+    ("supports_pawn_advance", _supports_pawn_advance),
     ("activity", _activity),
     ("opening", _opening),
     ("mate_technique", _mate_technique),
@@ -1429,7 +1714,8 @@ SUBJECT_PRIORITY = {
     "mate": 0,
     "double_attack": 2,
     "eliminate_defence": 3,
-    "material": 4,
+    "temporary_sacrifice": 4,
+    "material": 5,
     "discovered_attack": 5,
     "pin": 6,
     "xray": 7,
@@ -1443,9 +1729,13 @@ SUBJECT_PRIORITY = {
     "chasing_targeting": 15,
     "trapping": 16,
     "breakthrough": 17,
-    "threat": 18,
-    "check": 19,
-    "defence": 20,
+    "pawn_break": 18,
+    "threat": 19,
+    "check": 20,
+    "defence": 21,
+    "prophylaxis": 22,
+    "space": 23,
+    "supports_pawn_advance": 24,
     "passed_pawn": 30,
     "king_attack": 31,
     "seventh_rank": 32,
@@ -1473,9 +1763,14 @@ def _run_detector(
     return finding
 
 
-def _subject_sort_key(finding: DetectedSubject) -> tuple[int, float, str]:
+def _subject_sort_key(finding: DetectedSubject) -> tuple[bool, int, float, str]:
+    evidence = finding.evidence[0]
+    priority = SUBJECT_PRIORITY.get(finding.handler, 100)
+    if finding.handler == "material" and evidence.kind == "material_gain_line":
+        priority = 27
     return (
-        SUBJECT_PRIORITY.get(finding.handler, 100),
+        evidence.ply > 0,
+        priority,
         -finding.confidence,
         finding.handler,
     )
@@ -1489,8 +1784,12 @@ def _finding(
     *,
     squares: tuple[str, ...] = (),
     moves: tuple[str, ...] = (),
+    proof: Proof = "legal_geometry",
     actor: PieceRef | None = None,
     targets: tuple[PieceRef, ...] = (),
+    ply: int = 0,
+    from_square: str | None = None,
+    to_square: str | None = None,
 ) -> DetectedSubject:
     return DetectedSubject(
         handler=handler,
@@ -1501,8 +1800,12 @@ def _finding(
                 summary,
                 squares,
                 moves,
+                proof=proof,
+                ply=ply,
                 actor=actor,
                 targets=targets,
+                from_square=from_square,
+                to_square=to_square,
             ),
         ),
     )
@@ -1514,6 +1817,49 @@ def _piece_reference(piece: chess.Piece, square: chess.Square) -> PieceRef:
         piece=chess.piece_name(piece.piece_type),
         square=chess.square_name(square),
     )
+
+
+def _legal_pawn_advance_plan(
+    board: chess.Board,
+    pawn_square: chess.Square,
+    target_square: chess.Square,
+    color: chess.Color,
+) -> tuple[str, ...] | None:
+    target_rank = chess.square_rank(target_square)
+    if target_rank in {0, 7}:
+        return None
+    counterfactual = board.copy(stack=False)
+    counterfactual.turn = color
+    direction = 1 if color == chess.WHITE else -1
+    plan: list[str] = []
+    current_square = pawn_square
+    while current_square != target_square:
+        current_rank = chess.square_rank(current_square)
+        remaining = abs(target_rank - current_rank)
+        step = 2 if current_rank == (1 if color == chess.WHITE else 6) and remaining > 1 else 1
+        next_square = chess.square(
+            chess.square_file(current_square),
+            current_rank + direction * step,
+        )
+        move = chess.Move(current_square, next_square)
+        if move not in counterfactual.legal_moves:
+            return None
+        plan.append(move.uci())
+        counterfactual.push(move)
+        counterfactual.turn = color
+        current_square = next_square
+    return tuple(plan)
+
+
+def _king_route_was_available(
+    board: chess.Board,
+    king_square: chess.Square,
+    target_square: chess.Square,
+    color: chess.Color,
+) -> bool:
+    counterfactual = board.copy(stack=False)
+    counterfactual.turn = color
+    return chess.Move(king_square, target_square) in counterfactual.legal_moves
 
 
 def _captured_piece(board: chess.Board, move: chess.Move) -> chess.Piece | None:

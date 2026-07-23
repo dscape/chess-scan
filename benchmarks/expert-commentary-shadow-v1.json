@@ -1,0 +1,1962 @@
+{
+  "version": "expert-commentary-shadow-2026-07-22-v1",
+  "description": "Fresh post-implementation shadow positions from ten games in the independently annotated 2024 World Championship study.",
+  "source_policy": {
+    "annotation_text_redistributed": false,
+    "game_scores_redistributed": false,
+    "derived_claims_committed": true,
+    "article_and_chapter_urls_retained": true
+  },
+  "selection": {
+    "cases": 10,
+    "splits": {
+      "shadow": 10
+    },
+    "source_collections": 1,
+    "game_groups": 10,
+    "grouping": "game_and_source_collection",
+    "shadow_policy": "Selected only after implementation; never used to tune this candidate."
+  },
+  "engine": {
+    "name": "Stockfish 18 lite",
+    "score_pov": "side_to_move",
+    "root_target_ms": 5000,
+    "stability_retry_max_ms": 10000,
+    "attempt_max_ms": 3200,
+    "analysis_committed": true
+  },
+  "quality_scale": [
+    "strong",
+    "partial",
+    "miss"
+  ],
+  "source_collections": [
+    {
+      "id": "wcc-2024",
+      "name": "World Championship 2024: Annotated Games",
+      "study_url": "https://lichess.org/study/LF4x850G",
+      "study_pgn_url": "https://lichess.org/study/LF4x850G.pgn",
+      "study_pgn_sha256": "96644cb87591341212f708a72c2deaf5a13b327a3789d33f3beb418eeb5efbea",
+      "split": "shadow"
+    }
+  ],
+  "baseline_gates": {
+    "shadow": {
+      "minimum_cases": 10,
+      "minimum_verdict_agreement": 1.0,
+      "minimum_best_move_support": 1.0,
+      "minimum_strong": 3,
+      "minimum_covered": 3,
+      "maximum_disallowed_primary": 1,
+      "maximum_later_primary": 0
+    }
+  },
+  "cases": [
+    {
+      "id": "wcc-2024-gukesh-ding-18-nb2",
+      "split": "shadow",
+      "group": {
+        "source_collection_id": "wcc-2024",
+        "game_id": "LF4x850G:JCTkemND"
+      },
+      "source": {
+        "article_url": "https://lichess.org/study/LF4x850G",
+        "chapter_url": "https://lichess.org/study/LF4x850G/JCTkemND",
+        "chapter_pgn_url": "https://lichess.org/study/LF4x850G/JCTkemND.pgn",
+        "chapter_pgn_sha256": "d6d4cad277c385a83b93bfadc347dc48d67371714b3f1ca105ea0a9b65ba0cbe",
+        "annotation_context_sha256": "930c18b152edab74517876236f3f9a5a8509db49568350d267594fd1de2a35e0",
+        "annotator": "GM David Navara"
+      },
+      "game": {
+        "white": "Gukesh D",
+        "black": "Ding, Liren",
+        "round": "1"
+      },
+      "position": {
+        "fen": "r3k2r/1pqbbppp/4p3/3pP3/1PnN1PP1/p1P5/P3QBBP/R4RK1 b kq - 0 18",
+        "move_number": 18,
+        "side_to_move": "black",
+        "annotated_move_uci": "c4b2",
+        "annotated_move_san": "Nb2"
+      },
+      "reference": {
+        "acceptable_attempt_verdicts": [
+          "best",
+          "excellent"
+        ],
+        "acceptable_best_moves": [
+          "c4b2"
+        ],
+        "acceptable_primary_concepts": [
+          "strong-square",
+          "threat",
+          "weak-pawn"
+        ],
+        "acceptable_secondary_concepts": [],
+        "disallowed_primary_concepts": [],
+        "claims": [
+          {
+            "predicate": "attacks-weak-pawn",
+            "move": "c4b2",
+            "squares": [
+              "c3"
+            ],
+            "proof": "fen"
+          },
+          {
+            "predicate": "occupies-outpost",
+            "move": "c4b2",
+            "squares": [
+              "b2"
+            ],
+            "proof": "fen"
+          }
+        ],
+        "history_dependent_claims": [
+          "player intent, preparation, clock use, and match psychology"
+        ],
+        "baseline_quality": "strong"
+      },
+      "analysis_runtime": {
+        "root_ms": 5000,
+        "attempt_ms": 3200
+      },
+      "analysis": {
+        "score_pov": "side_to_move",
+        "lines": [
+          {
+            "rank": 1,
+            "depth": 21,
+            "score": {
+              "kind": "cp",
+              "value": -6
+            },
+            "wdl": [
+              7,
+              982,
+              11
+            ],
+            "pv": [
+              "c4b2",
+              "e2f3",
+              "a8c8",
+              "f1c1",
+              "g7g6",
+              "g2f1",
+              "b2c4",
+              "f1d3",
+              "h7h5",
+              "g4g5",
+              "e8g8",
+              "g1h1",
+              "c4b2",
+              "f3h3",
+              "b2d3",
+              "h3d3"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 2,
+            "depth": 21,
+            "score": {
+              "kind": "cp",
+              "value": -31
+            },
+            "wdl": [
+              2,
+              962,
+              36
+            ],
+            "pv": [
+              "a8c8",
+              "f2g3",
+              "c7b6",
+              "f4f5",
+              "e8g8",
+              "a1b1",
+              "f8e8",
+              "g1h1",
+              "e7g5",
+              "h2h4",
+              "g5e3",
+              "b1d1",
+              "e3d4",
+              "d1d4",
+              "e6f5",
+              "g4f5"
+            ],
+            "stable": true
+          }
+        ],
+        "attempt": {
+          "move": "c4b2",
+          "line": {
+            "rank": 1,
+            "depth": 26,
+            "score": {
+              "kind": "cp",
+              "value": 0
+            },
+            "wdl": [
+              9,
+              982,
+              9
+            ],
+            "pv": [
+              "c4b2",
+              "f2e1",
+              "c7b6",
+              "f4f5",
+              "e7b4",
+              "e1f2",
+              "b4c5",
+              "a1b1",
+              "e8g8",
+              "f5f6",
+              "g7f6",
+              "e2d2",
+              "d7b5",
+              "d2h6",
+              "f6e5",
+              "h6g5"
+            ],
+            "stable": true
+          }
+        }
+      }
+    },
+    {
+      "id": "wcc-2024-gukesh-ding-19-e4",
+      "split": "shadow",
+      "group": {
+        "source_collection_id": "wcc-2024",
+        "game_id": "LF4x850G:lA3hZn0P"
+      },
+      "source": {
+        "article_url": "https://lichess.org/study/LF4x850G",
+        "chapter_url": "https://lichess.org/study/LF4x850G/lA3hZn0P",
+        "chapter_pgn_url": "https://lichess.org/study/LF4x850G/lA3hZn0P.pgn",
+        "chapter_pgn_sha256": "d264ce11fe9ae3811ad5b3f5afac5fc33ba8aa2b441a7ec0564e00410fcce767",
+        "annotation_context_sha256": "931c550c166c07a7098fba92f1db7f1d9ec058b4779c1b2f03afb05306b9462b",
+        "annotator": "GM David Navara"
+      },
+      "game": {
+        "white": "Gukesh D",
+        "black": "Ding, Liren",
+        "round": "3"
+      },
+      "position": {
+        "fen": "r3kb2/pp1n1pn1/2p3p1/3p2Pr/3P4/1PN2PB1/1PbNP3/R3KBR1 w Qq - 3 19",
+        "move_number": 19,
+        "side_to_move": "white",
+        "annotated_move_uci": "e2e4",
+        "annotated_move_san": "e4"
+      },
+      "reference": {
+        "acceptable_attempt_verdicts": [
+          "best",
+          "excellent"
+        ],
+        "acceptable_best_moves": [
+          "e2e4"
+        ],
+        "acceptable_primary_concepts": [
+          "trapping",
+          "pawn-break"
+        ],
+        "acceptable_secondary_concepts": [],
+        "disallowed_primary_concepts": [],
+        "claims": [
+          {
+            "predicate": "pawn-break",
+            "move": "e2e4",
+            "squares": [
+              "d5"
+            ],
+            "proof": "fen"
+          },
+          {
+            "predicate": "traps-piece",
+            "move": "e2e4",
+            "piece": "bishop",
+            "squares": [
+              "c2"
+            ],
+            "proof": "line"
+          }
+        ],
+        "history_dependent_claims": [
+          "player intent, preparation, clock use, and match psychology"
+        ],
+        "baseline_quality": "strong"
+      },
+      "analysis_runtime": {
+        "root_ms": 5000,
+        "attempt_ms": 3200
+      },
+      "analysis": {
+        "score_pov": "side_to_move",
+        "lines": [
+          {
+            "rank": 1,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": 50
+            },
+            "wdl": [
+              48,
+              952,
+              0
+            ],
+            "pv": [
+              "e2e4",
+              "g7e6",
+              "a1c1",
+              "d5e4",
+              "f3e4",
+              "e6d4",
+              "c3e2",
+              "d4b3",
+              "c1c2",
+              "b3d2",
+              "c2d2",
+              "h5g5",
+              "e1d1",
+              "a7a5",
+              "g1h1",
+              "d7c5"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 2,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": -29
+            },
+            "wdl": [
+              0,
+              986,
+              14
+            ],
+            "pv": [
+              "a1c1",
+              "c2f5",
+              "e2e4",
+              "f5e6",
+              "g3f4",
+              "f8b4",
+              "e1f2",
+              "e8e7",
+              "c1e1",
+              "b4d6",
+              "c3e2",
+              "h5h4",
+              "f4d6",
+              "e7d6",
+              "b3b4",
+              "a7a6"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 3,
+            "depth": 22,
+            "score": {
+              "kind": "cp",
+              "value": -39
+            },
+            "wdl": [
+              0,
+              975,
+              25
+            ],
+            "pv": [
+              "g3f2",
+              "c2f5",
+              "e2e4",
+              "f5e6",
+              "f2e3",
+              "f8e7",
+              "e3f4",
+              "a7a6",
+              "e1d1",
+              "e7b4",
+              "c3a2",
+              "b4d2",
+              "d1d2",
+              "d5e4",
+              "f3e4",
+              "e8c8"
+            ],
+            "stable": true
+          }
+        ],
+        "attempt": {
+          "move": "e2e4",
+          "line": {
+            "rank": 1,
+            "depth": 25,
+            "score": {
+              "kind": "cp",
+              "value": 52
+            },
+            "wdl": [
+              53,
+              947,
+              0
+            ],
+            "pv": [
+              "e2e4",
+              "g7e6",
+              "a1c1",
+              "e6d4",
+              "g3f2",
+              "f8c5",
+              "f2d4",
+              "c5d4",
+              "g1g2",
+              "d4c3",
+              "b2c3",
+              "c2b3",
+              "d2b3",
+              "d5e4",
+              "f3e4",
+              "a7a5"
+            ],
+            "stable": true
+          }
+        }
+      }
+    },
+    {
+      "id": "wcc-2024-ding-gukesh-11-b4",
+      "split": "shadow",
+      "group": {
+        "source_collection_id": "wcc-2024",
+        "game_id": "LF4x850G:UsjDjFzF"
+      },
+      "source": {
+        "article_url": "https://lichess.org/study/LF4x850G",
+        "chapter_url": "https://lichess.org/study/LF4x850G/UsjDjFzF",
+        "chapter_pgn_url": "https://lichess.org/study/LF4x850G/UsjDjFzF.pgn",
+        "chapter_pgn_sha256": "4a209c7cd2d0ff7ea1368a9043ecbabf0e6a2b4fee51c00c00ad1e24a8d6a014",
+        "annotation_context_sha256": "215c112bd256d13a99685041999032732267eddfaaa7a3828f4eae4f845ba2c5",
+        "annotator": "GM Maxime Lagarde"
+      },
+      "game": {
+        "white": "Ding, Liren",
+        "black": "Gukesh D",
+        "round": "4"
+      },
+      "position": {
+        "fen": "r2q1rk1/pppn1pp1/5n1p/3p1b2/8/1PN1PN2/P2PBPPP/R2Q1RK1 w - - 0 11",
+        "move_number": 11,
+        "side_to_move": "white",
+        "annotated_move_uci": "b3b4",
+        "annotated_move_san": "b4"
+      },
+      "reference": {
+        "acceptable_attempt_verdicts": [
+          "best",
+          "excellent"
+        ],
+        "acceptable_best_moves": [
+          "b3b4"
+        ],
+        "acceptable_primary_concepts": [
+          "space",
+          "prophylaxis",
+          "key-square-control"
+        ],
+        "acceptable_secondary_concepts": [
+          "space"
+        ],
+        "disallowed_primary_concepts": [
+          "clearing"
+        ],
+        "claims": [
+          {
+            "predicate": "space-gain",
+            "move": "b3b4",
+            "flank": "queenside",
+            "proof": "fen"
+          },
+          {
+            "predicate": "controls-square",
+            "move": "b3b4",
+            "squares": [
+              "d4"
+            ],
+            "proof": "line"
+          }
+        ],
+        "history_dependent_claims": [
+          "player intent, preparation, clock use, and match psychology"
+        ],
+        "baseline_quality": "miss"
+      },
+      "analysis_runtime": {
+        "root_ms": 5000,
+        "attempt_ms": 3200
+      },
+      "analysis": {
+        "score_pov": "side_to_move",
+        "lines": [
+          {
+            "rank": 1,
+            "depth": 24,
+            "score": {
+              "kind": "cp",
+              "value": 11
+            },
+            "wdl": [
+              15,
+              980,
+              5
+            ],
+            "pv": [
+              "b3b4",
+              "c7c6",
+              "d1b3",
+              "f5g4",
+              "f3d4",
+              "g4e2",
+              "c3e2",
+              "f6e4",
+              "d4f3",
+              "a7a5",
+              "a2a3",
+              "e4g5",
+              "f3d4",
+              "g5e4",
+              "b3c2",
+              "d8e7"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 2,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": 0
+            },
+            "wdl": [
+              9,
+              982,
+              9
+            ],
+            "pv": [
+              "d1c1",
+              "c7c6",
+              "b3b4",
+              "a7a5",
+              "a2a3",
+              "f5g4",
+              "d2d4",
+              "f6e4",
+              "h2h3",
+              "g4f3",
+              "e2f3",
+              "f7f5",
+              "f3e4",
+              "f5e4",
+              "c3e2",
+              "a5b4"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 3,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": -5
+            },
+            "wdl": [
+              7,
+              982,
+              11
+            ],
+            "pv": [
+              "d2d3",
+              "d8e7",
+              "d1d2",
+              "c7c6",
+              "f1c1",
+              "d7c5",
+              "b3b4",
+              "c5e6",
+              "c3a4",
+              "f5g4",
+              "d3d4",
+              "e6g5",
+              "f3g5",
+              "g4e2",
+              "d2e2",
+              "h6g5"
+            ],
+            "stable": true
+          }
+        ],
+        "attempt": {
+          "move": "b3b4",
+          "line": {
+            "rank": 1,
+            "depth": 25,
+            "score": {
+              "kind": "cp",
+              "value": 10
+            },
+            "wdl": [
+              14,
+              981,
+              5
+            ],
+            "pv": [
+              "b3b4",
+              "c7c6",
+              "a2a4",
+              "a7a5",
+              "d1b3",
+              "f5g4",
+              "a1b1",
+              "f6e4",
+              "c3e4",
+              "d5e4",
+              "f3d4",
+              "g4e2",
+              "d4e2",
+              "d7e5",
+              "b4a5",
+              "a8a5"
+            ],
+            "stable": true
+          }
+        }
+      }
+    },
+    {
+      "id": "wcc-2024-gukesh-ding-21-ngf3",
+      "split": "shadow",
+      "group": {
+        "source_collection_id": "wcc-2024",
+        "game_id": "LF4x850G:IAPVNb4a"
+      },
+      "source": {
+        "article_url": "https://lichess.org/study/LF4x850G",
+        "chapter_url": "https://lichess.org/study/LF4x850G/IAPVNb4a",
+        "chapter_pgn_url": "https://lichess.org/study/LF4x850G/IAPVNb4a.pgn",
+        "chapter_pgn_sha256": "e2b001a1a4124bcb032dfcdd822761fdd2b7b68a79bfc92bd852fe761012e1e3",
+        "annotation_context_sha256": "d2cf8776e754df505f85a4fdc52260bf2fb0de8fed66179afc433bc370a70278",
+        "annotator": "GM Maxime Lagarde"
+      },
+      "game": {
+        "white": "Gukesh D",
+        "black": "Ding, Liren",
+        "round": "5"
+      },
+      "position": {
+        "fen": "r4k2/pp1b1pp1/1n1b4/3p2N1/2pP1n2/2P3B1/PPBN1P1P/4R1K1 w - - 1 21",
+        "move_number": 21,
+        "side_to_move": "white",
+        "annotated_move_uci": "g5f3",
+        "annotated_move_san": "Ngf3"
+      },
+      "reference": {
+        "acceptable_attempt_verdicts": [
+          "best",
+          "excellent"
+        ],
+        "acceptable_best_moves": [
+          "d2f1"
+        ],
+        "acceptable_primary_concepts": [
+          "plan-support",
+          "piece-activity",
+          "key-square-control"
+        ],
+        "acceptable_secondary_concepts": [],
+        "disallowed_primary_concepts": [],
+        "claims": [
+          {
+            "predicate": "supports-reroute",
+            "move": "g5f3",
+            "moves": [
+              "f3e5"
+            ],
+            "squares": [
+              "e5"
+            ],
+            "proof": "fen"
+          }
+        ],
+        "history_dependent_claims": [
+          "player intent, preparation, clock use, and match psychology"
+        ],
+        "baseline_quality": "miss"
+      },
+      "analysis_runtime": {
+        "root_ms": 5000,
+        "attempt_ms": 3200
+      },
+      "analysis": {
+        "score_pov": "side_to_move",
+        "lines": [
+          {
+            "rank": 1,
+            "depth": 24,
+            "score": {
+              "kind": "cp",
+              "value": 0
+            },
+            "wdl": [
+              2,
+              996,
+              2
+            ],
+            "pv": [
+              "d2f1",
+              "d6c7",
+              "f1e3",
+              "a8e8",
+              "g5f3",
+              "d7h3",
+              "f3g5",
+              "h3d7"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 2,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": -11
+            },
+            "wdl": [
+              1,
+              996,
+              3
+            ],
+            "pv": [
+              "g5f3",
+              "a8d8",
+              "f3h4",
+              "d7a4",
+              "c2b1",
+              "d8e8",
+              "e1e8",
+              "a4e8",
+              "g1f1",
+              "g7g5",
+              "h4g2",
+              "f8e7",
+              "g2e3",
+              "e8d7",
+              "d2f3",
+              "f7f6"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 3,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": -24
+            },
+            "wdl": [
+              0,
+              993,
+              7
+            ],
+            "pv": [
+              "h2h4",
+              "f7f6",
+              "g5f3",
+              "d7g4",
+              "f3h2",
+              "g4h5",
+              "d2f1",
+              "b6c8",
+              "f1e3",
+              "c8e7",
+              "h2f1",
+              "f8f7",
+              "g3f4",
+              "d6f4",
+              "e3g2",
+              "f4d6"
+            ],
+            "stable": true
+          }
+        ],
+        "attempt": {
+          "move": "g5f3",
+          "line": {
+            "rank": 1,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": -24
+            },
+            "wdl": [
+              0,
+              992,
+              8
+            ],
+            "pv": [
+              "g5f3",
+              "a8d8",
+              "h2h4",
+              "g7g6",
+              "d2f1",
+              "d7a4",
+              "c2b1",
+              "a4b5",
+              "b1c2",
+              "f8g7",
+              "f1e3",
+              "b6a4",
+              "e1b1",
+              "b5c6",
+              "g1h2",
+              "a7a6"
+            ],
+            "stable": true
+          }
+        }
+      }
+    },
+    {
+      "id": "wcc-2024-ding-gukesh-18-rd2",
+      "split": "shadow",
+      "group": {
+        "source_collection_id": "wcc-2024",
+        "game_id": "LF4x850G:RGQEW3eH"
+      },
+      "source": {
+        "article_url": "https://lichess.org/study/LF4x850G",
+        "chapter_url": "https://lichess.org/study/LF4x850G/RGQEW3eH",
+        "chapter_pgn_url": "https://lichess.org/study/LF4x850G/RGQEW3eH.pgn",
+        "chapter_pgn_sha256": "ef3a43293001f247083e06815222feeb9037341c3562fad6871b0338db4ad028",
+        "annotation_context_sha256": "185c2c0ab6d40e56ccfeb51f27f2f1742aebe8dbdc0d68d1e7b87fa2944ea64b",
+        "annotator": "GM Maxime Lagarde"
+      },
+      "game": {
+        "white": "Ding, Liren",
+        "black": "Gukesh D",
+        "round": "6"
+      },
+      "position": {
+        "fen": "1r3rk1/p4ppp/2p1b3/2Q1P3/2N1p3/2P1P3/PP3q1P/2KR3R w - - 3 18",
+        "move_number": 18,
+        "side_to_move": "white",
+        "annotated_move_uci": "d1d2",
+        "annotated_move_san": "Rd2"
+      },
+      "reference": {
+        "acceptable_attempt_verdicts": [
+          "best",
+          "excellent"
+        ],
+        "acceptable_best_moves": [
+          "d1d2"
+        ],
+        "acceptable_primary_concepts": [
+          "prophylaxis",
+          "defence"
+        ],
+        "acceptable_secondary_concepts": [],
+        "disallowed_primary_concepts": [],
+        "claims": [
+          {
+            "predicate": "prevents-tactic",
+            "move": "d1d2",
+            "moves": [
+              "e6c4",
+              "f2b2"
+            ],
+            "proof": "counterfactual"
+          }
+        ],
+        "history_dependent_claims": [
+          "player intent, preparation, clock use, and match psychology"
+        ],
+        "baseline_quality": "miss"
+      },
+      "analysis_runtime": {
+        "root_ms": 5000,
+        "attempt_ms": 3200
+      },
+      "analysis": {
+        "score_pov": "side_to_move",
+        "lines": [
+          {
+            "rank": 1,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": 4
+            },
+            "wdl": [
+              3,
+              995,
+              2
+            ],
+            "pv": [
+              "d1d2",
+              "f2f3",
+              "h1e1",
+              "e6c4",
+              "c5c4",
+              "b8d8",
+              "d2d8",
+              "f8d8",
+              "e5e6",
+              "f7e6",
+              "c4e6",
+              "f3f7",
+              "e6f7",
+              "g8f7",
+              "e1f1",
+              "f7e6"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 2,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": -159
+            },
+            "wdl": [
+              0,
+              28,
+              972
+            ],
+            "pv": [
+              "c4d2",
+              "e6a2",
+              "c3c4",
+              "a2b3",
+              "d1e1",
+              "f8d8",
+              "c5a5",
+              "d8d3",
+              "h1f1",
+              "f2h2",
+              "f1h1",
+              "h2f2",
+              "h1f1",
+              "f2g2",
+              "f1g1",
+              "g2h3"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 3,
+            "depth": 22,
+            "score": {
+              "kind": "cp",
+              "value": -238
+            },
+            "wdl": [
+              0,
+              0,
+              1000
+            ],
+            "pv": [
+              "h1f1",
+              "f2e2",
+              "c4d2",
+              "e6a2",
+              "c5c6",
+              "f8d8",
+              "f1g1",
+              "a2e6",
+              "c6e4",
+              "e2b5",
+              "b2b4",
+              "d8c8",
+              "c1b2",
+              "a7a5",
+              "e4f4",
+              "g7g6"
+            ],
+            "stable": true
+          }
+        ],
+        "attempt": {
+          "move": "d1d2",
+          "line": {
+            "rank": 1,
+            "depth": 24,
+            "score": {
+              "kind": "cp",
+              "value": 22
+            },
+            "wdl": [
+              9,
+              990,
+              1
+            ],
+            "pv": [
+              "d1d2",
+              "f2f3",
+              "h1e1",
+              "e6c4",
+              "c5c4",
+              "b8d8",
+              "d2d8",
+              "f8d8",
+              "e5e6",
+              "f7e6",
+              "c4e6",
+              "g8h8",
+              "e6e7",
+              "d8a8",
+              "e7b7",
+              "a8d8"
+            ],
+            "stable": true
+          }
+        }
+      }
+    },
+    {
+      "id": "wcc-2024-gukesh-ding-19-b4",
+      "split": "shadow",
+      "group": {
+        "source_collection_id": "wcc-2024",
+        "game_id": "LF4x850G:SSTYab1r"
+      },
+      "source": {
+        "article_url": "https://lichess.org/study/LF4x850G",
+        "chapter_url": "https://lichess.org/study/LF4x850G/SSTYab1r",
+        "chapter_pgn_url": "https://lichess.org/study/LF4x850G/SSTYab1r.pgn",
+        "chapter_pgn_sha256": "3a95178aa62fac4e4dc8d51357e2746a438ba93cc1342499f55599395e2ba8a0",
+        "annotation_context_sha256": "d9d8b6d7c932026262584bd8f463613162734d886e072d945b812e74e5b51062",
+        "annotator": "GM Maxime Lagarde"
+      },
+      "game": {
+        "white": "Gukesh D",
+        "black": "Ding, Liren",
+        "round": "7"
+      },
+      "position": {
+        "fen": "3rrnk1/p4pbp/1q3np1/1ppP4/5B2/5BPP/PPNQ1P2/R3R1K1 w - - 8 19",
+        "move_number": 19,
+        "side_to_move": "white",
+        "annotated_move_uci": "b2b4",
+        "annotated_move_san": "b4"
+      },
+      "reference": {
+        "acceptable_attempt_verdicts": [
+          "best",
+          "excellent"
+        ],
+        "acceptable_best_moves": [
+          "a1d1"
+        ],
+        "acceptable_primary_concepts": [
+          "prophylaxis",
+          "space",
+          "key-square-control"
+        ],
+        "acceptable_secondary_concepts": [],
+        "disallowed_primary_concepts": [],
+        "claims": [
+          {
+            "predicate": "prevents-pawn-advance",
+            "move": "b2b4",
+            "flank": "queenside",
+            "proof": "fen"
+          },
+          {
+            "predicate": "controls-square",
+            "move": "b2b4",
+            "squares": [
+              "d4"
+            ],
+            "proof": "fen"
+          }
+        ],
+        "history_dependent_claims": [
+          "player intent, preparation, clock use, and match psychology"
+        ],
+        "baseline_quality": "miss"
+      },
+      "analysis_runtime": {
+        "root_ms": 10000,
+        "attempt_ms": 3200
+      },
+      "analysis": {
+        "score_pov": "side_to_move",
+        "lines": [
+          {
+            "rank": 1,
+            "depth": 25,
+            "score": {
+              "kind": "cp",
+              "value": 53
+            },
+            "wdl": [
+              89,
+              910,
+              1
+            ],
+            "pv": [
+              "a1d1",
+              "e8e1",
+              "d2e1",
+              "f6e8",
+              "b2b3",
+              "e8d6",
+              "e1e7",
+              "d8d7",
+              "e7e2",
+              "h7h5",
+              "g1g2",
+              "d7d8",
+              "c2e3",
+              "a7a6",
+              "a2a4",
+              "f8h7"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 2,
+            "depth": 25,
+            "score": {
+              "kind": "cp",
+              "value": 51
+            },
+            "wdl": [
+              81,
+              918,
+              1
+            ],
+            "pv": [
+              "b2b4",
+              "c5c4",
+              "e1e8",
+              "d8e8",
+              "a1d1",
+              "b6b7",
+              "h3h4",
+              "h7h5",
+              "c2e3",
+              "f6e4",
+              "d5d6",
+              "b7d7",
+              "f3e4",
+              "e8e4",
+              "d2d5",
+              "e4e8"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 3,
+            "depth": 24,
+            "score": {
+              "kind": "cp",
+              "value": 43
+            },
+            "wdl": [
+              55,
+              944,
+              1
+            ],
+            "pv": [
+              "a2a3",
+              "f6d7",
+              "e1e8",
+              "d8e8",
+              "c2e3",
+              "c5c4",
+              "a1d1",
+              "d7e5",
+              "f3e2",
+              "f8d7",
+              "d5d6",
+              "d7c5",
+              "a3a4",
+              "a7a6",
+              "f4e5",
+              "g7e5"
+            ],
+            "stable": true
+          }
+        ],
+        "attempt": {
+          "move": "b2b4",
+          "line": {
+            "rank": 1,
+            "depth": 24,
+            "score": {
+              "kind": "cp",
+              "value": 44
+            },
+            "wdl": [
+              59,
+              940,
+              1
+            ],
+            "pv": [
+              "b2b4",
+              "c5c4",
+              "e1e8",
+              "d8e8",
+              "a1d1",
+              "b6b7",
+              "f3g2",
+              "f6e4",
+              "d2e3",
+              "f8d7",
+              "d5d6",
+              "a7a6",
+              "g2f3",
+              "h7h5",
+              "g1g2",
+              "f7f5"
+            ],
+            "stable": true
+          }
+        }
+      }
+    },
+    {
+      "id": "wcc-2024-ding-gukesh-24-kf1",
+      "split": "shadow",
+      "group": {
+        "source_collection_id": "wcc-2024",
+        "game_id": "LF4x850G:rZCqM9Z3"
+      },
+      "source": {
+        "article_url": "https://lichess.org/study/LF4x850G",
+        "chapter_url": "https://lichess.org/study/LF4x850G/rZCqM9Z3",
+        "chapter_pgn_url": "https://lichess.org/study/LF4x850G/rZCqM9Z3.pgn",
+        "chapter_pgn_sha256": "e865ea38702ce412f4e317563c8d8b4e87509579cd28466e99fccd1b5201f04b",
+        "annotation_context_sha256": "456ca70276c5b4d94c841b5563e1ff477a4b481df61265e9f0d8da0961b1f553",
+        "annotator": "GM Maxime Lagarde"
+      },
+      "game": {
+        "white": "Ding, Liren",
+        "black": "Gukesh D",
+        "round": "8"
+      },
+      "position": {
+        "fen": "4r1k1/3n1bpp/nqp2p2/pP6/8/B2P1NP1/P3P1BP/1R1Q2K1 w - - 1 24",
+        "move_number": 24,
+        "side_to_move": "white",
+        "annotated_move_uci": "g1f1",
+        "annotated_move_san": "Kf1"
+      },
+      "reference": {
+        "acceptable_attempt_verdicts": [
+          "best",
+          "excellent"
+        ],
+        "acceptable_best_moves": [
+          "g1f1"
+        ],
+        "acceptable_primary_concepts": [
+          "defence",
+          "king-safety",
+          "supports-pawn"
+        ],
+        "acceptable_secondary_concepts": [],
+        "disallowed_primary_concepts": [],
+        "claims": [
+          {
+            "predicate": "answers-check",
+            "move": "g1f1",
+            "proof": "fen"
+          },
+          {
+            "predicate": "supports-pawn",
+            "move": "g1f1",
+            "squares": [
+              "e2"
+            ],
+            "proof": "fen"
+          }
+        ],
+        "history_dependent_claims": [
+          "player intent, preparation, clock use, and match psychology"
+        ],
+        "baseline_quality": "strong"
+      },
+      "analysis_runtime": {
+        "root_ms": 5000,
+        "attempt_ms": 3200
+      },
+      "analysis": {
+        "score_pov": "side_to_move",
+        "lines": [
+          {
+            "rank": 1,
+            "depth": 22,
+            "score": {
+              "kind": "cp",
+              "value": -65
+            },
+            "wdl": [
+              0,
+              890,
+              110
+            ],
+            "pv": [
+              "g1f1",
+              "c6b5",
+              "g2h3",
+              "d7c5",
+              "a3c5",
+              "b6c5",
+              "a2a3",
+              "c5d5",
+              "d1c2",
+              "h7h6",
+              "b1c1",
+              "b5b4",
+              "a3b4",
+              "a6b4",
+              "c2c5",
+              "d5a2"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 2,
+            "depth": 22,
+            "score": {
+              "kind": "cp",
+              "value": -103
+            },
+            "wdl": [
+              0,
+              462,
+              538
+            ],
+            "pv": [
+              "d3d4",
+              "c6b5",
+              "g2h3",
+              "a6b8",
+              "b1c1",
+              "f7a2",
+              "h3f5",
+              "a2f7",
+              "d1c2",
+              "g7g6",
+              "f5d3",
+              "b8a6",
+              "a3c5",
+              "a6c5",
+              "d4c5",
+              "b6b8"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 3,
+            "depth": 22,
+            "score": {
+              "kind": "cp",
+              "value": -112
+            },
+            "wdl": [
+              0,
+              334,
+              666
+            ],
+            "pv": [
+              "g1h1",
+              "c6b5",
+              "g2h3",
+              "d7c5",
+              "a3c5",
+              "b6c5",
+              "d3d4",
+              "c5d5",
+              "a2a3",
+              "b5b4",
+              "a3b4",
+              "a6b4",
+              "d1d2",
+              "d5b7",
+              "h1g1",
+              "f7c4"
+            ],
+            "stable": true
+          }
+        ],
+        "attempt": {
+          "move": "g1f1",
+          "line": {
+            "rank": 1,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": -65
+            },
+            "wdl": [
+              0,
+              887,
+              113
+            ],
+            "pv": [
+              "g1f1",
+              "c6b5",
+              "g2h3",
+              "d7c5",
+              "a3c5",
+              "a6c5",
+              "d1c2",
+              "e8e7",
+              "d3d4",
+              "c5b7",
+              "h3f5",
+              "g7g6",
+              "f5d3",
+              "b5b4",
+              "b1c1",
+              "g8g7"
+            ],
+            "stable": true
+          }
+        }
+      }
+    },
+    {
+      "id": "wcc-2024-gukesh-ding-17-b6",
+      "split": "shadow",
+      "group": {
+        "source_collection_id": "wcc-2024",
+        "game_id": "LF4x850G:T68KXGoZ"
+      },
+      "source": {
+        "article_url": "https://lichess.org/study/LF4x850G",
+        "chapter_url": "https://lichess.org/study/LF4x850G/T68KXGoZ",
+        "chapter_pgn_url": "https://lichess.org/study/LF4x850G/T68KXGoZ.pgn",
+        "chapter_pgn_sha256": "69b65fe4ea8b4606bda2144468230e994aa3b40b0bd8e3d85c138548d89fa497",
+        "annotation_context_sha256": "b9ae6c41846dc18a7835ac9d98747bc96797e5940289a7607d55d6add7d4f6a4",
+        "annotator": "GM Yannick Gozzoli"
+      },
+      "game": {
+        "white": "Gukesh D",
+        "black": "Ding, Liren",
+        "round": "11"
+      },
+      "position": {
+        "fen": "3rkb1r/1pq1pp2/6p1/pPn1n2p/P1Pp1Q2/3P2PP/5PB1/RNBR2K1 w k - 0 17",
+        "move_number": 17,
+        "side_to_move": "white",
+        "annotated_move_uci": "b5b6",
+        "annotated_move_san": "b6"
+      },
+      "reference": {
+        "acceptable_attempt_verdicts": [
+          "best",
+          "excellent"
+        ],
+        "acceptable_best_moves": [
+          "c1a3"
+        ],
+        "acceptable_primary_concepts": [
+          "pawn-break",
+          "line-opening",
+          "piece-activity"
+        ],
+        "acceptable_secondary_concepts": [],
+        "disallowed_primary_concepts": [],
+        "claims": [
+          {
+            "predicate": "opens-file",
+            "move": "b5b6",
+            "squares": [
+              "b1",
+              "b8"
+            ],
+            "proof": "line"
+          }
+        ],
+        "history_dependent_claims": [
+          "player intent, preparation, clock use, and match psychology"
+        ],
+        "baseline_quality": "miss"
+      },
+      "analysis_runtime": {
+        "root_ms": 5000,
+        "attempt_ms": 3200
+      },
+      "analysis": {
+        "score_pov": "side_to_move",
+        "lines": [
+          {
+            "rank": 1,
+            "depth": 25,
+            "score": {
+              "kind": "cp",
+              "value": 16
+            },
+            "wdl": [
+              18,
+              978,
+              4
+            ],
+            "pv": [
+              "c1a3",
+              "f8h6",
+              "b5b6",
+              "c7d6",
+              "a3c5",
+              "d6c5",
+              "f4e4",
+              "e5c6",
+              "b1a3",
+              "e8g8",
+              "d1b1",
+              "c6b4",
+              "e4b7",
+              "d8b8",
+              "b7c7",
+              "c5b6"
+            ],
+            "stable": true
+          }
+        ],
+        "attempt": {
+          "move": "b5b6",
+          "line": {
+            "rank": 1,
+            "depth": 28,
+            "score": {
+              "kind": "cp",
+              "value": 18
+            },
+            "wdl": [
+              20,
+              976,
+              4
+            ],
+            "pv": [
+              "b5b6",
+              "c7d6",
+              "c1a3",
+              "f8h6",
+              "a3c5",
+              "d6c5",
+              "f4e4",
+              "e5c6",
+              "b1a3",
+              "e8g8",
+              "d1b1",
+              "c6b4",
+              "e4b7",
+              "d8b8",
+              "b7c7",
+              "c5b6"
+            ],
+            "stable": true
+          }
+        }
+      }
+    },
+    {
+      "id": "wcc-2024-ding-gukesh-19-ng1",
+      "split": "shadow",
+      "group": {
+        "source_collection_id": "wcc-2024",
+        "game_id": "LF4x850G:AwRgepNB"
+      },
+      "source": {
+        "article_url": "https://lichess.org/study/LF4x850G",
+        "chapter_url": "https://lichess.org/study/LF4x850G/AwRgepNB",
+        "chapter_pgn_url": "https://lichess.org/study/LF4x850G/AwRgepNB.pgn",
+        "chapter_pgn_sha256": "4898d806e6495b7352d23b6ecaf146ee0da6a18a04892c8ed9b2d260862fc9eb",
+        "annotation_context_sha256": "7dcbd960adbdb5073f5bec17ead7a539d7e529db46cfcc35eb8952d7b6a7afaf",
+        "annotator": "GM Yannick Gozzoli"
+      },
+      "game": {
+        "white": "Ding, Liren",
+        "black": "Gukesh D",
+        "round": "12"
+      },
+      "position": {
+        "fen": "1r1qr1k1/1ppnbpp1/2n3bp/pN6/2PPp3/P3BNPP/1P1Q1PBK/3RR3 w - - 0 19",
+        "move_number": 19,
+        "side_to_move": "white",
+        "annotated_move_uci": "f3g1",
+        "annotated_move_san": "Ng1"
+      },
+      "reference": {
+        "acceptable_attempt_verdicts": [
+          "best",
+          "excellent"
+        ],
+        "acceptable_best_moves": [
+          "f3g1"
+        ],
+        "acceptable_primary_concepts": [
+          "plan-support",
+          "reroute",
+          "piece-activity"
+        ],
+        "acceptable_secondary_concepts": [
+          "defence"
+        ],
+        "disallowed_primary_concepts": [],
+        "claims": [
+          {
+            "predicate": "supports-reroute",
+            "move": "f3g1",
+            "moves": [
+              "g1f3",
+              "f3f4"
+            ],
+            "squares": [
+              "f4"
+            ],
+            "proof": "fen"
+          }
+        ],
+        "history_dependent_claims": [
+          "player intent, preparation, clock use, and match psychology"
+        ],
+        "baseline_quality": "miss"
+      },
+      "analysis_runtime": {
+        "root_ms": 5000,
+        "attempt_ms": 3200
+      },
+      "analysis": {
+        "score_pov": "side_to_move",
+        "lines": [
+          {
+            "rank": 1,
+            "depth": 22,
+            "score": {
+              "kind": "cp",
+              "value": 88
+            },
+            "wdl": [
+              384,
+              616,
+              0
+            ],
+            "pv": [
+              "f3g1",
+              "d7b6",
+              "d2c2",
+              "b8c8",
+              "g1e2",
+              "f7f5",
+              "f2f4",
+              "e4f3",
+              "g2f3",
+              "g6f7",
+              "c4c5",
+              "b6d5",
+              "e2c3",
+              "e7f6",
+              "c3d5",
+              "f7d5"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 2,
+            "depth": 21,
+            "score": {
+              "kind": "cp",
+              "value": 40
+            },
+            "wdl": [
+              81,
+              916,
+              3
+            ],
+            "pv": [
+              "d4d5",
+              "c6e5",
+              "f3e5",
+              "d7e5",
+              "e3d4",
+              "e7g5",
+              "d2a5",
+              "e5c4",
+              "a5b4",
+              "c4d6",
+              "d4a7",
+              "b8a8",
+              "b5d6",
+              "c7d6",
+              "a7b6",
+              "d8e7"
+            ],
+            "stable": true
+          }
+        ],
+        "attempt": {
+          "move": "f3g1",
+          "line": {
+            "rank": 1,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": 76
+            },
+            "wdl": [
+              277,
+              722,
+              1
+            ],
+            "pv": [
+              "f3g1",
+              "a5a4",
+              "e3f4",
+              "e7g5",
+              "g1e2",
+              "b8c8",
+              "e2c3",
+              "f7f5",
+              "f2f3",
+              "c6a5",
+              "f4g5",
+              "h6g5",
+              "c4c5",
+              "a5b3",
+              "d2e3",
+              "d7f6"
+            ],
+            "stable": true
+          }
+        }
+      }
+    },
+    {
+      "id": "wcc-2024-ding-gukesh-32-g5",
+      "split": "shadow",
+      "group": {
+        "source_collection_id": "wcc-2024",
+        "game_id": "LF4x850G:HCFmWifD"
+      },
+      "source": {
+        "article_url": "https://lichess.org/study/LF4x850G",
+        "chapter_url": "https://lichess.org/study/LF4x850G/HCFmWifD",
+        "chapter_pgn_url": "https://lichess.org/study/LF4x850G/HCFmWifD.pgn",
+        "chapter_pgn_sha256": "b2223234c6f43556683e13feecfb5bf3bb145d757f70c8947089cbf7db1457b1",
+        "annotation_context_sha256": "b0d56795daa23c92f84b592704a0cb9a299ade954b70f6cf14bb848680a9c18f",
+        "annotator": "GM Yannick Gozzoli"
+      },
+      "game": {
+        "white": "Ding, Liren",
+        "black": "Gukesh D",
+        "round": "14"
+      },
+      "position": {
+        "fen": "B5k1/5p1p/4b1p1/8/1r6/6P1/5P2/3R2K1 b - - 0 32",
+        "move_number": 32,
+        "side_to_move": "black",
+        "annotated_move_uci": "g6g5",
+        "annotated_move_san": "g5"
+      },
+      "reference": {
+        "acceptable_attempt_verdicts": [
+          "best",
+          "excellent"
+        ],
+        "acceptable_best_moves": [
+          "h7h5"
+        ],
+        "acceptable_primary_concepts": [
+          "space",
+          "restriction",
+          "piece-activity"
+        ],
+        "acceptable_secondary_concepts": [],
+        "disallowed_primary_concepts": [],
+        "claims": [
+          {
+            "predicate": "space-gain",
+            "move": "g6g5",
+            "flank": "kingside",
+            "proof": "fen"
+          },
+          {
+            "predicate": "supports-piece-square",
+            "move": "g6g5",
+            "piece": "bishop",
+            "squares": [
+              "g6"
+            ],
+            "proof": "fen"
+          },
+          {
+            "predicate": "restricts-pawn",
+            "move": "g6g5",
+            "squares": [
+              "f2"
+            ],
+            "proof": "fen"
+          }
+        ],
+        "history_dependent_claims": [
+          "player intent, preparation, clock use, and match psychology"
+        ],
+        "baseline_quality": "miss"
+      },
+      "analysis_runtime": {
+        "root_ms": 5000,
+        "attempt_ms": 3200
+      },
+      "analysis": {
+        "score_pov": "side_to_move",
+        "lines": [
+          {
+            "rank": 1,
+            "depth": 25,
+            "score": {
+              "kind": "cp",
+              "value": 28
+            },
+            "wdl": [
+              9,
+              991,
+              0
+            ],
+            "pv": [
+              "h7h5",
+              "a8c6",
+              "g8g7",
+              "c6d7",
+              "e6c4",
+              "d7c6",
+              "g7f6",
+              "d1d2",
+              "b4b6",
+              "c6d7",
+              "f6e5",
+              "f2f4",
+              "e5e4",
+              "g1f2",
+              "c4d3",
+              "d7h3"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 2,
+            "depth": 26,
+            "score": {
+              "kind": "cp",
+              "value": 26
+            },
+            "wdl": [
+              8,
+              992,
+              0
+            ],
+            "pv": [
+              "g8g7",
+              "d1d2",
+              "b4b8",
+              "a8f3",
+              "h7h5",
+              "f3g2",
+              "g6g5",
+              "g2f3",
+              "b8b5",
+              "d2e2",
+              "g5g4",
+              "f3a8",
+              "b5b6",
+              "e2c2",
+              "f7f5",
+              "f2f3"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 3,
+            "depth": 26,
+            "score": {
+              "kind": "cp",
+              "value": 25
+            },
+            "wdl": [
+              7,
+              993,
+              0
+            ],
+            "pv": [
+              "b4b6",
+              "a8d5",
+              "e6f5",
+              "d1d2",
+              "g8g7",
+              "d2a2",
+              "b6b5",
+              "d5c6",
+              "b5b1",
+              "g1h2",
+              "b1b6",
+              "c6d5",
+              "f5d7",
+              "a2a5",
+              "b6d6",
+              "f2f3"
+            ],
+            "stable": true
+          }
+        ],
+        "attempt": {
+          "move": "g6g5",
+          "line": {
+            "rank": 1,
+            "depth": 28,
+            "score": {
+              "kind": "cp",
+              "value": 19
+            },
+            "wdl": [
+              5,
+              995,
+              0
+            ],
+            "pv": [
+              "g6g5",
+              "a8d5",
+              "e6f5",
+              "g1h2",
+              "b4b2",
+              "h2g2",
+              "h7h5",
+              "d1d4",
+              "b2b5",
+              "d5f3",
+              "g5g4",
+              "f3e4",
+              "f5e6",
+              "f2f3",
+              "b5a5",
+              "g2f2"
+            ],
+            "stable": true
+          }
+        }
+      }
+    }
+  ]
+}

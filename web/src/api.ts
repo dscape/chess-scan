@@ -1,9 +1,11 @@
 import type {
   BoardDetection,
   CaptureGeometry,
+  CoachingPresentationStatus,
   ConfirmResult,
   Orientation,
   Point,
+  PositionCoaching,
   PositionReview,
   PositionReviewRequest,
   ReviewedPosition,
@@ -12,9 +14,14 @@ import type {
 } from "./types";
 
 const RECORD_ID_PATTERN = /^[0-9a-f]{32}$/;
+const COACHING_RETRY_WINDOW_MS = 20_000;
 
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly retryAfterMs: number | null,
+  ) {
     super(message);
     this.name = "ApiError";
   }
@@ -81,7 +88,9 @@ export async function getReviewedPosition(
   feedbackId: string,
   signal?: AbortSignal,
 ): Promise<ReviewedPosition> {
-  return request<ReviewedPosition>(`/api/reviews/${encodeURIComponent(feedbackId)}`, { signal });
+  return request<ReviewedPosition>(recordEndpoint("/api/reviews", feedbackId, "feedback"), {
+    signal,
+  });
 }
 
 export async function createPositionReview(
@@ -96,6 +105,27 @@ export async function createPositionReview(
   });
 }
 
+export async function createPositionCoaching(
+  reviewId: string,
+  signal?: AbortSignal,
+): Promise<PositionCoaching> {
+  const endpoint = positionReviewEndpoint(reviewId, "/coaching");
+  const retryDeadline = Date.now() + COACHING_RETRY_WINDOW_MS;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await request<PositionCoaching>(endpoint, { method: "POST", signal });
+    } catch (cause) {
+      if (!(cause instanceof ApiError) || cause.status !== 503) throw cause;
+      const exponentialDelay = Math.min(4000, 500 * 2 ** attempt);
+      const minimumDelay = cause.retryAfterMs ?? 0;
+      const jitter = Math.floor(Math.random() * 250);
+      const delay = Math.max(exponentialDelay, minimumDelay) + jitter;
+      if (Date.now() + delay > retryDeadline) throw cause;
+      await abortableDelay(delay, signal);
+    }
+  }
+}
+
 export async function ratePositionReview(
   reviewId: string,
   payload: {
@@ -103,16 +133,33 @@ export async function ratePositionReview(
     reason: "correct" | "incorrect_chess" | "irrelevant_topic" | "unclear"
       | "equivalent_move_rejected" | "too_verbose" | "missing_detail" | "other";
     detail?: string;
+    coaching_status: CoachingPresentationStatus;
+    commentary_run_id: string | null;
   },
 ): Promise<{ feedback_id: string }> {
   return request<{ feedback_id: string }>(
-    `/api/position-reviews/${encodeURIComponent(reviewId)}/feedback`,
+    positionReviewEndpoint(reviewId, "/feedback"),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     },
   );
+}
+
+async function abortableDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) throw new DOMException("The request was aborted.", "AbortError");
+  await new Promise<void>((resolve, reject) => {
+    const aborted = () => {
+      window.clearTimeout(timeout);
+      reject(new DOMException("The request was aborted.", "AbortError"));
+    };
+    const timeout = window.setTimeout(() => {
+      signal?.removeEventListener("abort", aborted);
+      resolve();
+    }, milliseconds);
+    signal?.addEventListener("abort", aborted, { once: true });
+  });
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -126,9 +173,22 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     } catch {
       // Keep the status-based message when the response is not JSON.
     }
-    throw new ApiError(message, response.status);
+    throw new ApiError(
+      message,
+      response.status,
+      retryAfterMilliseconds(response.headers.get("Retry-After")),
+    );
   }
   return (await response.json()) as T;
+}
+
+function retryAfterMilliseconds(value: string | null): number | null {
+  if (value === null) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(30_000, seconds * 1000);
+  const date = Date.parse(value);
+  if (Number.isNaN(date)) return null;
+  return Math.min(30_000, Math.max(0, date - Date.now()));
 }
 
 function apiErrorDetail(detail: unknown): string | null {
@@ -142,7 +202,20 @@ function apiErrorDetail(detail: unknown): string | null {
   return messages.length > 0 ? messages.join(" ") : null;
 }
 
+function recordEndpoint(
+  collection: string,
+  recordId: string,
+  label: string,
+  suffix = "",
+): string {
+  if (!isRecordId(recordId)) throw new Error(`Invalid ${label} ID`);
+  return `${collection}/${encodeURIComponent(recordId)}${suffix}`;
+}
+
 function scanEndpoint(scanId: string, suffix = ""): string {
-  if (!isScanId(scanId)) throw new Error("Invalid scan ID");
-  return `/api/scans/${encodeURIComponent(scanId)}${suffix}`;
+  return recordEndpoint("/api/scans", scanId, "scan", suffix);
+}
+
+function positionReviewEndpoint(reviewId: string, suffix = ""): string {
+  return recordEndpoint("/api/position-reviews", reviewId, "review", suffix);
 }

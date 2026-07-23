@@ -135,9 +135,11 @@ def test_review_returns_the_compact_annotation_contract() -> None:
         "hint",
         "explanation",
     }
-    assert payload["schema_version"] == "position-analysis-4"
+    assert payload["schema_version"] == "position-analysis-5"
     assert payload["lines"][0]["role"] == "best_candidate"
     assert payload["findings"][0]["evidence_ids"] == ["f1-e1"]
+    annotation_ids = [payload["hint"]["id"], *[item["id"] for item in payload["explanation"]]]
+    assert len(annotation_ids) == len(set(annotation_ids))
     evidence_ids = {item["id"] for item in payload["evidence"]}
     assert all(note["evidence_ids"] for note in [payload["hint"], *payload["explanation"]])
     assert all(
@@ -147,7 +149,7 @@ def test_review_returns_the_compact_annotation_contract() -> None:
     assert set(payload["topic"]) == {"id", "name"}
 
 
-def test_later_evidence_replays_to_its_proven_ply_without_leaking_hint_squares() -> None:
+def test_root_sacrifice_outranks_a_later_line_motif() -> None:
     review = build_position_review(
         _request(
             fen="4r1k1/ppp2pp1/3b1r2/1Qp4p/3P3q/P1P1B2P/2P2PB1/R3R1K1 b - - 3 21",
@@ -155,14 +157,22 @@ def test_later_evidence_replays_to_its_proven_ply_without_leaking_hint_squares()
         )
     )
 
+    assert review.topic.id == "temporary-sacrifice"
     assert review.explanation[0].scope == "best_line"
-    assert review.explanation[0].ply == 2
-    assert review.hint.markers == []
+    assert review.explanation[0].ply == 0
+    assert review.explanation[0].arrows[0].from_square == "e8"
+    assert review.explanation[0].arrows[0].to_square == "e3"
 
-    stored = review.model_dump()
-    stored["hint"]["markers"] = [{"square": stored["evidence"][0]["squares"][0], "role": "focus"}]
-    with pytest.raises(ValidationError, match="ply contradicts its evidence"):
-        PositionReviewResponse.model_validate(stored)
+
+def test_unrelated_move_does_not_claim_an_already_hanging_piece_as_a_sacrifice() -> None:
+    review = build_position_review(
+        _request(
+            fen="6k1/ppp2pp1/3b1r2/1Qp4p/3P3q/P1P1r2P/2P2PB1/R3R1K1 b - - 3 21",
+            moves=["a7a6", "e1e3", "h4f2", "g1h1", "f2e3"],
+        )
+    )
+
+    assert all(finding.topic.id != "temporary-sacrifice" for finding in review.findings)
 
 
 def test_quiet_context_features_abstain_from_move_specific_coaching() -> None:
@@ -183,6 +193,18 @@ def test_stored_review_contract_rejects_unknown_evidence_and_mismatched_lines() 
     payload = build_position_review(_request()).model_dump()
     payload["hint"]["evidence_ids"] = ["missing"]
     with pytest.raises(ValidationError, match="unknown evidence"):
+        PositionReviewResponse.model_validate(payload)
+
+    request_payload = _request().model_dump()
+    request_payload["analysis"]["attempt"] = {
+        "move": "e2e4",
+        "line": request_payload["analysis"]["lines"][0],
+    }
+    payload = build_position_review(
+        PositionReviewRequest.model_validate(request_payload)
+    ).model_dump()
+    payload["attempt"]["headline"] = "This move is a blunder."
+    with pytest.raises(ValidationError, match="headline contradicts its verdict"):
         PositionReviewResponse.model_validate(payload)
 
     payload = build_position_review(_request()).model_dump()
@@ -330,6 +352,73 @@ def test_claimable_fifty_move_draw_is_handled_as_terminal() -> None:
     assert review.evaluation == "Drawn position"
     assert review.best_move is None
     assert "fifty moves" in review.hint.text
+
+
+@pytest.mark.parametrize(
+    ("fen", "moves", "topic"),
+    [
+        (
+            "2q2rbk/4b1pp/1r6/4NPp1/2nPN3/4P1Q1/1pR3BP/1R5K b - - 3 36",
+            ["c4e5", "c2c8", "f8c8", "e4c5", "e7c5"],
+            "temporary-sacrifice",
+        ),
+        (
+            "1rb2rk1/p6p/1pnq2p1/2pN1p2/2P5/2Q1PB2/PP4PP/R3K2R w KQ - 1 20",
+            ["d5f4", "c6e7", "h2h4", "d6f6"],
+            "supports-pawn-advance",
+        ),
+        (
+            "2rqr1k1/pb1n1pbp/1pp2np1/3p4/1P1PP3/P1N2PN1/2QBB1PP/1R3RK1 b - - 0 18",
+            ["c6c5", "b4c5", "b6c5"],
+            "pawn-break",
+        ),
+        (
+            "1r4k1/8/8/8/8/4B3/8/6K1 w - - 0 1",
+            ["e3b6", "g8f7"],
+            "prophylaxis",
+        ),
+    ],
+)
+def test_review_prefers_grounded_root_strategy(
+    fen: str,
+    moves: list[str],
+    topic: str,
+) -> None:
+    review = build_position_review(_request(fen=fen, moves=moves))
+
+    assert review.topic.id == topic
+    assert review.explanation[0].ply == 0
+    assert review.explanation[0].arrows[0].role == "engine"
+
+
+def test_prophylaxis_uses_typed_counterfactual_evidence() -> None:
+    review = build_position_review(
+        _request(
+            fen="1r4k1/8/8/8/8/4B3/8/6K1 w - - 0 1",
+            moves=["e3b6", "g8f7"],
+        )
+    )
+    evidence = next(item for item in review.evidence if item.kind == "key_square_control")
+
+    assert evidence.proof == "counterfactual"
+    assert evidence.moves == ["e3b6", "b8d8"]
+    assert [(target.piece, target.square) for target in evidence.targets] == [("rook", "d8")]
+
+    payload = review.model_dump(mode="json")
+    counterfactual = next(
+        item for item in payload["evidence"] if item["kind"] == "key_square_control"
+    )
+    counterfactual["moves"][0] = "e3c5"
+    with pytest.raises(ValidationError, match="does not start"):
+        PositionReviewResponse.model_validate(payload)
+
+    payload = review.model_dump(mode="json")
+    counterfactual = next(
+        item for item in payload["evidence"] if item["kind"] == "key_square_control"
+    )
+    counterfactual["moves"][1] = "b8a6"
+    with pytest.raises(ValidationError, match="illegal continuation"):
+        PositionReviewResponse.model_validate(payload)
 
 
 def test_review_does_not_treat_an_unanswered_horizon_capture_as_material_gain() -> None:
@@ -490,6 +579,50 @@ def test_saturated_losing_wdl_uses_mate_distance_to_grade_the_attempt() -> None:
     assert refutation_evidence.ply >= 1
 
 
+def test_near_equal_centipawn_scores_absorb_small_wdl_search_noise() -> None:
+    payload = _request().model_dump()
+    payload["analysis"]["attempt"] = {
+        "move": "e2d3",
+        "line": {
+            "rank": 1,
+            "depth": 18,
+            "score": {"kind": "cp", "value": 511},
+            "wdl": [883, 117, 0],
+            "pv": ["e2d3", "h7g7", "d3c4"],
+            "stable": True,
+        },
+    }
+
+    review = build_position_review(PositionReviewRequest.model_validate(payload))
+
+    assert review.attempt is not None
+    assert review.attempt.expected_score_loss == pytest.approx(0.023)
+    assert review.attempt.verdict == "excellent"
+    assert review.attempt.equivalent is True
+
+
+def test_good_attempt_copy_is_grammatical() -> None:
+    payload = _request().model_dump()
+    payload["analysis"]["attempt"] = {
+        "move": "e2d3",
+        "line": {
+            "rank": 1,
+            "depth": 18,
+            "score": {"kind": "cp", "value": 400},
+            "wdl": [890, 100, 10],
+            "pv": ["e2d3", "h7g7", "d3c4"],
+            "stable": True,
+        },
+    }
+
+    review = build_position_review(PositionReviewRequest.model_validate(payload))
+
+    assert review.attempt is not None and review.attempt.verdict == "good"
+    assert review.attempt.headline == "Qd3+ is good."
+    assert review.explanation[0].text.startswith("Stockfish rates Qd3+ as good.")
+    assert "is a good" not in review.explanation[0].text
+
+
 def test_saturated_wdl_uses_centipawns_as_an_equivalence_tiebreak() -> None:
     payload = _request().model_dump()
     payload["analysis"]["attempt"] = {
@@ -587,6 +720,7 @@ def test_losing_attempt_does_not_claim_it_remains_favorable() -> None:
     review = build_position_review(PositionReviewRequest.model_validate(payload))
 
     assert review.attempt is not None and review.attempt.verdict == "blunder"
+    assert review.attempt.headline == "Qe4+ is a blunder and gives up the forced mate."
     assert "loses about 100" in review.explanation[0].text
     assert "remains favorable" not in review.explanation[0].text
     assert review.explanation[1].scope == "attempt_refutation"
@@ -625,11 +759,17 @@ def test_review_uses_the_causal_move_for_later_theme_arrows() -> None:
 
     assert arrows[0].from_square == "f2"
     assert arrows[0].to_square == "f8"
-    review = build_position_review(_request(fen=fen, moves=moves))
-    evidence = next(item for item in review.evidence if item.kind == "xRayAttack")
+    evidence = finding.evidence[0]
     assert evidence.ply == 2
     assert evidence.from_square == "f2"
     assert evidence.to_square == "f8"
+
+    review = build_position_review(_request(fen=fen, moves=moves))
+    assert review.topic.id == "mate"
+    stored_evidence = next(item for item in review.evidence if item.kind == "xRayAttack")
+    assert stored_evidence.ply == 2
+    assert stored_evidence.from_square == "f2"
+    assert stored_evidence.to_square == "f8"
 
 
 def test_review_preserves_uncapturable_en_passant_target() -> None:

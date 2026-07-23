@@ -7,6 +7,7 @@ import json
 import logging
 import tempfile
 from collections.abc import AsyncIterator, Callable
+from concurrent.futures import Executor, ThreadPoolExecutor
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Annotated, TypeVar
@@ -20,13 +21,22 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from chess_scan.bootstrap import initialize_database
 from chess_scan.classifier import ModelManager
+from chess_scan.commentary_planner import CommentaryCoach
 from chess_scan.config import Settings
-from chess_scan.errors import ScanStateError, StoredDataIntegrityError
+from chess_scan.errors import (
+    CommentaryBudgetExceededError,
+    CommentaryBusyError,
+    PositionReviewFeedbackConflictError,
+    PositionReviewNotFoundError,
+    ScanStateError,
+    StoredDataIntegrityError,
+)
 from chess_scan.schemas import (
     BoardDetectionResponse,
     ConfirmRequest,
     ConfirmResponse,
     LearningStatusResponse,
+    PositionCoachingResponse,
     PositionReviewFeedbackRequest,
     PositionReviewFeedbackResponse,
     PositionReviewRequest,
@@ -35,7 +45,7 @@ from chess_scan.schemas import (
     ReviewPositionResponse,
     ScanResponse,
 )
-from chess_scan.service import ScannerService
+from chess_scan.service import ImmediatePositionCoaching, ScannerService
 
 logger = logging.getLogger(__name__)
 _Result = TypeVar("_Result")
@@ -53,11 +63,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             settings=resolved_settings,
             database=database,
             models=models,
+            commentary_coach=CommentaryCoach.from_settings(resolved_settings),
         )
         application.state.settings = resolved_settings
         application.state.database = database
         application.state.service = service
         application.state.processing_slots = _processing_slots(2)
+        commentary_workers = resolved_settings.commentary_planner_max_concurrent
+        application.state.commentary_preflight_slots = _processing_slots(commentary_workers)
+        application.state.commentary_slots = _processing_slots(commentary_workers)
+        commentary_preflight_executor = ThreadPoolExecutor(
+            max_workers=commentary_workers,
+            thread_name_prefix="commentary-preflight",
+        )
+        commentary_executor = ThreadPoolExecutor(
+            max_workers=commentary_workers,
+            thread_name_prefix="commentary",
+        )
+        application.state.commentary_preflight_executor = commentary_preflight_executor
+        application.state.commentary_executor = commentary_executor
         cleanup_task = asyncio.create_task(_cleanup_sources_periodically(service))
         try:
             yield
@@ -65,6 +89,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             cleanup_task.cancel()
             with suppress(asyncio.CancelledError):
                 await cleanup_task
+            service.close()
+            commentary_preflight_executor.shutdown(wait=False, cancel_futures=True)
+            commentary_executor.shutdown(wait=False, cancel_futures=True)
 
     application = FastAPI(
         title="Chess Scan",
@@ -88,6 +115,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_credentials=False,
         allow_methods=["GET", "POST"],
         allow_headers=["Content-Type"],
+        expose_headers=["Retry-After"],
     )
     _register_api_routes(application)
     _register_web_routes(application, resolved_settings.web_dist)
@@ -233,6 +261,42 @@ def _register_api_routes(application: FastAPI) -> None:
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
+    @application.post(
+        "/api/position-reviews/{review_id}/coaching",
+        response_model=PositionCoachingResponse,
+    )
+    async def position_coaching(
+        review_id: str,
+        request: Request,
+    ) -> PositionCoachingResponse:
+        try:
+            preflight = await _run_in_slot(
+                request.app.state.commentary_preflight_slots,
+                lambda: request.app.state.service.preflight_position_coaching(review_id),
+                busy_message="Coaching is busy; try again shortly",
+                executor=request.app.state.commentary_preflight_executor,
+            )
+            if isinstance(preflight, ImmediatePositionCoaching):
+                return preflight.response
+            return await _run_in_slot(
+                request.app.state.commentary_slots,
+                lambda: request.app.state.service.create_position_coaching(
+                    review_id,
+                    preflight=preflight,
+                ),
+                busy_message="Coaching is busy; try again shortly",
+                executor=request.app.state.commentary_executor,
+            )
+        except PositionReviewNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except CommentaryBudgetExceededError as exc:
+            raise HTTPException(429, str(exc)) from exc
+        except CommentaryBusyError as exc:
+            raise HTTPException(503, str(exc), headers={"Retry-After": "1"}) from exc
+        except StoredDataIntegrityError as exc:
+            logger.exception("Stored position review is invalid for %s", review_id)
+            raise HTTPException(500, "Stored position review is invalid") from exc
+
     @application.get(
         "/api/position-reviews/{review_id}",
         response_model=PositionReviewResponse,
@@ -240,7 +304,7 @@ def _register_api_routes(application: FastAPI) -> None:
     def stored_position_review(review_id: str, request: Request) -> PositionReviewResponse:
         try:
             return request.app.state.service.get_position_review(review_id)
-        except KeyError as exc:
+        except PositionReviewNotFoundError as exc:
             raise HTTPException(404, str(exc)) from exc
         except StoredDataIntegrityError as exc:
             logger.exception("Stored position review is invalid for %s", review_id)
@@ -257,8 +321,10 @@ def _register_api_routes(application: FastAPI) -> None:
     ) -> PositionReviewFeedbackResponse:
         try:
             return request.app.state.service.add_position_review_feedback(review_id, body)
-        except KeyError as exc:
+        except PositionReviewNotFoundError as exc:
             raise HTTPException(404, str(exc)) from exc
+        except PositionReviewFeedbackConflictError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     @application.get("/api/learning/status", response_model=LearningStatusResponse)
     def learning_status(request: Request) -> LearningStatusResponse:
@@ -325,16 +391,37 @@ def _processing_slots(capacity: int) -> asyncio.Queue[None]:
 async def _run_processing(request: Request, operation: Callable[[], _Result]) -> _Result:
     if request.scope.get("state", {}).get("processing_admitted"):
         return await asyncio.to_thread(operation)
+    return await _run_in_slot(
+        request.app.state.processing_slots,
+        operation,
+        busy_message="Scanner is busy; try again shortly",
+    )
 
-    slots: asyncio.Queue[None] = request.app.state.processing_slots
+
+async def _run_in_slot(
+    slots: asyncio.Queue[None],
+    operation: Callable[[], _Result],
+    *,
+    busy_message: str,
+    executor: Executor | None = None,
+) -> _Result:
     try:
         slots.get_nowait()
     except asyncio.QueueEmpty as exc:
-        raise HTTPException(503, "Scanner is busy; try again shortly") from exc
+        raise HTTPException(503, busy_message, headers={"Retry-After": "1"}) from exc
+
+    loop = asyncio.get_running_loop()
     try:
-        return await asyncio.to_thread(operation)
-    finally:
+        future = loop.run_in_executor(executor, operation)
+    except Exception:
         slots.put_nowait(None)
+        raise
+
+    def release_slot(_future: object) -> None:
+        slots.put_nowait(None)
+
+    future.add_done_callback(release_slot)
+    return await asyncio.shield(future)
 
 
 class RequestBodyLimitMiddleware:

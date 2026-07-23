@@ -5,8 +5,10 @@ import io
 import json
 import shutil
 import sqlite3
+from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -14,10 +16,69 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from chess_scan.bootstrap import initialize_database
+from chess_scan.commentary_planner import (
+    CommentaryCoach,
+    PlannerProviderError,
+    ProviderResult,
+)
 from chess_scan.config import PROJECT_ROOT, Settings
 from chess_scan.errors import ArtifactHashMismatchError
-from chess_scan.main import RequestBodyLimitMiddleware, create_app
+from chess_scan.main import RequestBodyLimitMiddleware, _run_in_slot, create_app
 from chess_scan.model_artifact import sha256_file
+
+
+class _DefectivePlannerProvider:
+    provider_name = "test-provider"
+    model = "test-model"
+
+    def complete(self, evidence_packet: dict[str, object]) -> ProviderResult:
+        raise RuntimeError("planner implementation defect")
+
+
+class _BusyPlannerProvider:
+    provider_name = "test-provider"
+    model = "test-model"
+
+    def complete(self, evidence_packet: dict[str, object]) -> ProviderResult:
+        raise PlannerProviderError("provider_busy", provider_called=False)
+
+
+class _DeferredPlannerProvider:
+    provider_name = "test-provider"
+    model = "test-model"
+
+    def __init__(self) -> None:
+        self.completion: Future[bytes] = Future()
+
+    def complete(self, evidence_packet: dict[str, object]) -> ProviderResult:
+        raise PlannerProviderError(
+            "timeout",
+            request={"provider": "api-test"},
+            provider_called=True,
+            completion=self.completion,
+        )
+
+
+class _RejectingExecutor(Executor):
+    def submit(self, fn, /, *args, **kwargs):
+        raise RuntimeError("executor is closed")
+
+
+class _ApiPlannerProvider:
+    provider_name = "test-provider"
+    model = "test-model"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def complete(self, evidence_packet: dict[str, object]) -> ProviderResult:
+        self.calls += 1
+        return ProviderResult(
+            raw_output='{"claim_ids":["claim-1"],"focus":"concept"}',
+            request={"provider": "api-test"},
+            input_tokens=100,
+            output_tokens=12,
+        )
 
 
 def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
@@ -102,6 +163,7 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert confirm_response.status_code == 200, confirm_response.text
         confirmation = confirm_response.json()
         assert confirmation["warnings"] == []
+        assert confirmation["coaching_available"] is False
         assert confirmation["changed_squares"] == sum(
             predicted != corrected
             for predicted, corrected in zip(predicted_labels, labels, strict=True)
@@ -111,28 +173,27 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert review_position.status_code == 200, review_position.text
         assert review_position.json()["full_fen"] == confirmation["full_fen"]
         assert review_position.json()["orientation"] == "white"
+        assert review_position.json()["coaching_available"] is False
         assert client.get("/api/reviews/missing").status_code == 404
 
-        review_response = client.post(
-            "/api/position-reviews",
-            json={
-                "fen": "8/7k/2r5/8/8/8/4Q3/4K3 w - - 0 1",
-                "feedback_id": confirmation["feedback_id"],
-                "analysis": {
-                    "score_pov": "side_to_move",
-                    "lines": [
-                        {
-                            "rank": 1,
-                            "depth": 18,
-                            "score": {"kind": "cp", "value": 520},
-                            "wdl": [930, 69, 1],
-                            "pv": ["e2e4", "h7g8", "e4c6"],
-                            "stable": True,
-                        }
-                    ],
-                },
+        review_request = {
+            "fen": "8/7k/2r5/8/8/8/4Q3/4K3 w - - 0 1",
+            "feedback_id": confirmation["feedback_id"],
+            "analysis": {
+                "score_pov": "side_to_move",
+                "lines": [
+                    {
+                        "rank": 1,
+                        "depth": 18,
+                        "score": {"kind": "cp", "value": 520},
+                        "wdl": [930, 69, 1],
+                        "pv": ["e2e4", "h7g8", "e4c6"],
+                        "stable": True,
+                    }
+                ],
             },
-        )
+        }
+        review_response = client.post("/api/position-reviews", json=review_request)
         assert review_response.status_code == 200, review_response.text
         position_review = review_response.json()
         assert position_review["best_move"] == {"uci": "e2e4", "san": "Qe4+"}
@@ -143,7 +204,7 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
             {"square": "c6", "role": "focus"},
             {"square": "h7", "role": "focus"},
         ]
-        assert position_review["schema_version"] == "position-analysis-4"
+        assert position_review["schema_version"] == "position-analysis-5"
         assert position_review["explanation"][0]["arrows"][0] == {
             "from_square": "e2",
             "to_square": "e4",
@@ -160,9 +221,130 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         stored_review = client.get(f"/api/position-reviews/{review_id}")
         assert stored_review.status_code == 200
         assert stored_review.json() == position_review
+        coaching = client.post(f"/api/position-reviews/{review_id}/coaching")
+        assert coaching.status_code == 200
+        assert coaching.json()["status"] == "disabled"
+        assert coaching.json()["lesson_ids"] == []
+        assert client.post("/api/position-reviews/missing/coaching").status_code == 404
+
+        preflight_slots = client.app.state.commentary_preflight_slots
+        held_preflight_slots = [
+            preflight_slots.get_nowait() for _ in range(preflight_slots.qsize())
+        ]
+        try:
+            busy_preflight = client.post(
+                f"/api/position-reviews/{review_id}/coaching",
+                headers={"Origin": "http://localhost:5173"},
+            )
+            assert busy_preflight.status_code == 503
+            assert busy_preflight.headers["retry-after"] == "1"
+            assert busy_preflight.headers["access-control-expose-headers"] == "Retry-After"
+            assert busy_preflight.json()["detail"] == "Coaching is busy; try again shortly"
+        finally:
+            for slot in held_preflight_slots:
+                preflight_slots.put_nowait(slot)
+
+        planner_provider = _ApiPlannerProvider()
+        client.app.state.service.commentary_coach = CommentaryCoach(planner_provider)
+
+        commentary_slots = client.app.state.commentary_slots
+        held_slots = [commentary_slots.get_nowait() for _ in range(commentary_slots.qsize())]
+        try:
+            busy_coaching = client.post(f"/api/position-reviews/{review_id}/coaching")
+            assert busy_coaching.status_code == 503
+            assert busy_coaching.headers["retry-after"] == "1"
+            assert busy_coaching.json()["detail"] == "Coaching is busy; try again shortly"
+        finally:
+            for slot in held_slots:
+                commentary_slots.put_nowait(slot)
+
+        service = client.app.state.service
+        with patch.object(
+            service,
+            "get_position_review",
+            wraps=service.get_position_review,
+        ) as get_position_review:
+            accepted_coaching = client.post(f"/api/position-reviews/{review_id}/coaching")
+        assert get_position_review.call_count == 1
+        assert accepted_coaching.status_code == 200
+        assert accepted_coaching.json()["status"] == "accepted"
+        assert len(accepted_coaching.json()["run_id"]) == 32
+        assert accepted_coaching.json()["lesson_ids"] == ["explanation-1"]
+        assert (
+            client.post(f"/api/position-reviews/{review_id}/coaching").json()
+            == accepted_coaching.json()
+        )
+        assert planner_provider.calls == 1
+
+        deferred_review = client.post("/api/position-reviews", json=review_request).json()
+        deferred_provider = _DeferredPlannerProvider()
+        client.app.state.service.commentary_coach = CommentaryCoach(deferred_provider)
+        deferred_preflight = service.preflight_position_coaching(deferred_review["review_id"])
+        with pytest.raises(ValueError, match="different review"):
+            service.create_position_coaching(
+                review_id,
+                preflight=deferred_preflight,
+            )
+        deferred_coaching = client.post(
+            f"/api/position-reviews/{deferred_review['review_id']}/coaching"
+        )
+        assert deferred_coaching.status_code == 200
+        assert deferred_coaching.json()["status"] == "fallback"
+        with sqlite3.connect(settings.data_dir / "chess-scan.sqlite3") as connection:
+            assert (
+                connection.execute(
+                    "SELECT COUNT(*) FROM commentary_planner_reservations WHERE review_id = ?",
+                    (deferred_review["review_id"],),
+                ).fetchone()[0]
+                == 1
+            )
+        deferred_provider.completion.set_result(b"")
+        with sqlite3.connect(settings.data_dir / "chess-scan.sqlite3") as connection:
+            assert (
+                connection.execute(
+                    "SELECT COUNT(*) FROM commentary_planner_reservations WHERE review_id = ?",
+                    (deferred_review["review_id"],),
+                ).fetchone()[0]
+                == 0
+            )
+
+        busy_review = client.post("/api/position-reviews", json=review_request).json()
+        service.commentary_coach = CommentaryCoach(_DefectivePlannerProvider())
+        defective_preflight = service.preflight_position_coaching(busy_review["review_id"])
+        with pytest.raises(RuntimeError, match="planner implementation defect"):
+            service.create_position_coaching(
+                busy_review["review_id"],
+                preflight=defective_preflight,
+            )
+        with sqlite3.connect(settings.data_dir / "chess-scan.sqlite3") as connection:
+            assert (
+                connection.execute(
+                    "SELECT COUNT(*) FROM commentary_planner_reservations WHERE review_id = ?",
+                    (busy_review["review_id"],),
+                ).fetchone()[0]
+                == 0
+            )
+        service.commentary_coach = CommentaryCoach(_BusyPlannerProvider())
+        busy_fallback = client.post(f"/api/position-reviews/{busy_review['review_id']}/coaching")
+        assert busy_fallback.status_code == 200
+        assert busy_fallback.json()["status"] == "fallback"
+        with sqlite3.connect(settings.data_dir / "chess-scan.sqlite3") as connection:
+            assert (
+                connection.execute(
+                    "SELECT provider_called FROM commentary_planner_runs WHERE review_id = ?",
+                    (busy_review["review_id"],),
+                ).fetchone()[0]
+                == 0
+            )
+
         rating = client.post(
             f"/api/position-reviews/{review_id}/feedback",
-            json={"rating": "unhelpful", "reason": "irrelevant_topic"},
+            json={
+                "rating": "unhelpful",
+                "reason": "irrelevant_topic",
+                "coaching_status": "accepted",
+                "commentary_run_id": accepted_coaching.json()["run_id"],
+            },
         )
         assert rating.status_code == 200
         assert len(rating.json()["feedback_id"]) == 32
@@ -171,6 +353,28 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
             json={"rating": "helpful", "reason": "incorrect_chess"},
         )
         assert invalid_rating.status_code == 422
+        missing_snapshot = client.post(
+            f"/api/position-reviews/{review_id}/feedback",
+            json={"rating": "helpful", "reason": "correct"},
+        )
+        assert missing_snapshot.status_code == 422
+
+        with sqlite3.connect(settings.data_dir / "chess-scan.sqlite3") as connection:
+            stored_coaching = json.loads(
+                connection.execute(
+                    "SELECT response_json FROM commentary_planner_runs WHERE review_id = ?",
+                    (review_id,),
+                ).fetchone()[0]
+            )
+            stored_coaching["run_id"] = "0" * 32
+            connection.execute(
+                "UPDATE commentary_planner_runs SET response_json = ? WHERE review_id = ?",
+                (json.dumps(stored_coaching), review_id),
+            )
+            connection.commit()
+        corrupt_coaching = client.post(f"/api/position-reviews/{review_id}/coaching")
+        assert corrupt_coaching.status_code == 500
+        assert corrupt_coaching.json()["detail"] == "Stored position review is invalid"
 
         with sqlite3.connect(settings.data_dir / "chess-scan.sqlite3") as connection:
             connection.execute(
@@ -276,6 +480,39 @@ def test_scan_reuses_live_corners_and_preserves_manual_recovery(tmp_path: Path) 
             json={"corners": [[-1, 0], [639, 0], [639, 639], [0, 639]]},
         )
         assert outside_reprocess.status_code == 422
+
+
+def test_bounded_slot_is_restored_when_executor_rejects_submission() -> None:
+    async def exercise() -> None:
+        slots: asyncio.Queue[None] = asyncio.Queue(maxsize=1)
+        slots.put_nowait(None)
+        with pytest.raises(RuntimeError, match="executor is closed"):
+            await _run_in_slot(
+                slots,
+                lambda: None,
+                busy_message="busy",
+                executor=_RejectingExecutor(),
+            )
+        assert slots.qsize() == 1
+
+    asyncio.run(exercise())
+
+
+def test_bounded_slot_is_restored_as_soon_as_work_finishes() -> None:
+    async def exercise(executor: ThreadPoolExecutor) -> None:
+        slots: asyncio.Queue[None] = asyncio.Queue(maxsize=1)
+        slots.put_nowait(None)
+        result = await _run_in_slot(
+            slots,
+            lambda: "done",
+            busy_message="busy",
+            executor=executor,
+        )
+        assert result == "done"
+        assert slots.qsize() == 1
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        asyncio.run(exercise(executor))
 
 
 def test_request_limit_and_api_fallback(tmp_path: Path) -> None:

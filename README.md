@@ -37,6 +37,8 @@ make qa-argus
 make qa-platform
 make qa-print
 make qa-review
+make qa-commentary
+make qa-coaching
 make qa-online
 make qa-stress
 ```
@@ -51,10 +53,16 @@ The review pipeline keeps separate responsibilities:
 - The API validates every move, normalizes score point of view, and emits versioned evidence with actors, targets, causal move endpoints, proof type, scope, and explicit hypothetical-line roles.
 - Deterministic tactical detectors are gated against two disjoint, balanced 1,000-puzzle Lichess sets. Held-out accuracy is 99.8% with official setup evidence; FEN-only accuracy is 99.78% across the nine nonhistorical motifs. Mapped-claim precision is 99.77% with setup evidence and 100% in both FEN-only and production-planner modes.
 - Human-authored copy verbalizes only selected evidence. Every annotation cites evidence IDs, and a deterministic fallback abstains when no causal subject is proven.
-- Evidence-backed board stories distinguish the learner's move, engine choice, hypothetical reply, tactical rays, targets, and motif badges without asking the frontend or an LLM to reason about chess.
+- Evidence-backed board stories distinguish the learner's move, engine choice, hypothetical reply, tactical rays, targets, and motif badges without asking the frontend or a model to reason about chess.
+- An optional, separately loaded coaching layer can ask an OpenAI-compatible model to order one or two pre-verified claim IDs. It is disabled by default, cannot write chess claims or alter Stockfish, and never receives images, record IDs, user text, or article annotations.
 - Review runs, helpful/problem reports, and expert adjudications are append-only, preserving the engine, contract, output, and required regression fixture for each approved fix.
+- A checksum-pinned expert-commentary benchmark compares causal concepts and grounded claims rather than prose similarity. Its 30-game validation split is grouped away from development and excluded from prompts and tuning. Full third-party annotations remain external; [`docs/commentary-quality.md`](docs/commentary-quality.md) defines the promotion roadmap.
 
 Chess Scan is independently branded and does not redistribute workbook text, diagrams, answer keys, logos, or trade dress. Each review covers one corrected FEN and one observed learner attempt; engine continuations are always marked hypothetical. Opening history, player intent, and whole-game accuracy remain out of scope without PGN history. See [`docs/position-analysis.md`](docs/position-analysis.md) for the contract and held-out evaluation.
+
+### Optional coaching selector
+
+The deterministic review does not require an external service. To opt in, configure `CHESS_SCAN_COMMENTARY_PLANNER_ENABLED=true` together with an OpenAI-compatible endpoint and model using the variables in [`.env.example`](.env.example). The server sends only a bounded FEN/Stockfish/evidence packet, rejects any output beyond allowed claim IDs, and returns safe fixed copy on timeout or invalid output. An immutable attempt ledger and database leases provide cross-worker single-flight behavior and shared concurrency enforcement; dedicated executors plus per-confirmed-position and deployment-wide hourly budgets limit scanner pressure and external cost. Provider redirects are disabled and non-loopback endpoints require HTTPS. Ratings snapshot the exact coaching run actually shown. Provider selection and data-processing terms remain an operator decision.
 
 ### Stockfish licensing
 
@@ -95,12 +103,16 @@ The labeled image corpora are deliberately outside Git. Prepare or sync the veri
 make prepare-argus-data     # ~/chess-scan-training/argus-2026-03-29
 make prepare-platform-data  # ~/chess-scan-training/platforms-v1 after acquiring assets
 make prepare-lichess-puzzles # ~/chess-scan-training/lichess-puzzles-2026-07-05
+make prepare-commentary      # data/qa-cache/expert-commentary-2026-07-22-v2
+make prepare-commentary-shadow # data/qa-cache/expert-commentary-shadow-2026-07-22-v1
 make train-platform-model
 make train-print-recovery
 make qa-argus
 make qa-platform
 make qa-print
 make qa-review
+make qa-commentary
+make qa-coaching
 make qa-online
 make qa-stress
 ```

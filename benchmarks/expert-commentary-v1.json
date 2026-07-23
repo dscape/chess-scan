@@ -1,0 +1,1840 @@
+{
+  "version": "expert-commentary-2026-07-22-v1",
+  "description": "Derived expert claims for exact positions discussed in official Lichess Tata Steel 2026 reports.",
+  "source_policy": {
+    "annotation_text_redistributed": false,
+    "game_scores_redistributed": false,
+    "derived_claims_committed": true,
+    "article_and_chapter_urls_retained": true
+  },
+  "selection": {
+    "cases": 10,
+    "splits": {
+      "development": 10,
+      "validation": 0
+    },
+    "grouping": "game",
+    "development_only_reason": "These cases were inspected while designing the benchmark and cannot serve as held-out validation."
+  },
+  "engine": {
+    "name": "Stockfish 18 lite",
+    "score_pov": "side_to_move",
+    "root_max_ms": 5000,
+    "attempt_max_ms": 3200,
+    "analysis_committed": true
+  },
+  "quality_scale": [
+    "strong",
+    "partial",
+    "miss"
+  ],
+  "baseline_gate": {
+    "minimum_cases": 10,
+    "minimum_verdict_agreement": 1.0,
+    "minimum_best_move_support": 1.0,
+    "minimum_strong": 3,
+    "minimum_covered": 6,
+    "maximum_disallowed_primary": 2,
+    "maximum_later_primary": 1
+  },
+  "cases": [
+    {
+      "id": "tata-2026-van-foreest-giri-37-ra8",
+      "split": "development",
+      "source": {
+        "article_url": "https://lichess.org/@/Lichess/blog/tata-steel-chess-2026-rounds-1-5-three-way-tie-for-first-in-both-sections/c7wwyLhp",
+        "chapter_url": "https://lichess.org/study/y4CM41x8/y0GgmwEu",
+        "chapter_pgn_url": "https://lichess.org/study/y4CM41x8/y0GgmwEu.pgn",
+        "chapter_pgn_sha256": "dc3fc7b1c9e394eb9de7079fbe0487a429c051489354370f01a15d5ad984d6e3",
+        "annotation_context_sha256": "820125e83fc7f27e53f654b32473fb5e30046acdb8b02d2a25dcb13feefb719e",
+        "annotator": "GM Renier Castellanos Rodriguez"
+      },
+      "game": {
+        "white": "Van Foreest, Jorden",
+        "black": "Giri, Anish",
+        "round": "3.4"
+      },
+      "position": {
+        "fen": "4n1k1/4b1p1/r2pN3/p2Pp3/Pp6/3PB3/1P5P/1K4R1 b - - 2 37",
+        "move_number": 37,
+        "side_to_move": "black",
+        "annotated_move_uci": "a6a8",
+        "annotated_move_san": "Ra8"
+      },
+      "reference": {
+        "acceptable_attempt_verdicts": [
+          "mistake",
+          "blunder"
+        ],
+        "acceptable_best_moves": [
+          "b4b3"
+        ],
+        "acceptable_primary_concepts": [
+          "prophylaxis",
+          "king-activity"
+        ],
+        "acceptable_secondary_concepts": [],
+        "disallowed_primary_concepts": [],
+        "partial_line": {
+          "best_move": "b4b3",
+          "attempt_reply": "b1a2"
+        },
+        "claims": [
+          {
+            "predicate": "limits-king-entry",
+            "move": "b4b3",
+            "squares": [
+              "a2"
+            ],
+            "proof": "line"
+          }
+        ],
+        "history_dependent_claims": [
+          "the preceding defensive effort"
+        ],
+        "baseline_quality": "partial"
+      },
+      "analysis": {
+        "score_pov": "side_to_move",
+        "lines": [
+          {
+            "rank": 1,
+            "depth": 24,
+            "score": {
+              "kind": "cp",
+              "value": -47
+            },
+            "wdl": [
+              0,
+              969,
+              31
+            ],
+            "pv": [
+              "b4b3",
+              "g1g3",
+              "g8f7",
+              "g3f3",
+              "f7g8",
+              "d3d4",
+              "e5e4",
+              "f3g3",
+              "g8f7",
+              "e3d2",
+              "a6b6",
+              "d2a5",
+              "b6a6",
+              "a5d8",
+              "e7d8",
+              "e6d8"
+            ],
+            "stable": true
+          }
+        ],
+        "attempt": {
+          "move": "a6a8",
+          "line": {
+            "rank": 1,
+            "depth": 31,
+            "score": {
+              "kind": "cp",
+              "value": -108
+            },
+            "wdl": [
+              0,
+              372,
+              628
+            ],
+            "pv": [
+              "a6a8",
+              "b1a2",
+              "a8b8",
+              "a2b3",
+              "g8f7",
+              "h2h3",
+              "b8a8",
+              "e3b6",
+              "a8a6",
+              "b6d8",
+              "e7d8",
+              "e6d8",
+              "f7g8",
+              "b3c4",
+              "a6a8",
+              "d8c6"
+            ],
+            "stable": true
+          }
+        }
+      }
+    },
+    {
+      "id": "tata-2026-aravindh-niemann-36-nxe5",
+      "split": "development",
+      "source": {
+        "article_url": "https://lichess.org/@/Lichess/blog/tata-steel-chess-2026-rounds-1-5-three-way-tie-for-first-in-both-sections/c7wwyLhp",
+        "chapter_url": "https://lichess.org/study/y4CM41x8/g3ZS6Mcj",
+        "chapter_pgn_url": "https://lichess.org/study/y4CM41x8/g3ZS6Mcj.pgn",
+        "chapter_pgn_sha256": "678a19c258b637d1abb63e276e8b7de0c5586c79ae84f5c7df7531c1f76d0302",
+        "annotation_context_sha256": "dacbce695a18dc5ae2863329b42b3aaa2596e9d9c8c1468fc8170d8e0284ba37",
+        "annotator": "GM Renier Castellanos Rodriguez"
+      },
+      "game": {
+        "white": "Aravindh, Chithambaram VR.",
+        "black": "Niemann, Hans Moke",
+        "round": "4.2"
+      },
+      "position": {
+        "fen": "2q2rbk/4b1pp/1r6/4NPp1/2nPN3/4P1Q1/1pR3BP/1R5K b - - 3 36",
+        "move_number": 36,
+        "side_to_move": "black",
+        "annotated_move_uci": "c4e5",
+        "annotated_move_san": "Nxe5"
+      },
+      "reference": {
+        "acceptable_attempt_verdicts": [
+          "best",
+          "excellent"
+        ],
+        "acceptable_best_moves": [
+          "c4e5"
+        ],
+        "acceptable_primary_concepts": [
+          "temporary-sacrifice",
+          "material-conversion"
+        ],
+        "acceptable_secondary_concepts": [
+          "material"
+        ],
+        "disallowed_primary_concepts": [],
+        "claims": [
+          {
+            "predicate": "temporary-sacrifice",
+            "move": "c4e5",
+            "piece": "queen",
+            "proof": "line"
+          },
+          {
+            "predicate": "winning-continuation",
+            "move": "c4e5",
+            "proof": "line"
+          }
+        ],
+        "history_dependent_claims": [
+          "the culmination of Black's earlier strategy"
+        ],
+        "baseline_quality": "partial"
+      },
+      "analysis": {
+        "score_pov": "side_to_move",
+        "lines": [
+          {
+            "rank": 1,
+            "depth": 22,
+            "score": {
+              "kind": "cp",
+              "value": 453
+            },
+            "wdl": [
+              1000,
+              0,
+              0
+            ],
+            "pv": [
+              "c4e5",
+              "c2c8",
+              "f8c8",
+              "e4c5",
+              "e7c5",
+              "g2e4",
+              "c5d4",
+              "e3d4",
+              "e5d7",
+              "h2h4",
+              "d7f6",
+              "g3g2",
+              "f6e4",
+              "b1b2",
+              "b6b2",
+              "g2b2"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 2,
+            "depth": 22,
+            "score": {
+              "kind": "cp",
+              "value": 122
+            },
+            "wdl": [
+              768,
+              232,
+              0
+            ],
+            "pv": [
+              "b6b4",
+              "g3e1",
+              "c4a3",
+              "c2c8",
+              "f8c8",
+              "e4c5",
+              "e7c5",
+              "d4c5",
+              "c8b8",
+              "b1b2",
+              "b4b2",
+              "g2f3",
+              "b2b1",
+              "f3d1",
+              "a3c4",
+              "e5d3"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 3,
+            "depth": 21,
+            "score": {
+              "kind": "cp",
+              "value": 41
+            },
+            "wdl": [
+              41,
+              958,
+              1
+            ],
+            "pv": [
+              "h7h6",
+              "e5c4",
+              "g8c4",
+              "b1b2",
+              "b6b2",
+              "c2b2",
+              "c4d3",
+              "g3e1",
+              "f8f5",
+              "e4f2",
+              "d3c2",
+              "e1e2",
+              "c2a4",
+              "g2e4",
+              "f5f8",
+              "b2a2"
+            ],
+            "stable": true
+          }
+        ],
+        "attempt": {
+          "move": "c4e5",
+          "line": {
+            "rank": 1,
+            "depth": 24,
+            "score": {
+              "kind": "cp",
+              "value": 425
+            },
+            "wdl": [
+              1000,
+              0,
+              0
+            ],
+            "pv": [
+              "c4e5",
+              "c2c8",
+              "f8c8",
+              "e4c5",
+              "e7c5",
+              "g2e4",
+              "c5d4",
+              "e3d4",
+              "c8c1",
+              "h1g2",
+              "e5d7",
+              "g3a3",
+              "b6b3",
+              "a3a2",
+              "b3g3",
+              "g2g3"
+            ],
+            "stable": true
+          }
+        }
+      }
+    },
+    {
+      "id": "tata-2026-oro-lami-20-nf4",
+      "split": "development",
+      "source": {
+        "article_url": "https://lichess.org/@/Lichess/blog/tata-steel-chess-2026-rounds-1-5-three-way-tie-for-first-in-both-sections/c7wwyLhp",
+        "chapter_url": "https://lichess.org/study/y4CM41x8/vJinUwez",
+        "chapter_pgn_url": "https://lichess.org/study/y4CM41x8/vJinUwez.pgn",
+        "chapter_pgn_sha256": "0d15a6278c7821cb607e7873db0822b08b79aa72c2aeff0aed362c45d5bb1687",
+        "annotation_context_sha256": "e46c96562a008de86312a13da0e447c2188e104ebabc4e6c93a695ce8d55a94c",
+        "annotator": "WGM Petra Papp"
+      },
+      "game": {
+        "white": "Oro, Faustino",
+        "black": "L'Ami, Erwin",
+        "round": "2.7"
+      },
+      "position": {
+        "fen": "1rb2rk1/p6p/1pnq2p1/2pN1p2/2P5/2Q1PB2/PP4PP/R3K2R w KQ - 1 20",
+        "move_number": 20,
+        "side_to_move": "white",
+        "annotated_move_uci": "d5f4",
+        "annotated_move_san": "Nf4"
+      },
+      "reference": {
+        "acceptable_attempt_verdicts": [
+          "best",
+          "excellent"
+        ],
+        "acceptable_best_moves": [
+          "d5f4"
+        ],
+        "acceptable_primary_concepts": [
+          "piece-activity",
+          "supports-pawn-advance"
+        ],
+        "acceptable_secondary_concepts": [
+          "king-attack"
+        ],
+        "disallowed_primary_concepts": [],
+        "claims": [
+          {
+            "predicate": "improves-piece",
+            "move": "d5f4",
+            "piece": "knight",
+            "squares": [
+              "f4"
+            ],
+            "proof": "fen"
+          },
+          {
+            "predicate": "supports-pawn-advance",
+            "move": "d5f4",
+            "moves": [
+              "h2h4",
+              "h4h5"
+            ],
+            "proof": "fen"
+          }
+        ],
+        "history_dependent_claims": [],
+        "baseline_quality": "miss"
+      },
+      "analysis": {
+        "score_pov": "side_to_move",
+        "lines": [
+          {
+            "rank": 1,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": 71
+            },
+            "wdl": [
+              166,
+              834,
+              0
+            ],
+            "pv": [
+              "d5f4",
+              "c6e7",
+              "h2h4",
+              "d6f6",
+              "c3f6",
+              "f8f6",
+              "a1d1",
+              "b6b5",
+              "c4b5",
+              "b8b5",
+              "d1d2",
+              "g8g7",
+              "e1g1",
+              "f6b6",
+              "b2b3",
+              "c8e6"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 2,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": 9
+            },
+            "wdl": [
+              6,
+              992,
+              2
+            ],
+            "pv": [
+              "a1d1",
+              "d6e5",
+              "e1f2",
+              "c8b7",
+              "b2b3",
+              "f8f7",
+              "d1d2",
+              "g8g7",
+              "h1d1",
+              "b8d8",
+              "c3e5",
+              "c6e5",
+              "d5c3",
+              "b7f3",
+              "g2f3",
+              "d8d2"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 3,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": 0
+            },
+            "wdl": [
+              4,
+              992,
+              4
+            ],
+            "pv": [
+              "e1g1",
+              "d6e5",
+              "a1e1",
+              "e5c3",
+              "d5c3",
+              "c6e5",
+              "b2b3",
+              "c8d7",
+              "e1d1",
+              "b8d8",
+              "g1f2",
+              "d7c6",
+              "f3c6",
+              "e5c6",
+              "c3d5",
+              "g8f7"
+            ],
+            "stable": true
+          }
+        ],
+        "attempt": {
+          "move": "d5f4",
+          "line": {
+            "rank": 1,
+            "depth": 26,
+            "score": {
+              "kind": "cp",
+              "value": 73
+            },
+            "wdl": [
+              183,
+              817,
+              0
+            ],
+            "pv": [
+              "d5f4",
+              "c6e7",
+              "h2h4",
+              "c8b7",
+              "a1d1",
+              "d6f6",
+              "c3f6",
+              "f8f6",
+              "e1f2",
+              "b7c6",
+              "d1d2",
+              "h7h6",
+              "h1d1",
+              "g6g5",
+              "f4h3",
+              "g5h4"
+            ],
+            "stable": true
+          }
+        }
+      }
+    },
+    {
+      "id": "tata-2026-van-foreest-aravindh-27-b4",
+      "split": "development",
+      "source": {
+        "article_url": "https://lichess.org/@/Lichess/blog/tata-steel-chess-2026-rounds-6-8-abdusattorov-half-a-point-ahead-of-sindarov/SGYrD8Dy",
+        "chapter_url": "https://lichess.org/study/y4CM41x8/5DFXnn8G",
+        "chapter_pgn_url": "https://lichess.org/study/y4CM41x8/5DFXnn8G.pgn",
+        "chapter_pgn_sha256": "ccdf581df2b6420c631ac59e47594d019ff75526be724be9bb34530a5ecabcb4",
+        "annotation_context_sha256": "ed791fc906fb521691d1767ad6586e5b4dff04261739eaaeebdab7c013363e9a",
+        "annotator": "GM Renier Castellanos Rodriguez"
+      },
+      "game": {
+        "white": "Van Foreest, Jorden",
+        "black": "Aravindh, Chithambaram VR.",
+        "round": "7.6"
+      },
+      "position": {
+        "fen": "3q1rn1/ppn1rpbk/3p2p1/2pPp2p/2P1P3/P1N3P1/1PBB1PKP/1R1Q1R2 w - - 12 27",
+        "move_number": 27,
+        "side_to_move": "white",
+        "annotated_move_uci": "b2b4",
+        "annotated_move_san": "b4"
+      },
+      "reference": {
+        "acceptable_attempt_verdicts": [
+          "best",
+          "excellent",
+          "good"
+        ],
+        "acceptable_best_moves": [
+          "b2b4",
+          "f2f4"
+        ],
+        "acceptable_primary_concepts": [
+          "space",
+          "play-both-flanks",
+          "pawn-break"
+        ],
+        "acceptable_secondary_concepts": [
+          "piece-activity"
+        ],
+        "disallowed_primary_concepts": [
+          "clearing"
+        ],
+        "claims": [
+          {
+            "predicate": "space-gain",
+            "move": "b2b4",
+            "flank": "queenside",
+            "proof": "fen"
+          },
+          {
+            "predicate": "play-both-flanks",
+            "move": "b2b4",
+            "proof": "fen"
+          }
+        ],
+        "history_dependent_claims": [],
+        "baseline_quality": "miss"
+      },
+      "analysis": {
+        "score_pov": "side_to_move",
+        "lines": [
+          {
+            "rank": 1,
+            "depth": 24,
+            "score": {
+              "kind": "cp",
+              "value": 147
+            },
+            "wdl": [
+              894,
+              106,
+              0
+            ],
+            "pv": [
+              "f2f4",
+              "c7e8",
+              "g2h1",
+              "g7h6",
+              "d1e2",
+              "b7b6",
+              "f1f2",
+              "e8f6",
+              "b1g1",
+              "a7a6",
+              "g1f1",
+              "f8e8",
+              "f2g2",
+              "e7b7",
+              "c2a4",
+              "e8e7"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 2,
+            "depth": 24,
+            "score": {
+              "kind": "cp",
+              "value": 147
+            },
+            "wdl": [
+              894,
+              106,
+              0
+            ],
+            "pv": [
+              "g2h1",
+              "g7h6",
+              "f2f4",
+              "c7e8",
+              "d1e2",
+              "b7b6",
+              "f1f2",
+              "e8f6",
+              "f2f3",
+              "a7a6",
+              "b1f1",
+              "f8e8",
+              "b2b4",
+              "c5b4",
+              "a3b4",
+              "e7c7"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 3,
+            "depth": 24,
+            "score": {
+              "kind": "cp",
+              "value": 144
+            },
+            "wdl": [
+              881,
+              119,
+              0
+            ],
+            "pv": [
+              "d2g5",
+              "g7f6",
+              "g5d2",
+              "f6g7",
+              "f2f4",
+              "c7e8",
+              "f4f5",
+              "g7h6",
+              "h2h3",
+              "g8f6",
+              "g3g4",
+              "h6d2",
+              "d1d2",
+              "g6f5",
+              "e4f5",
+              "f8g8"
+            ],
+            "stable": true
+          }
+        ],
+        "attempt": {
+          "move": "b2b4",
+          "line": {
+            "rank": 1,
+            "depth": 25,
+            "score": {
+              "kind": "cp",
+              "value": 138
+            },
+            "wdl": [
+              847,
+              153,
+              0
+            ],
+            "pv": [
+              "b2b4",
+              "b7b6",
+              "f2f4",
+              "c7e8",
+              "g2h1",
+              "g7h6",
+              "d1e2",
+              "e8g7",
+              "b4c5",
+              "b6c5",
+              "e2g2",
+              "f7f5",
+              "b1e1",
+              "d8d7",
+              "f4e5",
+              "e7e5"
+            ],
+            "stable": true
+          }
+        }
+      }
+    },
+    {
+      "id": "tata-2026-fedoseev-gukesh-d-18-c5",
+      "split": "development",
+      "source": {
+        "article_url": "https://lichess.org/@/Lichess/blog/tata-steel-chess-2026-rounds-6-8-abdusattorov-half-a-point-ahead-of-sindarov/SGYrD8Dy",
+        "chapter_url": "https://lichess.org/study/y4CM41x8/uoQSKuOn",
+        "chapter_pgn_url": "https://lichess.org/study/y4CM41x8/uoQSKuOn.pgn",
+        "chapter_pgn_sha256": "72ca72f2c8a3bc3902c52cee32706564e0cf0c4b48461fbf0d253411c23ebdfa",
+        "annotation_context_sha256": "8616e81437c99c542520addfaf3a307f5632aa17ad75219ce5952d110e06e45b",
+        "annotator": "GM Renier Castellanos Rodriguez"
+      },
+      "game": {
+        "white": "Fedoseev, Vladimir",
+        "black": "Gukesh D",
+        "round": "8.2"
+      },
+      "position": {
+        "fen": "2rqr1k1/pb1n1pbp/1pp2np1/3p4/1P1PP3/P1N2PN1/2QBB1PP/1R3RK1 b - - 0 18",
+        "move_number": 18,
+        "side_to_move": "black",
+        "annotated_move_uci": "c6c5",
+        "annotated_move_san": "c5"
+      },
+      "reference": {
+        "acceptable_attempt_verdicts": [
+          "best",
+          "excellent"
+        ],
+        "acceptable_best_moves": [
+          "c6c5"
+        ],
+        "acceptable_primary_concepts": [
+          "central-counterbreak",
+          "pawn-break"
+        ],
+        "acceptable_secondary_concepts": [
+          "piece-activity",
+          "material"
+        ],
+        "disallowed_primary_concepts": [],
+        "claims": [
+          {
+            "predicate": "pawn-break",
+            "move": "c6c5",
+            "flank": "center",
+            "proof": "fen"
+          },
+          {
+            "predicate": "attacks-pawn-chain",
+            "move": "c6c5",
+            "squares": [
+              "b4",
+              "d4"
+            ],
+            "proof": "fen"
+          }
+        ],
+        "history_dependent_claims": [
+          "whether White overlooked the counterbreak"
+        ],
+        "baseline_quality": "miss"
+      },
+      "analysis": {
+        "score_pov": "side_to_move",
+        "lines": [
+          {
+            "rank": 1,
+            "depth": 22,
+            "score": {
+              "kind": "cp",
+              "value": 57
+            },
+            "wdl": [
+              149,
+              849,
+              2
+            ],
+            "pv": [
+              "c6c5",
+              "b4c5",
+              "b6c5",
+              "e4e5",
+              "c5d4",
+              "e5f6",
+              "d8f6",
+              "b1b7",
+              "d4c3",
+              "d2c1",
+              "d7c5",
+              "b7b4",
+              "f6e7",
+              "e2b5",
+              "e8d8",
+              "b5d3"
+            ],
+            "stable": true
+          }
+        ],
+        "attempt": {
+          "move": "c6c5",
+          "line": {
+            "rank": 1,
+            "depth": 24,
+            "score": {
+              "kind": "cp",
+              "value": 59
+            },
+            "wdl": [
+              160,
+              838,
+              2
+            ],
+            "pv": [
+              "c6c5",
+              "b4c5",
+              "b6c5",
+              "e4e5",
+              "c5d4",
+              "e5f6",
+              "d4c3",
+              "d2c1",
+              "d8f6",
+              "b1b7",
+              "d7c5",
+              "b7b4",
+              "h7h5",
+              "e2b5",
+              "e8e7",
+              "f1d1"
+            ],
+            "stable": true
+          }
+        }
+      }
+    },
+    {
+      "id": "tata-2026-ivanchuk-warmerdam-19-bb6",
+      "split": "development",
+      "source": {
+        "article_url": "https://lichess.org/@/Lichess/blog/tata-steel-chess-2026-rounds-6-8-abdusattorov-half-a-point-ahead-of-sindarov/SGYrD8Dy",
+        "chapter_url": "https://lichess.org/study/y4CM41x8/KJUjVeSm",
+        "chapter_pgn_url": "https://lichess.org/study/y4CM41x8/KJUjVeSm.pgn",
+        "chapter_pgn_sha256": "8c37e7809afb8e012ff3c41b244015d6d3f8141eb5ed989116aaa6f52dbaf81c",
+        "annotation_context_sha256": "5fa3d7126c2ff4e30afe9cd15d647fc8ef0955be93bd45ed982bf297377410f7",
+        "annotator": "WGM Petra Papp"
+      },
+      "game": {
+        "white": "Ivanchuk, Vasyl",
+        "black": "Warmerdam, Max",
+        "round": "8.4"
+      },
+      "position": {
+        "fen": "1r3rk1/1p1Rbpp1/p1n5/4p3/P6p/1P2BP2/1P2B1PP/1K5R w - - 4 19",
+        "move_number": 19,
+        "side_to_move": "white",
+        "annotated_move_uci": "e3b6",
+        "annotated_move_san": "Bb6"
+      },
+      "reference": {
+        "acceptable_attempt_verdicts": [
+          "best",
+          "excellent"
+        ],
+        "acceptable_best_moves": [
+          "e3b6"
+        ],
+        "acceptable_primary_concepts": [
+          "prophylaxis",
+          "key-square-control"
+        ],
+        "acceptable_secondary_concepts": [
+          "defence",
+          "piece-activity"
+        ],
+        "disallowed_primary_concepts": [
+          "material"
+        ],
+        "claims": [
+          {
+            "predicate": "controls-square",
+            "move": "e3b6",
+            "piece": "bishop",
+            "squares": [
+              "d8"
+            ],
+            "proof": "fen"
+          },
+          {
+            "predicate": "limits-plan",
+            "move": "e3b6",
+            "moves": [
+              "f8d8"
+            ],
+            "proof": "counterfactual"
+          }
+        ],
+        "history_dependent_claims": [],
+        "baseline_quality": "miss"
+      },
+      "analysis": {
+        "score_pov": "side_to_move",
+        "lines": [
+          {
+            "rank": 1,
+            "depth": 24,
+            "score": {
+              "kind": "cp",
+              "value": 142
+            },
+            "wdl": [
+              936,
+              64,
+              0
+            ],
+            "pv": [
+              "e3b6",
+              "e7b4",
+              "e2c4",
+              "e5e4",
+              "f3e4",
+              "c6e5",
+              "d7d4",
+              "e5c4",
+              "b3c4",
+              "f8c8",
+              "h1c1",
+              "b4c5",
+              "b6c5",
+              "c8c5",
+              "b2b4",
+              "c5g5"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 2,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": 76
+            },
+            "wdl": [
+              173,
+              827,
+              0
+            ],
+            "pv": [
+              "h1c1",
+              "f8d8",
+              "d7d8",
+              "c6d8",
+              "e3a7",
+              "b8a8",
+              "a7b6",
+              "d8e6",
+              "e2c4",
+              "e7d8",
+              "b6f2",
+              "d8g5",
+              "c1d1",
+              "e6d4",
+              "c4d5",
+              "a8b8"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 3,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": 60
+            },
+            "wdl": [
+              72,
+              928,
+              0
+            ],
+            "pv": [
+              "h1d1",
+              "f8d8",
+              "e2c4",
+              "g8f8",
+              "e3b6",
+              "d8d7",
+              "d1d7",
+              "f8e8",
+              "d7c7",
+              "h4h3",
+              "g2g3",
+              "b8d8",
+              "b1c2",
+              "d8d6",
+              "b6c5",
+              "d6f6"
+            ],
+            "stable": true
+          }
+        ],
+        "attempt": {
+          "move": "e3b6",
+          "line": {
+            "rank": 1,
+            "depth": 25,
+            "score": {
+              "kind": "cp",
+              "value": 145
+            },
+            "wdl": [
+              948,
+              52,
+              0
+            ],
+            "pv": [
+              "e3b6",
+              "e7b4",
+              "e2c4",
+              "e5e4",
+              "f3e4",
+              "c6e5",
+              "d7d4",
+              "e5c4",
+              "b3c4",
+              "f8c8",
+              "h1c1",
+              "b4c5",
+              "b6c5",
+              "c8c5",
+              "b2b4",
+              "c5g5"
+            ],
+            "stable": true
+          }
+        }
+      }
+    },
+    {
+      "id": "tata-2026-lami-assaubayeva-31-nc6",
+      "split": "development",
+      "source": {
+        "article_url": "https://lichess.org/@/Lichess/blog/tata-steel-chess-2026-rounds-6-8-abdusattorov-half-a-point-ahead-of-sindarov/SGYrD8Dy",
+        "chapter_url": "https://lichess.org/study/y4CM41x8/wCcODkaj",
+        "chapter_pgn_url": "https://lichess.org/study/y4CM41x8/wCcODkaj.pgn",
+        "chapter_pgn_sha256": "d4817e9b6a31418c24a0b6faae48f33580dc8a7c00455f56fdd50457243bccf3",
+        "annotation_context_sha256": "e998594bbe997d35395d26a4e8a207ad2ef1650f53c7c8526fef02b961ba28c4",
+        "annotator": "WGM Petra Papp"
+      },
+      "game": {
+        "white": "L'Ami, Erwin",
+        "black": "Assaubayeva, Bibisara",
+        "round": "8.6"
+      },
+      "position": {
+        "fen": "1n5r/4Qpk1/p2p1n2/8/r4qP1/1N2B3/1PP5/1K2R3 b - - 3 31",
+        "move_number": 31,
+        "side_to_move": "black",
+        "annotated_move_uci": "b8c6",
+        "annotated_move_san": "Nc6"
+      },
+      "reference": {
+        "acceptable_attempt_verdicts": [
+          "best",
+          "excellent"
+        ],
+        "acceptable_best_moves": [
+          "b8c6"
+        ],
+        "acceptable_primary_concepts": [
+          "in-between-move",
+          "threat"
+        ],
+        "acceptable_secondary_concepts": [
+          "piece-activity"
+        ],
+        "disallowed_primary_concepts": [],
+        "claims": [
+          {
+            "predicate": "threatens-capture",
+            "move": "b8c6",
+            "piece": "queen",
+            "squares": [
+              "e7"
+            ],
+            "proof": "line"
+          }
+        ],
+        "history_dependent_claims": [],
+        "baseline_quality": "strong"
+      },
+      "analysis": {
+        "score_pov": "side_to_move",
+        "lines": [
+          {
+            "rank": 1,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": 449
+            },
+            "wdl": [
+              1000,
+              0,
+              0
+            ],
+            "pv": [
+              "b8c6",
+              "e3f4",
+              "c6e7",
+              "f4d6",
+              "e7c6",
+              "g4g5",
+              "f6d7",
+              "c2c3",
+              "a4h4",
+              "b1c2",
+              "h4g4",
+              "b3d2",
+              "g4g5",
+              "d2c4",
+              "f7f6",
+              "c2c1"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 2,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": 448
+            },
+            "wdl": [
+              1000,
+              0,
+              0
+            ],
+            "pv": [
+              "f6d5",
+              "e3f4",
+              "d5e7",
+              "f4d6",
+              "e7c6",
+              "b3c5",
+              "a4g4",
+              "b2b3",
+              "f7f6",
+              "b1b2",
+              "g7f7",
+              "d6c7",
+              "g4g2",
+              "e1e4",
+              "c6e7",
+              "e4c4"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 3,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": 370
+            },
+            "wdl": [
+              1000,
+              0,
+              0
+            ],
+            "pv": [
+              "f4e4",
+              "e7d6",
+              "h8h1",
+              "e1h1",
+              "e4h1",
+              "b3c1",
+              "b8c6",
+              "g4g5",
+              "f6e8",
+              "d6d7",
+              "h1e4",
+              "b2b3",
+              "a4a5",
+              "e3d2",
+              "a5f5",
+              "d2c3"
+            ],
+            "stable": true
+          }
+        ],
+        "attempt": {
+          "move": "b8c6",
+          "line": {
+            "rank": 1,
+            "depth": 24,
+            "score": {
+              "kind": "cp",
+              "value": 445
+            },
+            "wdl": [
+              1000,
+              0,
+              0
+            ],
+            "pv": [
+              "b8c6",
+              "e3f4",
+              "c6e7",
+              "f4d6",
+              "e7c6",
+              "g4g5",
+              "f6d7",
+              "d6a3",
+              "a4g4",
+              "b3d2",
+              "g4g5",
+              "b2b3",
+              "f7f6",
+              "a3c1",
+              "g5h5",
+              "d2e4"
+            ],
+            "stable": true
+          }
+        }
+      }
+    },
+    {
+      "id": "tata-2026-giri-erdogmus-24-nxf7",
+      "split": "development",
+      "source": {
+        "article_url": "https://lichess.org/@/Lichess/blog/tata-steel-chess-2026-rounds-9-11-abdusattorov-and-sindarov-lead/CnJRBwcn",
+        "chapter_url": "https://lichess.org/study/y4CM41x8/57KpKThj",
+        "chapter_pgn_url": "https://lichess.org/study/y4CM41x8/57KpKThj.pgn",
+        "chapter_pgn_sha256": "85a21bab259025adec858c37dd4235ab01f6dde9332fb2bae49ac7dc8a0d9422",
+        "annotation_context_sha256": "30abdf459cb2265a5906f9489c9e41bede8cb6e5eb5dcf6b1d26506250ac6cf2",
+        "annotator": "GM Renier Castellanos Rodriguez"
+      },
+      "game": {
+        "white": "Giri, Anish",
+        "black": "Erdogmus, Yagiz Kaan",
+        "round": "11.6"
+      },
+      "position": {
+        "fen": "r4rk1/pp3ppp/b7/q2BN3/8/P3P3/Q4PPP/3R2K1 w - - 1 24",
+        "move_number": 24,
+        "side_to_move": "white",
+        "annotated_move_uci": "e5f7",
+        "annotated_move_san": "Nxf7"
+      },
+      "reference": {
+        "acceptable_attempt_verdicts": [
+          "best",
+          "excellent"
+        ],
+        "acceptable_best_moves": [
+          "e5f7"
+        ],
+        "acceptable_primary_concepts": [
+          "threat",
+          "king-attack"
+        ],
+        "acceptable_secondary_concepts": [
+          "material",
+          "discovered-attack",
+          "clearing"
+        ],
+        "disallowed_primary_concepts": [],
+        "claims": [
+          {
+            "predicate": "creates-threat",
+            "move": "e5f7",
+            "moves": [
+              "f7g5"
+            ],
+            "proof": "fen"
+          },
+          {
+            "predicate": "creates-threat",
+            "move": "e5f7",
+            "moves": [
+              "a2b1"
+            ],
+            "proof": "line"
+          }
+        ],
+        "history_dependent_claims": [],
+        "baseline_quality": "partial"
+      },
+      "analysis": {
+        "score_pov": "side_to_move",
+        "lines": [
+          {
+            "rank": 1,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": 214
+            },
+            "wdl": [
+              999,
+              1,
+              0
+            ],
+            "pv": [
+              "e5f7",
+              "a5c3",
+              "h2h4",
+              "a8c8",
+              "f7d6",
+              "g8h8",
+              "d6c8",
+              "f8c8",
+              "d5e6",
+              "c8e8",
+              "d1d7",
+              "e8f8",
+              "a2b1",
+              "c3a3",
+              "h4h5",
+              "h7h6"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 2,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": -33
+            },
+            "wdl": [
+              0,
+              985,
+              15
+            ],
+            "pv": [
+              "d5f7",
+              "g8h8",
+              "f7d5",
+              "a8d8",
+              "h2h3",
+              "a6b5",
+              "d1d4",
+              "b5e8",
+              "g1h2",
+              "f8f6",
+              "f2f4",
+              "a5c3",
+              "d4d3",
+              "c3c5",
+              "a2d2",
+              "f6b6"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 3,
+            "depth": 22,
+            "score": {
+              "kind": "cp",
+              "value": -94
+            },
+            "wdl": [
+              0,
+              585,
+              415
+            ],
+            "pv": [
+              "h2h4",
+              "a5c7",
+              "f2f4",
+              "a6b5",
+              "h4h5",
+              "b5e8",
+              "h5h6",
+              "g8h8",
+              "h6g7",
+              "h8g7",
+              "a2b2",
+              "f7f6",
+              "e5f3",
+              "g7h8",
+              "f3d4",
+              "c7b6"
+            ],
+            "stable": true
+          }
+        ],
+        "attempt": {
+          "move": "e5f7",
+          "line": {
+            "rank": 1,
+            "depth": 24,
+            "score": {
+              "kind": "cp",
+              "value": 232
+            },
+            "wdl": [
+              1000,
+              0,
+              0
+            ],
+            "pv": [
+              "e5f7",
+              "a5c3",
+              "h2h3",
+              "c3f6",
+              "f7e5",
+              "g8h8",
+              "e5d7",
+              "f6e7",
+              "d7f8",
+              "a8f8",
+              "d1d4",
+              "b7b6",
+              "a2b2",
+              "h7h6",
+              "d5a2",
+              "a6c8"
+            ],
+            "stable": true
+          }
+        }
+      }
+    },
+    {
+      "id": "tata-2026-yuffa-suleymanli-20-axb4",
+      "split": "development",
+      "source": {
+        "article_url": "https://lichess.org/@/Lichess/blog/tata-steel-chess-2026-rounds-9-11-abdusattorov-and-sindarov-lead/CnJRBwcn",
+        "chapter_url": "https://lichess.org/study/y4CM41x8/IwmSwj1D",
+        "chapter_pgn_url": "https://lichess.org/study/y4CM41x8/IwmSwj1D.pgn",
+        "chapter_pgn_sha256": "26335afbb705ac5e4e2f9d36eeb8ddbf37833602be8f8f6f9bd5fe3728a7ca05",
+        "annotation_context_sha256": "cbb513bb2b235fde7570310f408bd6a6fe23fc7b243102574dce705aa6afe2c6",
+        "annotator": "WGM Petra Papp"
+      },
+      "game": {
+        "white": "Yuffa, Daniil",
+        "black": "Suleymanli, Aydin",
+        "round": "10.7"
+      },
+      "position": {
+        "fen": "r1b2bk1/p2n1p2/4p2p/qp6/1n1PN1P1/PpQ1PN2/1P3P1P/1K1R3R w - - 0 20",
+        "move_number": 20,
+        "side_to_move": "white",
+        "annotated_move_uci": "a3b4",
+        "annotated_move_san": "axb4"
+      },
+      "reference": {
+        "acceptable_attempt_verdicts": [
+          "mistake",
+          "blunder"
+        ],
+        "acceptable_best_moves": [
+          "f3d2",
+          "c3b3"
+        ],
+        "acceptable_primary_concepts": [
+          "material",
+          "forcing-line"
+        ],
+        "acceptable_secondary_concepts": [
+          "check",
+          "king-attack"
+        ],
+        "disallowed_primary_concepts": [],
+        "claims": [
+          {
+            "predicate": "forcing-reply",
+            "move": "a5a2",
+            "proof": "line"
+          },
+          {
+            "predicate": "wins-material",
+            "move": "a3b4",
+            "proof": "line"
+          }
+        ],
+        "history_dependent_claims": [],
+        "baseline_quality": "strong"
+      },
+      "analysis": {
+        "score_pov": "side_to_move",
+        "lines": [
+          {
+            "rank": 1,
+            "depth": 22,
+            "score": {
+              "kind": "cp",
+              "value": -77
+            },
+            "wdl": [
+              0,
+              776,
+              224
+            ],
+            "pv": [
+              "f3d2",
+              "c8b7",
+              "c3b3",
+              "b4a6",
+              "g4g5",
+              "b7d5",
+              "b3c2",
+              "b5b4",
+              "g5h6",
+              "b4a3",
+              "d1g1",
+              "g8h8",
+              "e4g5",
+              "d5a2",
+              "b1c1",
+              "a3b2"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 2,
+            "depth": 21,
+            "score": {
+              "kind": "cp",
+              "value": -77
+            },
+            "wdl": [
+              0,
+              771,
+              229
+            ],
+            "pv": [
+              "c3b3",
+              "c8b7",
+              "f3d2",
+              "b4a6",
+              "g4g5",
+              "b7d5",
+              "b3d3",
+              "b5b4",
+              "g5h6",
+              "b4a3",
+              "d1g1",
+              "g8h8",
+              "e4g5",
+              "d5a2",
+              "b1c1",
+              "a3b2"
+            ],
+            "stable": true
+          }
+        ],
+        "attempt": {
+          "move": "a3b4",
+          "line": {
+            "rank": 1,
+            "depth": 22,
+            "score": {
+              "kind": "cp",
+              "value": -436
+            },
+            "wdl": [
+              0,
+              0,
+              1000
+            ],
+            "pv": [
+              "a3b4",
+              "a5a2",
+              "b1c1",
+              "c8b7",
+              "c1d2",
+              "b7e4",
+              "d2e2",
+              "d7b6",
+              "f3d2",
+              "e4h1",
+              "d1h1",
+              "a8c8",
+              "c3b3",
+              "a2b3",
+              "d2b3",
+              "c8c2"
+            ],
+            "stable": true
+          }
+        }
+      }
+    },
+    {
+      "id": "tata-2026-woodward-lami-32-rc2",
+      "split": "development",
+      "source": {
+        "article_url": "https://lichess.org/@/Lichess/blog/tata-steel-chess-2026-gm-nodirbek-abdusattorov-and-gm-andy-woodward-win/EjTwPhL1",
+        "chapter_url": "https://lichess.org/study/y4CM41x8/4B4qXpUP",
+        "chapter_pgn_url": "https://lichess.org/study/y4CM41x8/4B4qXpUP.pgn",
+        "chapter_pgn_sha256": "696667501efe52f4623f642990b2531da8ca9ebc39820584928364a1d2d09913",
+        "annotation_context_sha256": "ba59f64c52b357b4ec1c061a7bce12c06f8c3091673b9013f348af05acc256aa",
+        "annotator": "WGM Petra Papp"
+      },
+      "game": {
+        "white": "Woodward, Andy",
+        "black": "L'Ami, Erwin",
+        "round": "13"
+      },
+      "position": {
+        "fen": "4k3/3npp1p/p7/2pPr3/1r6/1PN3P1/P3RPK1/3R4 w - - 6 32",
+        "move_number": 32,
+        "side_to_move": "white",
+        "annotated_move_uci": "e2c2",
+        "annotated_move_san": "Rc2"
+      },
+      "reference": {
+        "acceptable_attempt_verdicts": [
+          "best",
+          "excellent"
+        ],
+        "acceptable_best_moves": [
+          "e2c2"
+        ],
+        "acceptable_primary_concepts": [
+          "defence",
+          "maintain-tension",
+          "piece-activity"
+        ],
+        "acceptable_secondary_concepts": [],
+        "disallowed_primary_concepts": [],
+        "claims": [
+          {
+            "predicate": "moves-out-of-attack",
+            "move": "e2c2",
+            "piece": "rook",
+            "proof": "fen"
+          },
+          {
+            "predicate": "maintains-tension",
+            "move": "e2c2",
+            "proof": "line"
+          }
+        ],
+        "history_dependent_claims": [
+          "the later tournament reward for the decision"
+        ],
+        "baseline_quality": "strong"
+      },
+      "analysis": {
+        "score_pov": "side_to_move",
+        "lines": [
+          {
+            "rank": 1,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": 22
+            },
+            "wdl": [
+              6,
+              994,
+              0
+            ],
+            "pv": [
+              "e2c2",
+              "b4d4",
+              "d1d4",
+              "c5d4",
+              "c3b5",
+              "d7f6",
+              "b5d4",
+              "e5d5",
+              "c2c4",
+              "a6a5",
+              "d4c2",
+              "d5d2",
+              "g2f1",
+              "f6g4",
+              "c4g4",
+              "d2c2"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 2,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": 22
+            },
+            "wdl": [
+              6,
+              994,
+              0
+            ],
+            "pv": [
+              "e2d2",
+              "h7h5",
+              "d5d6",
+              "e7e6",
+              "f2f3",
+              "a6a5",
+              "d2c2",
+              "e8d8",
+              "d1c1",
+              "b4d4",
+              "c3e4",
+              "e5d5",
+              "e4c5",
+              "d5c5",
+              "c2c5",
+              "d7c5"
+            ],
+            "stable": true
+          },
+          {
+            "rank": 3,
+            "depth": 23,
+            "score": {
+              "kind": "cp",
+              "value": 12
+            },
+            "wdl": [
+              3,
+              996,
+              1
+            ],
+            "pv": [
+              "e2e5",
+              "d7e5",
+              "f2f4",
+              "e5g4",
+              "g2f3",
+              "f7f5",
+              "d5d6",
+              "b4d4",
+              "d1d4",
+              "c5d4",
+              "c3d5",
+              "e7e6",
+              "d5c7",
+              "e8d7",
+              "c7a6",
+              "d7d6"
+            ],
+            "stable": true
+          }
+        ],
+        "attempt": {
+          "move": "e2c2",
+          "line": {
+            "rank": 1,
+            "depth": 27,
+            "score": {
+              "kind": "cp",
+              "value": 25
+            },
+            "wdl": [
+              8,
+              992,
+              0
+            ],
+            "pv": [
+              "e2c2",
+              "b4d4",
+              "d1d4",
+              "c5d4",
+              "c3b5",
+              "d7f6",
+              "b5c7",
+              "e8f8",
+              "c2d2",
+              "f6d5",
+              "c7a6",
+              "d5c3",
+              "a6b4",
+              "e5a5",
+              "d2d4",
+              "c3a2"
+            ],
+            "stable": true
+          }
+        }
+      }
+    }
+  ]
+}

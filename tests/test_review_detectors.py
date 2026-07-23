@@ -117,6 +117,40 @@ def test_tactical_detectors_emit_grounded_subjects(
     assert handler in _handlers(fen, moves)
 
 
+def test_prophylaxis_requires_new_aggregate_control() -> None:
+    handlers = _handlers(
+        "1r3rk1/1p1Rbpp1/p1n5/4p3/P6p/1P2BP2/1P2B1PP/1K5R w - - 4 19",
+        ["e3b6", "e7b4", "e2c4"],
+    )
+
+    assert "prophylaxis" not in handlers
+
+
+@pytest.mark.parametrize(
+    ("fen", "moves"),
+    [
+        (
+            "k7/8/7P/4B3/8/8/8/7K w - - 0 1",
+            ["e5g7", "a8b7"],
+        ),
+    ],
+)
+def test_supported_pawn_advance_requires_a_legal_nonpromotion_route(
+    fen: str,
+    moves: list[str],
+) -> None:
+    assert "supports_pawn_advance" not in _handlers(fen, moves)
+
+
+def test_all_promotions_emit_promotion_instead_of_pawn_strategy() -> None:
+    fen = "k7/6P1/5K2/8/8/8/8/8 w - - 0 1"
+
+    for move in ("g7g8q", "g7g8n"):
+        handlers = _handlers(fen, [move, "a8b7"])
+        assert "promotion" in handlers
+        assert not handlers & {"pawn_break", "prophylaxis", "space"}
+
+
 @pytest.mark.parametrize(
     ("handler", "fen", "moves"),
     [
@@ -182,11 +216,6 @@ def test_position_evaluators_only_emit_when_signature_is_present(
             "xray",
             "7k/2q5/8/2r5/8/8/8/2R3K1 w - - 0 1",
             ["c1c4", "h8g8"],
-        ),
-        (
-            "promotion",
-            "k7/6P1/5K2/8/8/8/8/8 w - - 0 1",
-            ["g7g8n", "a8b7"],
         ),
         (
             "trapping",
@@ -337,7 +366,7 @@ def test_primary_detection_matches_the_first_production_teaching_finding() -> No
 
     assert detect_primary_subject(context) == teaching_subjects(context)[0]
     assert detect_subjects(context)[0].handler == "double_attack"
-    assert teaching_subjects(context)[0].handler == "material"
+    assert teaching_subjects(context)[0].handler == "chasing_targeting"
 
 
 def test_engine_line_rejects_illegal_moves() -> None:
