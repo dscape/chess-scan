@@ -36,12 +36,14 @@ from chess_scan.schemas import (
     ConfirmRequest,
     ConfirmResponse,
     LearningStatusResponse,
+    PositionAttemptRequest,
     PositionCoachingResponse,
     PositionReviewFeedbackRequest,
     PositionReviewFeedbackResponse,
     PositionReviewRequest,
     PositionReviewResponse,
     ReprocessRequest,
+    ReviewAttemptResponse,
     ReviewPositionResponse,
     ScanResponse,
 )
@@ -248,6 +250,16 @@ def _register_api_routes(application: FastAPI) -> None:
         except StoredDataIntegrityError as exc:
             logger.exception("Stored review data is invalid for %s", feedback_id)
             raise HTTPException(500, "Stored review data is invalid") from exc
+
+    @application.post("/api/position-attempts", response_model=ReviewAttemptResponse)
+    def position_attempt(
+        body: PositionAttemptRequest,
+        request: Request,
+    ) -> ReviewAttemptResponse:
+        try:
+            return request.app.state.service.compare_position_attempt(body)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     @application.post("/api/position-reviews", response_model=PositionReviewResponse)
     def position_review(

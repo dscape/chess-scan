@@ -19,7 +19,6 @@ from chess_scan.classifier import BoardPrediction, ModelManager
 from chess_scan.commentary_planner import (
     CommentaryCoach,
     CommentaryPlannerRun,
-    eligible_commentary_lessons,
 )
 from chess_scan.config import Settings
 from chess_scan.database import Database
@@ -37,17 +36,19 @@ from chess_scan.geometry import (
     rectify_board,
 )
 from chess_scan.image_io import decode_uploaded_image, write_jpeg
-from chess_scan.review import build_position_review
+from chess_scan.review import build_position_attempt, build_position_review
 from chess_scan.schemas import (
     BoardDetectionResponse,
     ConfirmRequest,
     ConfirmResponse,
     LearningStatusResponse,
+    PositionAttemptRequest,
     PositionCoachingResponse,
     PositionReviewFeedbackRequest,
     PositionReviewFeedbackResponse,
     PositionReviewRequest,
     PositionReviewResponse,
+    ReviewAttemptResponse,
     ReviewPositionResponse,
     ScanResponse,
 )
@@ -304,9 +305,16 @@ class ScannerService:
             coaching_available=self.commentary_coach.enabled,
         )
 
+    def compare_position_attempt(
+        self,
+        request: PositionAttemptRequest,
+    ) -> ReviewAttemptResponse:
+        return build_position_attempt(request)
+
     def create_position_review(self, request: PositionReviewRequest) -> PositionReviewResponse:
         if request.feedback_id is None:
-            raise ValueError("A confirmed feedback ID is required")
+            return build_position_review(request)
+
         review_id = uuid.uuid4().hex
         response = build_position_review(request, review_id=review_id)
         self.database.save_position_review(
@@ -344,11 +352,10 @@ class ScannerService:
         if stored is not None:
             return ImmediatePositionCoaching(response=stored)
 
-        lessons = eligible_commentary_lessons(review)
-        if lessons:
+        if self.commentary_coach.selection_required(review):
             return PreparedPositionCoaching(review=review)
 
-        run = self.commentary_coach.plan(review)
+        run = self.commentary_coach.plan(review, provider_selection=False)
         if not isinstance(run, CommentaryPlannerRun):
             raise RuntimeError("Enabled coaching returned a disabled result")
         response = self._persist_commentary_run(review, run)

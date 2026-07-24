@@ -41,14 +41,17 @@ export function pieceOptionForLabel(label: number): PieceOption {
 
 export function positionAt(fen: string, moves: string[]): Chess {
   const chess = new Chess(fen);
-  for (const uci of moves) {
-    try {
-      chess.move(uci);
-    } catch (cause) {
-      throw new Error(`Illegal review move: ${uci}`, { cause });
-    }
-  }
+  for (const uci of moves) applyReviewMove(chess, uci);
   return chess;
+}
+
+export function parentFensForMoves(fen: string, moves: string[]): string[] {
+  const chess = new Chess(fen);
+  return moves.map((uci) => {
+    const parentFen = chess.fen();
+    applyReviewMove(chess, uci);
+    return parentFen;
+  });
 }
 
 export function labelsToBoardFen(labels: number[], orientation: Orientation): string {
@@ -121,4 +124,12 @@ export function countKings(labels: number[]): { white: number; black: number } {
     white: labels.filter((label) => label === 6).length,
     black: labels.filter((label) => label === 12).length,
   };
+}
+
+function applyReviewMove(chess: Chess, uci: string): void {
+  try {
+    chess.move(uci);
+  } catch (cause) {
+    throw new Error(`Illegal review move: ${uci}`, { cause });
+  }
 }

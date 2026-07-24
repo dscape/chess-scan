@@ -76,10 +76,11 @@ export function latestExactLine(
 }
 
 export function oppositeScorePov(score: EngineScore): EngineScore {
-  if (score.bound === undefined) return { ...score, value: -score.value };
+  const value = score.value === 0 ? 0 : -score.value;
+  if (score.bound === undefined) return { ...score, value };
   return {
     ...score,
-    value: -score.value,
+    value,
     bound: score.bound === "lower"
       ? "upper"
       : score.bound === "upper"

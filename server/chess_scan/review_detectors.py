@@ -11,6 +11,15 @@ from dataclasses import dataclass
 
 import chess
 
+from chess_scan.chess_geometry import (
+    MATERIAL_VALUES as PIECE_VALUES,
+)
+from chess_scan.chess_geometry import (
+    captured_piece as _captured_piece,
+)
+from chess_scan.chess_geometry import (
+    material_balance as _material_balance,
+)
 from chess_scan.review_themes import (
     PieceRef,
     Proof,
@@ -20,14 +29,6 @@ from chess_scan.review_themes import (
 
 MAX_TEACHING_FINDINGS = 4
 
-PIECE_VALUES = {
-    chess.PAWN: 1,
-    chess.KNIGHT: 3,
-    chess.BISHOP: 3,
-    chess.ROOK: 5,
-    chess.QUEEN: 9,
-    chess.KING: 0,
-}
 _MINOR_STARTING_SQUARES = {
     chess.WHITE: frozenset({chess.B1, chess.C1, chess.F1, chess.G1}),
     chess.BLACK: frozenset({chess.B8, chess.C8, chess.F8, chess.G8}),
@@ -1862,15 +1863,6 @@ def _king_route_was_available(
     return chess.Move(king_square, target_square) in counterfactual.legal_moves
 
 
-def _captured_piece(board: chess.Board, move: chess.Move) -> chess.Piece | None:
-    if not board.is_capture(move):
-        return None
-    if board.is_en_passant(move):
-        offset = -8 if board.turn == chess.WHITE else 8
-        return board.piece_at(move.to_square + offset)
-    return board.piece_at(move.to_square)
-
-
 def _line_captures_square(
     context: ReviewContext,
     squares: set[chess.Square],
@@ -1906,17 +1898,6 @@ def _settled_material_gain(context: ReviewContext) -> int:
         for reply in final.legal_moves
     )
     return settled_gain if recapture else final_gain
-
-
-def _material_balance(board: chess.Board, color: chess.Color) -> int:
-    own = sum(
-        len(board.pieces(piece_type, color)) * value for piece_type, value in PIECE_VALUES.items()
-    )
-    enemy = sum(
-        len(board.pieces(piece_type, not color)) * value
-        for piece_type, value in PIECE_VALUES.items()
-    )
-    return own - enemy
 
 
 def _is_slider(piece: chess.Piece | None) -> bool:

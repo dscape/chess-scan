@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   boardPoint,
   fenError,
+  parentFensForMoves,
   pieceName,
   pieceOptionForLabel,
   positionAt,
@@ -42,6 +43,19 @@ test("replays review moves through one validated board helper", () => {
 
   assert.equal(position.fen(), "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2");
   assert.throws(() => positionAt(position.fen(), ["e2e5"]), /Illegal review move/);
+});
+
+test("records parent positions while replaying a line once", () => {
+  const root = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
+  assert.deepEqual(parentFensForMoves(root, ["e2e4", "e7e5"]), [
+    root,
+    "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+  ]);
+  assert.throws(
+    () => parentFensForMoves(root, ["e2e5"]),
+    /Illegal review move/,
+  );
 });
 
 test("maps diagram geometry for both board orientations", () => {

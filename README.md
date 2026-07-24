@@ -11,10 +11,11 @@ Chess Scan extracts the useful single-image classifier from [Argus](https://gith
 3. Check the rectified crop immediately and adjust four corners when automatic framing was uncertain.
 4. Heed low-resolution or king-count warnings and correct any piece on the editable board.
 5. Select side to move and orientation.
-6. Save the confirmed position and read its detected topic and spoiler-free human-written hint.
-7. Try legal moves on the full board while the local evaluation bar updates.
-8. After the first move, inspect grounded arrows and text annotations or open advanced Lichess analysis.
-9. Use confirmed crops and labels in a gated model-learning cycle.
+6. Save the confirmed position and reveal the spoiler-free human-written hint only when wanted.
+7. Try a legal first move on the full board while the local evaluation bar updates.
+8. Inspect the grounded review, then enter study mode to play either side from the scanned position.
+9. Follow Stockfish's next move and evidence-backed tactical arrows while study moves receive selective brilliant, only-move, bad, or blunder grades.
+10. Use confirmed crops and labels in a gated model-learning cycle.
 
 ## Development
 
@@ -54,7 +55,7 @@ The review pipeline keeps separate responsibilities:
 - Deterministic tactical detectors are gated against two disjoint, balanced 1,000-puzzle Lichess sets. Held-out accuracy is 99.8% with official setup evidence; FEN-only accuracy is 99.78% across the nine nonhistorical motifs. Mapped-claim precision is 99.77% with setup evidence and 100% in both FEN-only and production-planner modes.
 - Human-authored copy verbalizes only selected evidence. Every annotation cites evidence IDs, and a deterministic fallback abstains when no causal subject is proven.
 - Evidence-backed board stories distinguish the learner's move, engine choice, hypothetical reply, tactical rays, targets, and motif badges without asking the frontend or a model to reason about chess.
-- An optional, separately loaded coaching layer can ask an OpenAI-compatible model to order one or two pre-verified claim IDs. It is disabled by default, cannot write chess claims or alter Stockfish, and never receives images, record IDs, user text, or article annotations.
+- An optional, separately loaded coaching layer can ask an OpenAI-compatible model to order one or two pre-verified claim IDs. The server turns those facts into a cause, checked line, better option, and practical calculation cue with clickable legal moves. The model cannot write chess claims or alter Stockfish, and never receives images, record IDs, user text, or article annotations.
 - Review runs, helpful/problem reports, and expert adjudications are append-only, preserving the engine, contract, output, and required regression fixture for each approved fix.
 - A checksum-pinned expert-commentary benchmark compares causal concepts and grounded claims rather than prose similarity. Its 30-game validation split is grouped away from development and excluded from prompts and tuning. Full third-party annotations remain external; [`docs/commentary-quality.md`](docs/commentary-quality.md) defines the promotion roadmap.
 
@@ -62,7 +63,7 @@ Chess Scan is independently branded and does not redistribute workbook text, dia
 
 ### Optional coaching selector
 
-The deterministic review does not require an external service. To opt in, configure `CHESS_SCAN_COMMENTARY_PLANNER_ENABLED=true` together with an OpenAI-compatible endpoint and model using the variables in [`.env.example`](.env.example). The server sends only a bounded FEN/Stockfish/evidence packet, rejects any output beyond allowed claim IDs, and returns safe fixed copy on timeout or invalid output. An immutable attempt ledger and database leases provide cross-worker single-flight behavior and shared concurrency enforcement; dedicated executors plus per-confirmed-position and deployment-wide hourly budgets limit scanner pressure and external cost. Provider redirects are disabled and non-loopback endpoints require HTTPS. Ratings snapshot the exact coaching run actually shown. Provider selection and data-processing terms remain an operator decision.
+The deterministic review does not require an external service. To opt in, configure `CHESS_SCAN_COMMENTARY_PLANNER_ENABLED=true` together with an OpenAI-compatible endpoint and model using the variables in [`.env.example`](.env.example). The server sends only a bounded FEN/Stockfish/evidence packet, rejects any output beyond allowed claim IDs, and renders a deterministic evidence-cited coaching narrative even when provider selection fails. Each SAN move in that note is tied to a checked line ply and can be opened directly on the board. An immutable attempt ledger and database leases provide cross-worker single-flight behavior and shared concurrency enforcement; dedicated executors plus per-confirmed-position and deployment-wide hourly budgets limit scanner pressure and external cost. Provider redirects are disabled and non-loopback endpoints require HTTPS. Ratings snapshot the exact coaching run actually shown. Provider selection and data-processing terms remain an operator decision.
 
 ### Stockfish licensing
 

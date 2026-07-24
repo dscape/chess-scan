@@ -21,12 +21,14 @@ from chess_scan.review_topics import DEFAULT_TOPIC, ReviewTopic, topic_for
 from chess_scan.schemas import (
     EngineLineInput,
     EngineScore,
+    PositionAttemptRequest,
     PositionReviewRequest,
     PositionReviewResponse,
     PositionTopicResponse,
     ReviewAnnotation,
     ReviewArrow,
     ReviewArrowRole,
+    ReviewAttemptInput,
     ReviewAttemptResponse,
     ReviewBadge,
     ReviewDiagramBadge,
@@ -66,13 +68,32 @@ class _ExplanationPlan:
     badge: ReviewDiagramBadge | None
 
 
+def build_position_attempt(request: PositionAttemptRequest) -> ReviewAttemptResponse:
+    board = validate_full_fen(request.fen)
+    if board.is_game_over(claim_draw=False):
+        raise ValueError("A finished position cannot compare an attempted move")
+    build_analyzed_line(board, request.analysis.best_line.pv)
+    attempt, _ = _review_attempt(
+        board,
+        request.analysis.attempt,
+        request.analysis.best_line,
+        include_refutation_findings=False,
+        same_move_is_best=not request.path_dependent,
+    )
+    if attempt is None:
+        raise ValueError("Position-attempt analysis requires an attempted move")
+    return attempt
+
+
 def build_position_review(
     request: PositionReviewRequest,
     *,
     review_id: str | None = None,
 ) -> PositionReviewResponse:
     board = validate_full_fen(request.fen)
-    if board.is_game_over(claim_draw=True):
+    rules_terminal = board.is_game_over(claim_draw=False)
+    claimed_terminal = request.analysis is None and board.is_game_over(claim_draw=True)
+    if rules_terminal or claimed_terminal:
         if request.analysis is not None:
             raise ValueError("A finished position must not include engine analysis")
         return _terminal_review(board, fen=request.fen, review_id=review_id)
@@ -96,7 +117,11 @@ def build_position_review(
     best_input = request.analysis.lines[0]
     best_analyzed = analyzed_candidates[0]
     best_findings = teaching_subjects(ReviewContext(board=board, line=best_analyzed))
-    attempt, refutation_findings = _review_attempt(board, request, best_input)
+    attempt, refutation_findings = _review_attempt(
+        board,
+        request.analysis.attempt,
+        best_input,
+    )
     selected = _select_findings(best_findings, refutation_findings, attempt)
     forced_mate = best_input.score.kind == "mate" and best_input.score.value > 0
     teach_forced_mate = forced_mate and (
@@ -209,10 +234,12 @@ def build_position_review(
 
 def _review_attempt(
     board: chess.Board,
-    request: PositionReviewRequest,
+    attempt_input: ReviewAttemptInput | None,
     best: EngineLineInput,
+    *,
+    include_refutation_findings: bool = True,
+    same_move_is_best: bool = True,
 ) -> tuple[ReviewAttemptResponse | None, tuple[DetectedSubject, ...]]:
-    attempt_input = request.analysis.attempt if request.analysis is not None else None
     if attempt_input is None:
         return None, ()
 
@@ -248,8 +275,9 @@ def _review_attempt(
         equivalent=equivalent,
         lost_forced_mate=lost_forced_mate,
         score_deterioration=_score_deterioration_verdict(best.score, attempt_score),
+        same_move_is_best=same_move_is_best,
     )
-    presented_equivalent = equivalent or attempt_input.move == best.pv[0]
+    presented_equivalent = equivalent or (same_move_is_best and attempt_input.move == best.pv[0])
     response = ReviewAttemptResponse(
         move=move,
         headline=review_attempt_headline(
@@ -271,7 +299,11 @@ def _review_attempt(
             role=("attempt_refutation" if verdict in {"mistake", "blunder"} else "attempt_line"),
         ),
     )
-    if response.verdict not in {"mistake", "blunder"} or len(analyzed.moves) < 2:
+    if (
+        not include_refutation_findings
+        or response.verdict not in {"mistake", "blunder"}
+        or len(analyzed.moves) < 2
+    ):
         return response, ()
 
     opponent_board = analyzed.boards[0]
@@ -915,8 +947,9 @@ def _attempt_verdict(
     equivalent: bool,
     lost_forced_mate: bool,
     score_deterioration: str | None,
+    same_move_is_best: bool,
 ) -> str:
-    if attempted == best:
+    if attempted == best and (same_move_is_best or equivalent):
         return "best"
     if equivalent:
         return "excellent"

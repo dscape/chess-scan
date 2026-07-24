@@ -13,7 +13,7 @@ from chess_scan.classifier import ModelManager
 from chess_scan.config import Settings
 from chess_scan.database import Database
 from chess_scan.errors import ScanExpiredError, StoredDataIntegrityError
-from chess_scan.schemas import PositionReviewRequest
+from chess_scan.schemas import PositionAttemptRequest, PositionReviewRequest
 from chess_scan.service import ScannerService
 
 
@@ -92,6 +92,73 @@ def test_position_review_preserves_the_confirmed_en_passant_fen(tmp_path: Path) 
 
     assert review.fen == fen
     assert database.position_review_run(review.review_id or "")["fen"] == fen
+
+
+def test_position_review_without_feedback_is_ephemeral(tmp_path: Path) -> None:
+    service, _, settings = _service(tmp_path)
+    request = PositionReviewRequest.model_validate(
+        {
+            "fen": "8/7k/2r5/8/8/8/4Q3/4K3 w - - 0 1",
+            "analysis": {
+                "score_pov": "side_to_move",
+                "lines": [
+                    {
+                        "rank": 1,
+                        "depth": 18,
+                        "score": {"kind": "cp", "value": 520},
+                        "wdl": [930, 69, 1],
+                        "pv": ["e2e4", "h7g8", "e4c6"],
+                        "stable": True,
+                    }
+                ],
+            },
+        }
+    )
+
+    review = service.create_position_review(request)
+
+    assert review.review_id is None
+    assert review.best_move is not None and review.best_move.uci == "e2e4"
+    with sqlite3.connect(settings.data_dir / "chess-scan.sqlite3") as connection:
+        assert connection.execute("SELECT COUNT(*) FROM position_review_runs").fetchone() == (0,)
+
+
+def test_position_attempt_comparison_is_ephemeral(tmp_path: Path) -> None:
+    service, _, settings = _service(tmp_path)
+    request = PositionAttemptRequest.model_validate(
+        {
+            "fen": "8/7k/2r5/8/8/8/4Q3/4K3 w - - 0 1",
+            "analysis": {
+                "score_pov": "side_to_move",
+                "best_line": {
+                    "rank": 1,
+                    "depth": 18,
+                    "score": {"kind": "cp", "value": 520},
+                    "wdl": [930, 69, 1],
+                    "pv": ["e2e4"],
+                    "stable": True,
+                },
+                "attempt": {
+                    "move": "e2e3",
+                    "line": {
+                        "rank": 1,
+                        "depth": 18,
+                        "score": {"kind": "cp", "value": 80},
+                        "wdl": [520, 300, 180],
+                        "pv": ["e2e3"],
+                        "stable": True,
+                    },
+                },
+            },
+        }
+    )
+
+    attempt = service.compare_position_attempt(request)
+
+    assert attempt.move.uci == "e2e3"
+    assert attempt.verdict in {"mistake", "blunder"}
+    with sqlite3.connect(settings.data_dir / "chess-scan.sqlite3") as connection:
+        assert connection.execute("SELECT COUNT(*) FROM position_review_runs").fetchone() == (0,)
 
 
 def test_cleanup_reconciles_confirmed_and_orphaned_files(tmp_path: Path) -> None:

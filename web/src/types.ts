@@ -175,11 +175,40 @@ export interface PositionReview {
   explanation: ReviewAnnotation[];
 }
 
+export type CoachingMoveScope =
+  | "best_line"
+  | "attempt_line"
+  | "attempt_refutation";
+
+export interface CoachingTextSegment {
+  type: "text";
+  text: string;
+}
+
+export interface CoachingMoveSegment {
+  type: "move";
+  scope: CoachingMoveScope;
+  ply: number;
+  role: "attempt" | "reply" | "line" | "better";
+  move: ReviewMove;
+}
+
+export type CoachingSegment = CoachingTextSegment | CoachingMoveSegment;
+
+export interface CoachingSection {
+  kind: "diagnosis" | "continuation" | "alternative" | "idea" | "practice";
+  title: string;
+  segments: CoachingSegment[];
+  evidence_ids: string[];
+}
+
 interface PositionCoachingBase {
-  schema_version: "commentary-planner-1";
+  schema_version: "commentary-planner-2";
   review_id: string;
   planner_version: string;
+  focus: "cause" | "concept" | "comparison" | null;
   headline: string;
+  sections: CoachingSection[];
 }
 
 export type PositionCoaching = PositionCoachingBase &
@@ -188,15 +217,23 @@ export type PositionCoaching = PositionCoachingBase &
         status: "accepted";
         run_id: string;
         lesson_ids: [string, ...string[]];
+        sections: [CoachingSection, ...CoachingSection[]];
         message: null;
       }
     | {
         status: "fallback";
         run_id: string;
         lesson_ids: string[];
+        sections: CoachingSection[];
         message: string;
       }
-    | { status: "disabled"; run_id: null; lesson_ids: []; message: null }
+    | {
+        status: "disabled";
+        run_id: null;
+        lesson_ids: [];
+        sections: [];
+        message: null;
+      }
   );
 
 export type CoachingPresentationStatus =
@@ -227,6 +264,16 @@ export interface ReviewAnalysis {
 
 export interface PositionReviewRequest {
   fen: string;
-  feedback_id: string;
+  feedback_id: string | null;
   analysis: ReviewAnalysis | null;
+}
+
+export interface PositionAttemptRequest {
+  fen: string;
+  path_dependent: boolean;
+  analysis: {
+    score_pov: "side_to_move";
+    best_line: ReviewEngineLine;
+    attempt: NonNullable<ReviewAnalysis["attempt"]>;
+  };
 }

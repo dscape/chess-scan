@@ -12,6 +12,8 @@ from typing import Literal
 
 import chess
 
+from chess_scan.chess_geometry import captured_piece as _captured_piece
+
 ColorName = Literal["white", "black"]
 Proof = Literal["legal_geometry", "line_consequence", "counterfactual"]
 
@@ -678,15 +680,6 @@ def _previous_step(
     if after.fen() != presented.fen():
         raise ValueError("Previous move does not lead to the presented position")
     return SolutionStep(-1, before, move, after)
-
-
-def _captured_piece(board: chess.Board, move: chess.Move) -> chess.Piece | None:
-    if not board.is_capture(move):
-        return None
-    if board.is_en_passant(move):
-        offset = -8 if board.turn == chess.WHITE else 8
-        return board.piece_at(move.to_square + offset)
-    return board.piece_at(move.to_square)
 
 
 def _move_evidence(

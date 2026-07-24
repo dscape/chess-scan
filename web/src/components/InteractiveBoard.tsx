@@ -11,11 +11,20 @@ import {
   REVIEW_DIAGRAM_GEOMETRY,
   visibleReviewMarkers,
 } from "../reviewDiagram";
-import type { Orientation, ReviewAnnotation } from "../types";
+import {
+  studyEngineArrow,
+  studyMoveGradeSymbol,
+  type StudyMoveGrade,
+} from "../studyAnalysis";
+import type { Orientation, ReviewAnnotation, ReviewArrow } from "../types";
 import ChessPiece from "./ChessPiece";
 import { ReviewGlyphLayers } from "./ReviewGlyph";
 
-export type AttemptedMove = { uci: string; san: string };
+export type AttemptedMove = {
+  uci: string;
+  san: string;
+  parentFen: string;
+};
 
 type InteractiveBoardProps = {
   fen: string;
@@ -23,6 +32,8 @@ type InteractiveBoardProps = {
   moves?: string[];
   interactive?: boolean;
   cue?: ReviewAnnotation | null;
+  engineMove?: string | null;
+  moveGrade?: StudyMoveGrade | null;
   onMove?: (move: AttemptedMove) => void;
 };
 
@@ -46,6 +57,8 @@ export default function InteractiveBoard({
   moves = [],
   interactive = false,
   cue = null,
+  engineMove = null,
+  moveGrade = null,
   onMove,
 }: InteractiveBoardProps) {
   const [selected, setSelected] = useState<Square | null>(null);
@@ -60,6 +73,7 @@ export default function InteractiveBoard({
   }, [interactive, position, selected]);
   const squares = orientation === "white" ? SQUARES : BLACK_ORIENTED_SQUARES;
   const lastMove = position.history({ verbose: true }).at(-1) ?? null;
+  const engineArrow = studyEngineArrow(engineMove, cue);
 
   useEffect(() => {
     setSelected(null);
@@ -99,7 +113,11 @@ export default function InteractiveBoard({
     const move = next.move({ from, to, ...(promoteTo ? { promotion: promoteTo } : {}) });
     setSelected(null);
     setPromotion(null);
-    onMove?.({ uci: move.lan, san: move.san });
+    onMove?.({
+      uci: move.lan,
+      san: move.san,
+      parentFen: position.fen(),
+    });
   }
 
   return (
@@ -111,6 +129,7 @@ export default function InteractiveBoard({
           const row = Math.floor(index / 8);
           const col = index % 8;
           const isLastMove = square === lastMove?.from || square === lastMove?.to;
+          const isGradedMove = square === lastMove?.to && square === moveGrade?.square;
           const keyboardTarget = interactive && (
             piece?.color === position.turn() || legalTargets.has(square)
           );
@@ -125,6 +144,7 @@ export default function InteractiveBoard({
                 selected === square ? "is-selected" : "",
                 legalTargets.has(square) ? "is-legal" : "",
                 isLastMove ? "is-last-move" : "",
+                isGradedMove ? `is-graded-${moveGrade.kind}` : "",
               ].join(" ")}
               aria-label={`${square}${name ? `: ${name.toLowerCase()}` : ": empty"}`}
               aria-disabled={!keyboardTarget}
@@ -143,13 +163,17 @@ export default function InteractiveBoard({
             </button>
           );
         })}
-        {cue && (
+        {(cue || engineArrow) && (
           <BoardOverlay
-            key={`${cue.scope}-${cue.ply}-${cue.label}`}
+            key={cue ? `${cue.id}-${cue.scope}-${cue.ply}` : engineMove}
             cue={cue}
+            engineArrow={engineArrow}
             orientation={orientation}
             markerId={markerId}
           />
+        )}
+        {moveGrade && (
+          <MoveGradeBadge grade={moveGrade} orientation={orientation} />
         )}
       </div>
       {promotion && (
@@ -177,20 +201,58 @@ export default function InteractiveBoard({
   );
 }
 
+function MoveGradeBadge({
+  grade,
+  orientation,
+}: {
+  grade: StudyMoveGrade;
+  orientation: Orientation;
+}) {
+  const point = pointForSquare(grade.square, orientation);
+  if (!point) return null;
+  const x = point.x + (point.x > 7 ? -0.29 : 0.29);
+  const y = point.y + (point.y < 1 ? 0.29 : -0.29);
+  const symbol = studyMoveGradeSymbol(grade.kind);
+  return (
+    <span
+      className={`move-grade-badge is-${grade.kind}`}
+      style={{ left: `${(x / 8) * 100}%`, top: `${(y / 8) * 100}%` }}
+      role="img"
+      aria-label={`${grade.label}. ${grade.detail}`}
+    >
+      {symbol}
+    </span>
+  );
+}
+
 function BoardOverlay({
   cue,
+  engineArrow,
   orientation,
   markerId,
 }: {
-  cue: ReviewAnnotation;
+  cue: ReviewAnnotation | null;
+  engineArrow: ReviewArrow | null;
   orientation: Orientation;
   markerId: string;
 }) {
   const resolvePoint = (square: string) => pointForSquare(square, orientation);
-  const arrows = positionReviewArrows(cue.arrows, resolvePoint);
+  const cueArrows = positionReviewArrows(cue?.arrows ?? [], resolvePoint);
+  const engineArrows = positionReviewArrows(
+    engineArrow ? [engineArrow] : [],
+    resolvePoint,
+  );
+  const arrows = [...engineArrows, ...cueArrows];
   const arrowRoles = [...new Set(arrows.map(({ arrow }) => arrow.role))];
-  const positionedBadge = positionReviewBadge(cue.badge, arrows, resolvePoint);
-  const markers = visibleReviewMarkers(cue.markers, arrows).flatMap((marker) => {
+  const positionedBadge = positionReviewBadge(
+    cue?.badge ?? null,
+    cueArrows,
+    resolvePoint,
+  );
+  const markers = visibleReviewMarkers(
+    cue?.markers ?? [],
+    cueArrows,
+  ).flatMap((marker) => {
     const point = resolvePoint(marker.square);
     return point ? [{ marker, point }] : [];
   });

@@ -4,14 +4,23 @@ import chess
 import pytest
 from pydantic import ValidationError
 
-from chess_scan.review import _evidence_arrows, _evidence_badge, build_position_review
+from chess_scan.review import (
+    _evidence_arrows,
+    _evidence_badge,
+    build_position_attempt,
+    build_position_review,
+)
 from chess_scan.review_detectors import (
     Evidence,
     ReviewContext,
     build_analyzed_line,
     teaching_subjects,
 )
-from chess_scan.schemas import PositionReviewRequest, PositionReviewResponse
+from chess_scan.schemas import (
+    PositionAttemptRequest,
+    PositionReviewRequest,
+    PositionReviewResponse,
+)
 
 DOUBLE_ATTACK_FEN = "8/7k/2r5/8/8/8/4Q3/4K3 w - - 0 1"
 DOUBLE_ATTACK_LINE = ["e2e4", "h7g8", "e4c6"]
@@ -344,6 +353,15 @@ def test_finished_positions_receive_a_rules_based_result_without_analysis() -> N
         build_position_review(request)
 
 
+def test_claimable_fifty_move_position_accepts_supplied_analysis() -> None:
+    fen = "7k/7r/8/8/8/8/8/R6K w - - 99 51"
+
+    review = build_position_review(_request(fen=fen, moves=["h1g1"]))
+
+    assert review.best_move is not None
+    assert review.best_move.uci == "h1g1"
+
+
 def test_claimable_fifty_move_draw_is_handled_as_terminal() -> None:
     review = build_position_review(
         PositionReviewRequest.model_validate({"fen": "7k/7r/8/8/8/8/8/R6K w - - 100 51"})
@@ -352,6 +370,75 @@ def test_claimable_fifty_move_draw_is_handled_as_terminal() -> None:
     assert review.evaluation == "Drawn position"
     assert review.best_move is None
     assert "fifty moves" in review.hint.text
+
+
+def test_position_attempt_rejects_an_illegal_best_line() -> None:
+    request = PositionAttemptRequest.model_validate(
+        {
+            "fen": chess.STARTING_FEN,
+            "analysis": {
+                "score_pov": "side_to_move",
+                "best_line": {
+                    "rank": 1,
+                    "depth": 18,
+                    "score": {"kind": "cp", "value": 50},
+                    "wdl": [400, 400, 200],
+                    "pv": ["e2e5"],
+                    "stable": True,
+                },
+                "attempt": {
+                    "move": "e2e4",
+                    "line": {
+                        "rank": 1,
+                        "depth": 18,
+                        "score": {"kind": "cp", "value": 20},
+                        "wdl": [350, 400, 250],
+                        "pv": ["e2e4"],
+                        "stable": True,
+                    },
+                },
+            },
+        }
+    )
+
+    with pytest.raises(ValueError, match="illegal move"):
+        build_position_attempt(request)
+
+
+def test_path_dependent_attempt_can_downgrade_the_cached_best_move() -> None:
+    request = PositionAttemptRequest.model_validate(
+        {
+            "fen": DOUBLE_ATTACK_FEN,
+            "path_dependent": True,
+            "analysis": {
+                "score_pov": "side_to_move",
+                "best_line": {
+                    "rank": 1,
+                    "depth": 18,
+                    "score": {"kind": "cp", "value": 520},
+                    "wdl": [930, 69, 1],
+                    "pv": ["e2e4"],
+                    "stable": True,
+                },
+                "attempt": {
+                    "move": "e2e4",
+                    "line": {
+                        "rank": 1,
+                        "depth": 18,
+                        "score": {"kind": "cp", "value": 0},
+                        "wdl": [0, 1000, 0],
+                        "pv": ["e2e4"],
+                        "stable": True,
+                    },
+                },
+            },
+        }
+    )
+
+    attempt = build_position_attempt(request)
+
+    assert attempt.verdict == "blunder"
+    assert attempt.equivalent is False
 
 
 @pytest.mark.parametrize(

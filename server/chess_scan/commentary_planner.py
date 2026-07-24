@@ -22,18 +22,22 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field
 
 from chess_scan.commentary_contract import (
-    COMMENTARY_MAX_LESSONS,
     COMMENTARY_MODEL_MAX_LENGTH,
     COMMENTARY_PROVIDER_MAX_LENGTH,
     CommentaryClaimRecord,
     CommentaryRunRecord,
+    CommentarySelectionError,
     commentary_claim_candidates,
     normalize_commentary_identity,
+    required_primary_claim_id,
+    validate_commentary_response,
+    verified_commentary_selection,
 )
+from chess_scan.commentary_narrative import CoachingFocus, build_coaching_sections
 from chess_scan.config import Settings
 from chess_scan.schemas import (
     COMMENTARY_FALLBACK_MESSAGE,
-    COMMENTARY_FOCUS_HEADLINES,
+    COMMENTARY_FOCUS_VALUES,
     COMMENTARY_NO_CLAIM_MESSAGE,
     COMMENTARY_REVIEW_HEADLINE,
     ENGINE_ONLY_EVIDENCE_KINDS,
@@ -42,9 +46,9 @@ from chess_scan.schemas import (
     ReviewAnnotation,
 )
 
-PLANNER_VERSION = "commentary-planner-1"
-PROMPT_VERSION = "commentary-selection-1"
-EVIDENCE_PACKET_VERSION = "commentary-evidence-1"
+PLANNER_VERSION = "commentary-planner-2"
+PROMPT_VERSION = "commentary-selection-2"
+EVIDENCE_PACKET_VERSION = "commentary-evidence-2"
 _MAX_PROVIDER_RESPONSE_BYTES = 64 * 1024
 _MAX_PACKET_BYTES = 48 * 1024
 _MAX_TOKEN_COUNT = 10_000_000
@@ -53,8 +57,31 @@ _SYSTEM_PROMPT = """You are a chess lesson selector, not a chess analyst.
 Use only the supplied claim IDs. Do not add chess facts, moves, history, intent, or prose.
 Return one JSON object with exactly two keys:
 - claim_ids: one or two unique IDs from allowed_claim_ids, most useful first
+- if required_primary_claim_id is not null, it must be claim_ids[0]
 - focus: one of cause, concept, comparison
 Return JSON only."""
+_RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "commentary_selection",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "claim_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "focus": {
+                    "type": "string",
+                    "enum": list(COMMENTARY_FOCUS_VALUES),
+                },
+            },
+            "required": ["claim_ids", "focus"],
+            "additionalProperties": False,
+        },
+    },
+}
 
 
 class PlannerProviderError(RuntimeError):
@@ -81,10 +108,7 @@ class _ProviderHttpError(RuntimeError):
         self.status = status
 
 
-class PlannerOutputError(ValueError):
-    def __init__(self, code: str) -> None:
-        super().__init__(code)
-        self.code = code
+PlannerOutputError = CommentarySelectionError
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +162,12 @@ class CommentaryCoach:
         if callable(close):
             close()
 
+    def selection_required(self, review: PositionReviewResponse) -> bool:
+        if self.provider is None:
+            return False
+        candidates = commentary_claim_candidates(review.evidence, review.explanation)
+        return _provider_selection_required(review, candidates)
+
     @classmethod
     def from_settings(cls, settings: Settings) -> CommentaryCoach:
         if not settings.commentary_planner_enabled:
@@ -163,6 +193,7 @@ class CommentaryCoach:
         review: PositionReviewResponse,
         *,
         run_id: str | None = None,
+        provider_selection: bool = True,
     ) -> CommentaryPlannerRun | DisabledCommentaryRun:
         if review.review_id is None:
             raise ValueError("Stored review ID is required for coaching")
@@ -180,13 +211,18 @@ class CommentaryCoach:
         try:
             if not candidates:
                 raise PlannerOutputError("no_claim_candidates")
+            if not provider_selection:
+                raise PlannerOutputError("selection_not_needed")
             packet = _evidence_packet(review, candidates)
             provider_result = self.provider.complete(packet)
             provider_called = True
             request = provider_result.request
-            claim_ids, focus = _verified_selection(provider_result.raw_output, candidates)
+            claim_ids, focus = verified_commentary_selection(
+                provider_result.raw_output,
+                candidates,
+            )
             response = _accepted_response(
-                review.review_id,
+                review,
                 run_id,
                 candidates,
                 claim_ids,
@@ -194,7 +230,7 @@ class CommentaryCoach:
             )
             error_code = None
         except PlannerProviderError as error:
-            response = _fallback_response(review.review_id, run_id, candidates)
+            response = _fallback_response(review, run_id, candidates)
             claim_ids = ()
             error_code = error.code
             request = error.request
@@ -202,7 +238,7 @@ class CommentaryCoach:
             provider_called = error.provider_called
             provider_completion = error.completion
         except PlannerOutputError as error:
-            response = _fallback_response(review.review_id, run_id, candidates)
+            response = _fallback_response(review, run_id, candidates)
             claim_ids = ()
             error_code = error.code
         except Exception:
@@ -238,11 +274,7 @@ def validate_position_coaching(
     payload: dict[str, Any],
 ) -> PositionCoachingResponse:
     response = PositionCoachingResponse.model_validate(payload)
-    if response.review_id != review.review_id:
-        raise ValueError("Stored coaching references a different review")
-    allowed_ids = {lesson.id for lesson in eligible_commentary_lessons(review)}
-    if not set(response.lesson_ids) <= allowed_ids:
-        raise ValueError("Stored coaching contains an unsupported lesson")
+    validate_commentary_response(review, response)
     return response
 
 
@@ -311,7 +343,10 @@ def _provider_request_outcome(
             headers=headers,
             method="POST",
         )
-        opener = urllib.request.build_opener(_NoRedirectHandler())
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}),
+            _NoRedirectHandler(),
+        )
         with opener.open(request, timeout=timeout_seconds) as response:
             body = response.read(_MAX_PROVIDER_RESPONSE_BYTES + 1)
         return "ok", None, body
@@ -429,9 +464,8 @@ class OpenAICompatiblePlannerProvider:
             raise PlannerProviderError("packet_too_large")
         payload = {
             "model": self.model,
-            "temperature": 0,
             "max_tokens": self.max_output_tokens,
-            "response_format": {"type": "json_object"},
+            "response_format": _RESPONSE_FORMAT,
             "messages": [
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": packet_json},
@@ -662,6 +696,23 @@ def eligible_commentary_lessons(
     )
 
 
+def _provider_selection_required(
+    review: PositionReviewResponse,
+    candidates: tuple[CommentaryClaimRecord, ...],
+) -> bool:
+    if len(candidates) != 1:
+        return bool(candidates)
+    lesson = candidates[0].lesson
+    variants = {
+        tuple(
+            section.model_dump_json()
+            for section in build_coaching_sections(review, [lesson], focus=focus)
+        )
+        for focus in COMMENTARY_FOCUS_VALUES
+    }
+    return len(variants) > 1
+
+
 def _evidence_packet(
     review: PositionReviewResponse,
     candidates: tuple[CommentaryClaimRecord, ...],
@@ -723,6 +774,7 @@ def _evidence_packet(
             for candidate in candidates
         ],
         "allowed_claim_ids": [candidate.id for candidate in candidates],
+        "required_primary_claim_id": required_primary_claim_id(candidates),
     }
     encoded = json.dumps(packet, separators=(",", ":"), ensure_ascii=True).encode()
     if len(encoded) > _MAX_PACKET_BYTES:
@@ -730,80 +782,48 @@ def _evidence_packet(
     return packet
 
 
-def _verified_selection(
-    raw_output: str,
-    candidates: tuple[CommentaryClaimRecord, ...],
-) -> tuple[tuple[str, ...], str]:
-    try:
-        encoded = raw_output.encode("utf-8")
-    except UnicodeEncodeError as error:
-        raise PlannerOutputError("invalid_unicode") from error
-    if len(encoded) > 10 * 1024:
-        raise PlannerOutputError("output_too_large")
-    try:
-        decoded = json.loads(raw_output, object_pairs_hook=_unique_json_object)
-    except PlannerOutputError:
-        raise
-    except (ValueError, RecursionError) as error:
-        raise PlannerOutputError("invalid_json") from error
-    if not isinstance(decoded, dict) or set(decoded) != {"claim_ids", "focus"}:
-        raise PlannerOutputError("invalid_shape")
-    claim_ids = decoded["claim_ids"]
-    focus = decoded["focus"]
-    if (
-        not isinstance(claim_ids, list)
-        or not 1 <= len(claim_ids) <= COMMENTARY_MAX_LESSONS
-        or any(not isinstance(claim_id, str) for claim_id in claim_ids)
-        or len(set(claim_ids)) != len(claim_ids)
-    ):
-        raise PlannerOutputError("invalid_claim_ids")
-    allowed = {candidate.id for candidate in candidates}
-    if not set(claim_ids) <= allowed:
-        raise PlannerOutputError("unsupported_claim")
-    if not isinstance(focus, str) or focus not in COMMENTARY_FOCUS_HEADLINES:
-        raise PlannerOutputError("invalid_focus")
-    return tuple(claim_ids), focus
-
-
-def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    keys = [key for key, _value in pairs]
-    if len(keys) != len(set(keys)):
-        raise PlannerOutputError("invalid_shape")
-    return dict(pairs)
-
-
 def _accepted_response(
-    review_id: str,
+    review: PositionReviewResponse,
     run_id: str,
     candidates: tuple[CommentaryClaimRecord, ...],
     claim_ids: tuple[str, ...],
-    focus: str,
+    focus: CoachingFocus,
 ) -> PositionCoachingResponse:
+    if review.review_id is None:
+        raise ValueError("Stored review ID is required for coaching")
     by_id = {candidate.id: candidate for candidate in candidates}
     lessons = [by_id[claim_id].lesson for claim_id in claim_ids]
-    headline = COMMENTARY_FOCUS_HEADLINES[focus]
+    sections = build_coaching_sections(review, lessons, focus=focus)
     return PositionCoachingResponse(
-        review_id=review_id,
+        review_id=review.review_id,
         run_id=run_id,
         status="accepted",
         planner_version=PLANNER_VERSION,
-        headline=headline,
+        focus=focus,
+        headline=sections[0].title,
         lesson_ids=[lesson.id for lesson in lessons],
+        sections=sections,
     )
 
 
 def _fallback_response(
-    review_id: str,
+    review: PositionReviewResponse,
     run_id: str,
     candidates: tuple[CommentaryClaimRecord, ...],
 ) -> PositionCoachingResponse:
+    if review.review_id is None:
+        raise ValueError("Stored review ID is required for coaching")
+    lessons = [candidate.lesson for candidate in candidates[:1]]
+    sections = build_coaching_sections(review, lessons, focus="cause")
     return PositionCoachingResponse(
-        review_id=review_id,
+        review_id=review.review_id,
         run_id=run_id,
         status="fallback",
         planner_version=PLANNER_VERSION,
-        headline=COMMENTARY_REVIEW_HEADLINE,
-        lesson_ids=[candidate.lesson.id for candidate in candidates[:1]],
+        focus="cause" if sections else None,
+        headline=sections[0].title if sections else COMMENTARY_REVIEW_HEADLINE,
+        lesson_ids=[lesson.id for lesson in lessons],
+        sections=sections,
         message=(COMMENTARY_FALLBACK_MESSAGE if candidates else COMMENTARY_NO_CLAIM_MESSAGE),
     )
 
@@ -815,6 +835,7 @@ def _disabled_run(review_id: str) -> DisabledCommentaryRun:
         planner_version=PLANNER_VERSION,
         headline=COMMENTARY_REVIEW_HEADLINE,
         lesson_ids=[],
+        sections=[],
     )
     return DisabledCommentaryRun(response=response)
 

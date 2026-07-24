@@ -10,6 +10,7 @@ import pytest
 
 from chess_scan.bootstrap import initialize_database
 from chess_scan.commentary_contract import CommentaryRunRecord
+from chess_scan.commentary_narrative import build_coaching_sections
 from chess_scan.config import PROJECT_ROOT, Settings
 from chess_scan.database import Database
 from chess_scan.errors import (
@@ -253,6 +254,11 @@ def test_confirmed_feedback_is_immutable_and_counted(tmp_path: Path) -> None:
     ).model_copy(update={"review_id": review_id})
     stored_response = stored_review.model_dump(mode="json")
     coaching_lesson = stored_review.explanation[0]
+    coaching_sections = build_coaching_sections(
+        stored_review,
+        [coaching_lesson],
+        focus="cause",
+    )
     database.save_position_review(
         review_id=review_id,
         feedback_id="feedback",
@@ -267,9 +273,11 @@ def test_confirmed_feedback_is_immutable_and_counted(tmp_path: Path) -> None:
         review_id=review_id,
         run_id=planner_run_id,
         status="accepted",
-        planner_version="planner-1",
-        headline="Follow the cause and effect.",
+        planner_version="commentary-planner-2",
+        focus="cause",
+        headline=coaching_sections[0].title,
         lesson_ids=[coaching_lesson.id],
+        sections=coaching_sections,
     )
     assert (
         database.reserve_commentary_planner_run(
@@ -288,7 +296,7 @@ def test_confirmed_feedback_is_immutable_and_counted(tmp_path: Path) -> None:
         model="test-model",
         prompt_version="prompt-1",
         request={"evidence": ["f1-e1"]},
-        raw_output='{"claim_ids":["claim-1"]}',
+        raw_output='{"claim_ids":["claim-1"],"focus":"cause"}',
         accepted_claim_ids=("claim-1",),
         claim_candidates=({"id": "claim-1", "lesson": coaching_lesson},),
         latency_ms=25,
@@ -337,12 +345,13 @@ def test_confirmed_feedback_is_immutable_and_counted(tmp_path: Path) -> None:
         review_id=review_id,
         run_id="9" * 32,
         status="fallback",
-        planner_version="planner-1",
-        headline="Verified review",
+        planner_version="commentary-planner-2",
+        focus="cause",
+        headline=coaching_sections[0].title,
         lesson_ids=[coaching_lesson.id],
+        sections=coaching_sections,
         message=(
-            "Deeper coaching is unavailable right now. "
-            "The verified evidence-backed lesson is shown instead."
+            "The coach could not prioritize an extra lesson. The checked analysis is unchanged."
         ),
     )
     with pytest.raises(ValueError, match="cannot contain accepted claim IDs"):
@@ -462,6 +471,31 @@ def test_confirmed_feedback_is_immutable_and_counted(tmp_path: Path) -> None:
     assert planner_run["accepted_claim_ids"] == ["claim-1"]
     assert planner_run["claim_candidates"][0]["id"] == "claim-1"
     assert planner_run["latency_ms"] == 25
+    with sqlite3.connect(database.path) as connection:
+        connection.execute(
+            "UPDATE commentary_planner_runs SET raw_output = ? WHERE review_id = ?",
+            ('{"claim_ids":["claim-1"],"focus":"comparison"}', review_id),
+        )
+        connection.commit()
+    with pytest.raises(ValueError, match="contradicts the presented selection"):
+        database.commentary_planner_snapshot(review_id)
+    with sqlite3.connect(database.path) as connection:
+        connection.execute(
+            "UPDATE commentary_planner_runs SET raw_output = ? WHERE review_id = ?",
+            (
+                '{"claim_ids":["claim-1"],"focus":"comparison","focus":"cause"}',
+                review_id,
+            ),
+        )
+        connection.commit()
+    with pytest.raises(ValueError, match="was never valid"):
+        database.commentary_planner_snapshot(review_id)
+    with sqlite3.connect(database.path) as connection:
+        connection.execute(
+            "UPDATE commentary_planner_runs SET raw_output = ? WHERE review_id = ?",
+            ('{"claim_ids":["claim-1"],"focus":"cause"}', review_id),
+        )
+        connection.commit()
     tampered_candidates = planner_run["claim_candidates"]
     tampered_candidates[0]["lesson"]["text"] = "Altered after presentation."
     with sqlite3.connect(database.path) as connection:
@@ -513,7 +547,9 @@ def test_confirmed_feedback_is_immutable_and_counted(tmp_path: Path) -> None:
     assert review_feedback[0]["presented_commentary_run_id"] == planner_run_id
     assert review_feedback[0]["commentary_provider"] == "test-provider"
     assert review_feedback[0]["commentary_provider_called"] == 1
-    assert review_feedback[0]["commentary_raw_output"] == '{"claim_ids":["claim-1"]}'
+    assert review_feedback[0]["commentary_raw_output"] == (
+        '{"claim_ids":["claim-1"],"focus":"cause"}'
+    )
     export_snapshot = database.commentary_snapshot_from_feedback_row(review_feedback[0])
     assert export_snapshot == database.commentary_planner_snapshot(review_id)
     coaching_payload = coaching_response.model_dump(mode="json")
@@ -551,6 +587,106 @@ def test_confirmed_feedback_is_immutable_and_counted(tmp_path: Path) -> None:
         )
     assert "lessons" in stored_legacy_coaching
     assert "run_id" not in stored_legacy_coaching
+
+    v1_response = {
+        "schema_version": "commentary-planner-1",
+        "review_id": review_id,
+        "run_id": planner_run_id,
+        "status": "accepted",
+        "planner_version": "commentary-planner-1",
+        "headline": "Follow the cause and effect.",
+        "lesson_ids": [coaching_lesson.id],
+        "message": None,
+    }
+    with sqlite3.connect(database.path) as connection:
+        connection.execute(
+            """
+            UPDATE commentary_planner_runs
+            SET planner_version = 'commentary-planner-1', response_json = ?,
+                claim_candidates_json = ?
+            WHERE id = ?
+            """,
+            (
+                json.dumps(v1_response, separators=(",", ":")),
+                json.dumps(
+                    [
+                        candidate.model_dump(mode="json")
+                        for candidate in planner_record.claim_candidates
+                    ],
+                    separators=(",", ":"),
+                ),
+                planner_run_id,
+            ),
+        )
+        connection.commit()
+    adapted_v1 = database.position_coaching(review_id)
+    assert adapted_v1 == coaching_response
+    v1_snapshot = database.commentary_planner_snapshot(review_id)
+    assert v1_snapshot["response"] == coaching_payload
+    assert v1_snapshot["stored_response"] == v1_response
+    assert v1_snapshot["planner_version"] == "commentary-planner-1"
+    assert v1_snapshot["serving_planner_version"] == "commentary-planner-2"
+
+    v1_embedded_lessons = dict(v1_response)
+    v1_embedded_lessons["lessons"] = [coaching_lesson.model_dump(mode="json", exclude={"id"})]
+    v1_embedded_lessons.pop("lesson_ids")
+    v1_embedded_lessons.pop("run_id")
+    with sqlite3.connect(database.path) as connection:
+        connection.execute(
+            "UPDATE commentary_planner_runs SET response_json = ?, claim_candidates_json = '[]' "
+            "WHERE id = ?",
+            (json.dumps(v1_embedded_lessons, separators=(",", ":")), planner_run_id),
+        )
+        connection.commit()
+    assert database.position_coaching(review_id) == coaching_response
+
+    conflicting_v1 = dict(v1_response)
+    conflicting_v1["run_id"] = "0" * 32
+    with sqlite3.connect(database.path) as connection:
+        connection.execute(
+            "UPDATE commentary_planner_runs SET response_json = ? WHERE id = ?",
+            (json.dumps(conflicting_v1, separators=(",", ":")), planner_run_id),
+        )
+        connection.commit()
+    with pytest.raises(ValueError, match="V1 coaching has conflicting metadata"):
+        database.position_coaching(review_id)
+    invalid_v1_copy = dict(v1_response)
+    invalid_v1_copy["message"] = "Altered fallback copy."
+    with sqlite3.connect(database.path) as connection:
+        connection.execute(
+            "UPDATE commentary_planner_runs SET response_json = ? WHERE id = ?",
+            (json.dumps(invalid_v1_copy, separators=(",", ":")), planner_run_id),
+        )
+        connection.commit()
+    with pytest.raises(ValueError, match="accepted V1 coaching has invalid fixed copy"):
+        database.position_coaching(review_id)
+    with sqlite3.connect(database.path) as connection:
+        connection.execute(
+            "UPDATE commentary_planner_runs SET planner_version = 'commentary-planner-2', "
+            "response_json = ? WHERE id = ?",
+            (json.dumps(v1_response, separators=(",", ":")), planner_run_id),
+        )
+        connection.commit()
+    with pytest.raises(ValueError, match="V1 coaching has conflicting metadata"):
+        database.position_coaching(review_id)
+    with sqlite3.connect(database.path) as connection:
+        connection.execute(
+            "UPDATE commentary_planner_runs SET planner_version = 'commentary-planner-1', "
+            "response_json = ?, claim_candidates_json = ? WHERE id = ?",
+            (
+                json.dumps(v1_embedded_lessons, separators=(",", ":")),
+                json.dumps(
+                    [
+                        candidate.model_dump(mode="json")
+                        for candidate in planner_record.claim_candidates
+                    ],
+                    separators=(",", ":"),
+                ),
+                planner_run_id,
+            ),
+        )
+        connection.commit()
+
     assert review_feedback[0]["response_json"] == json.dumps(
         stored_response,
         separators=(",", ":"),
@@ -779,10 +915,11 @@ def test_confirmed_feedback_is_immutable_and_counted(tmp_path: Path) -> None:
         review_id=local_review_id,
         run_id=local_run_id,
         status="fallback",
-        planner_version="planner-1",
-        headline="Verified review",
+        planner_version="commentary-planner-2",
+        headline="Checked analysis",
         lesson_ids=[],
-        message="No deeper evidence-backed lesson is available for this position.",
+        sections=[],
+        message=("The checked analysis contains no additional evidence-backed coaching note."),
     )
     local_record = planner_record.model_copy(
         update={

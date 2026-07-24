@@ -5,9 +5,11 @@ import type {
   ConfirmResult,
   Orientation,
   Point,
+  PositionAttemptRequest,
   PositionCoaching,
   PositionReview,
   PositionReviewRequest,
+  ReviewAttempt,
   ReviewedPosition,
   ScanResult,
   SideToMove,
@@ -16,15 +18,45 @@ import type {
 const RECORD_ID_PATTERN = /^[0-9a-f]{32}$/;
 const COACHING_RETRY_WINDOW_MS = 20_000;
 
+export type ApiFailure = {
+  kind: "api";
+  message: string;
+  status: number | null;
+  retryable: boolean;
+};
+
 export class ApiError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-    readonly retryAfterMs: number | null,
-  ) {
+  readonly status: number;
+  readonly retryAfterMs: number | null;
+
+  constructor(message: string, status: number, retryAfterMs: number | null) {
     super(message);
     this.name = "ApiError";
+    this.status = status;
+    this.retryAfterMs = retryAfterMs;
   }
+}
+
+export function apiFailureFrom(cause: unknown): ApiFailure | null {
+  if (cause instanceof ApiError) {
+    return {
+      kind: "api",
+      message: cause.message,
+      status: cause.status,
+      retryable: cause.status === 408
+        || cause.status === 429
+        || cause.status >= 500,
+    };
+  }
+  if (cause instanceof TypeError) {
+    return {
+      kind: "api",
+      message: cause.message || "The review service could not be reached.",
+      status: null,
+      retryable: true,
+    };
+  }
+  return null;
 }
 
 function isRecordId(value: string): boolean {
@@ -89,6 +121,18 @@ export async function getReviewedPosition(
   signal?: AbortSignal,
 ): Promise<ReviewedPosition> {
   return request<ReviewedPosition>(recordEndpoint("/api/reviews", feedbackId, "feedback"), {
+    signal,
+  });
+}
+
+export async function comparePositionAttempt(
+  payload: PositionAttemptRequest,
+  signal?: AbortSignal,
+): Promise<ReviewAttempt> {
+  return request<ReviewAttempt>("/api/position-attempts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
     signal,
   });
 }

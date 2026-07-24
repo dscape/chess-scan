@@ -1,6 +1,46 @@
+import type { ReviewAnnotation } from "./types";
+
 export interface BoardCue {
   id: string;
   ply: number;
+}
+
+export function displayCueLabel(label: string): string {
+  return label.split("·").at(-1)?.trim() || label;
+}
+
+export function cueAccessibleLabel(cue: ReviewAnnotation): string {
+  return `${cueRoleDescription(cue)}: ${displayCueLabel(cue.label)}. ${cue.text} Show on board.`;
+}
+
+export function cueRoleDescription(cue: ReviewAnnotation): string {
+  switch (cue.arrows[0]?.role) {
+    case "played":
+      return "Learner move";
+    case "reply":
+      return "Hypothetical reply";
+    case "engine":
+      return "Engine line";
+    default:
+      return "Position idea";
+  }
+}
+
+export function cueRoleMark(cue: ReviewAnnotation): string {
+  switch (cue.arrows[0]?.role) {
+    case "played":
+      return "↗";
+    case "reply":
+      return "!";
+    case "engine":
+      return "✦";
+    default:
+      return "•";
+  }
+}
+
+export function hasBoardCue(cue: ReviewAnnotation): boolean {
+  return cue.markers.length > 0 || cue.arrows.length > 0 || cue.badge !== null;
 }
 
 export function displayedBoardCue<T extends BoardCue>(

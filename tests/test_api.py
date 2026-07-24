@@ -216,6 +216,50 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
             "role": "engine",
             "arrow_index": 1,
         }
+        ephemeral_review = client.post(
+            "/api/position-reviews",
+            json={**review_request, "feedback_id": None},
+        )
+        assert ephemeral_review.status_code == 200, ephemeral_review.text
+        assert ephemeral_review.json()["review_id"] is None
+        assert ephemeral_review.json()["best_move"] == position_review["best_move"]
+        attempt_comparison = client.post(
+            "/api/position-attempts",
+            json={
+                "fen": review_request["fen"],
+                "analysis": {
+                    "score_pov": "side_to_move",
+                    "best_line": review_request["analysis"]["lines"][0],
+                    "attempt": {
+                        "move": "e2e3",
+                        "line": {
+                            "rank": 1,
+                            "depth": 18,
+                            "score": {"kind": "cp", "value": 80},
+                            "wdl": [520, 300, 180],
+                            "pv": ["e2e3"],
+                            "stable": True,
+                        },
+                    },
+                },
+            },
+        )
+        assert attempt_comparison.status_code == 200, attempt_comparison.text
+        assert attempt_comparison.json()["move"]["uci"] == "e2e3"
+        assert attempt_comparison.json()["verdict"] in {"mistake", "blunder"}
+        assert (
+            client.post(
+                "/api/position-attempts",
+                json={
+                    "fen": review_request["fen"],
+                    "analysis": {
+                        "score_pov": "side_to_move",
+                        "best_line": review_request["analysis"]["lines"][0],
+                    },
+                },
+            ).status_code
+            == 422
+        )
         review_id = position_review["review_id"]
         assert len(review_id) == 32
         stored_review = client.get(f"/api/position-reviews/{review_id}")

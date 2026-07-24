@@ -19,17 +19,14 @@ from chess_scan.board import SQUARE_COUNT, validate_full_fen, validate_labels
 from chess_scan.commentary_limits import COMMENTARY_MAX_LESSONS
 
 ENGINE_ONLY_EVIDENCE_KINDS = frozenset({"engine_candidate", "engine_comparison"})
-COMMENTARY_FOCUS_HEADLINES = {
-    "cause": "Follow the cause and effect.",
-    "concept": "Focus on the verified concept.",
-    "comparison": "Compare the checked ideas.",
-}
-COMMENTARY_REVIEW_HEADLINE = "Verified review"
+COMMENTARY_FOCUS_VALUES = ("cause", "concept", "comparison")
+COMMENTARY_REVIEW_HEADLINE = "Checked analysis"
 COMMENTARY_FALLBACK_MESSAGE = (
-    "Deeper coaching is unavailable right now. "
-    "The verified evidence-backed lesson is shown instead."
+    "The coach could not prioritize an extra lesson. The checked analysis is unchanged."
 )
-COMMENTARY_NO_CLAIM_MESSAGE = "No deeper evidence-backed lesson is available for this position."
+COMMENTARY_NO_CLAIM_MESSAGE = (
+    "The checked analysis contains no additional evidence-backed coaching note."
+)
 
 AnnotationId = Annotated[
     str,
@@ -222,6 +219,33 @@ class PositionReviewRequest(BaseModel):
     fen: str = Field(min_length=1, max_length=120)
     feedback_id: RecordId | None = None
     analysis: ReviewAnalysisInput | None = None
+
+
+class PositionAttemptAnalysisInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    score_pov: Literal["side_to_move"]
+    best_line: EngineLineInput
+    attempt: ReviewAttemptInput
+
+    @model_validator(mode="after")
+    def validate_lines(self) -> PositionAttemptAnalysisInput:
+        if self.best_line.rank != 1:
+            raise ValueError("Position-attempt best analysis must contain rank 1")
+        for line in (self.best_line, self.attempt.line):
+            if not line.stable:
+                raise ValueError("Position-attempt analysis must be stable")
+            if line.score.bound is not None:
+                raise ValueError("Position-attempt analysis must have exact scores")
+        return self
+
+
+class PositionAttemptRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    fen: str = Field(min_length=1, max_length=120)
+    analysis: PositionAttemptAnalysisInput
+    path_dependent: bool = False
 
 
 class ReviewMove(BaseModel):
@@ -639,19 +663,60 @@ class PositionReviewResponse(BaseModel):
         return self
 
 
+class CoachingTextSegment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["text"]
+    text: str = Field(min_length=1, max_length=600)
+
+
+class CoachingMoveSegment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["move"]
+    scope: Literal["best_line", "attempt_line", "attempt_refutation"]
+    ply: int = Field(ge=0, le=15)
+    role: Literal["attempt", "reply", "line", "better"]
+    move: ReviewMove
+
+
+CoachingSegment = Annotated[
+    CoachingTextSegment | CoachingMoveSegment,
+    Field(discriminator="type"),
+]
+
+
+class CoachingSection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["diagnosis", "continuation", "alternative", "idea", "practice"]
+    title: str = Field(min_length=1, max_length=120)
+    segments: list[CoachingSegment] = Field(min_length=1, max_length=48)
+    evidence_ids: list[str] = Field(min_length=1, max_length=8)
+
+    @field_validator("evidence_ids")
+    @classmethod
+    def validate_evidence_ids(cls, evidence_ids: list[str]) -> list[str]:
+        if len(evidence_ids) != len(set(evidence_ids)):
+            raise ValueError("Coaching section evidence IDs must be unique")
+        return evidence_ids
+
+
 class PositionCoachingResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["commentary-planner-1"] = "commentary-planner-1"
+    schema_version: Literal["commentary-planner-2"] = "commentary-planner-2"
     review_id: RecordId
     run_id: RecordId | None = None
     status: Literal["accepted", "fallback", "disabled"]
-    planner_version: str = Field(min_length=1, max_length=80)
+    planner_version: Literal["commentary-planner-2"]
+    focus: Literal["cause", "concept", "comparison"] | None = None
     headline: str = Field(min_length=1, max_length=160)
     lesson_ids: list[AnnotationId] = Field(
         default_factory=list,
         max_length=COMMENTARY_MAX_LESSONS,
     )
+    sections: list[CoachingSection] = Field(default_factory=list, max_length=5)
     message: str | None = Field(default=None, max_length=240)
 
     @field_validator("lesson_ids")
@@ -667,22 +732,29 @@ class PositionCoachingResponse(BaseModel):
             raise ValueError("Disabled coaching cannot reference a planner run")
         if self.status != "disabled" and self.run_id is None:
             raise ValueError("Presented coaching requires a planner run ID")
-        if self.status == "accepted" and not self.lesson_ids:
-            raise ValueError("Accepted coaching requires at least one verified lesson")
+        if self.status == "accepted" and (
+            not self.lesson_ids or not self.sections or self.focus is None
+        ):
+            raise ValueError("Accepted coaching requires a verified narrative")
         if self.status == "accepted" and self.message is not None:
             raise ValueError("Accepted coaching cannot contain a fallback message")
-        if self.status == "accepted" and self.headline not in COMMENTARY_FOCUS_HEADLINES.values():
-            raise ValueError("Accepted coaching requires a fixed focus headline")
+        if self.sections and self.headline != self.sections[0].title:
+            raise ValueError("Coaching headline must match its opening section")
         expected_fallback_message = (
             COMMENTARY_FALLBACK_MESSAGE if self.lesson_ids else COMMENTARY_NO_CLAIM_MESSAGE
         )
         if self.status == "fallback" and (
-            self.headline != COMMENTARY_REVIEW_HEADLINE or self.message != expected_fallback_message
+            self.message != expected_fallback_message
+            or bool(self.lesson_ids) != bool(self.sections)
+            or self.focus != ("cause" if self.lesson_ids else None)
+            or (not self.sections and self.headline != COMMENTARY_REVIEW_HEADLINE)
         ):
-            raise ValueError("Fallback coaching requires fixed verified copy")
+            raise ValueError("Fallback coaching requires fixed verified content")
         if self.status == "disabled" and (
             self.headline != COMMENTARY_REVIEW_HEADLINE
+            or self.focus is not None
             or self.lesson_ids
+            or self.sections
             or self.message is not None
         ):
             raise ValueError("Disabled coaching cannot contain generated content")

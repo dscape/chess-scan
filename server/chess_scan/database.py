@@ -14,9 +14,13 @@ from typing import Any, Literal
 
 from chess_scan.commentary_contract import (
     CommentaryRunRecord,
+    CommentarySelectionError,
     commentary_claim_candidates,
+    validate_commentary_response,
+    verified_commentary_selection,
 )
 from chess_scan.commentary_limits import COMMENTARY_MAX_LESSONS
+from chess_scan.commentary_narrative import build_coaching_sections
 from chess_scan.errors import (
     PositionReviewFeedbackConflictError,
     PositionReviewNotFoundError,
@@ -31,12 +35,26 @@ from chess_scan.learning import (
 )
 from chess_scan.model_artifact import verify_model_artifact
 from chess_scan.schemas import (
+    COMMENTARY_FALLBACK_MESSAGE,
+    COMMENTARY_NO_CLAIM_MESSAGE,
+    COMMENTARY_REVIEW_HEADLINE,
     PositionCoachingResponse,
     PositionReviewResponse,
     review_attempt_headline,
 )
 
 _DATABASE_SCHEMA_VERSION = 1
+_V1_FOCUS_HEADLINES = {
+    "cause": "Follow the cause and effect.",
+    "concept": "Focus on the verified concept.",
+    "comparison": "Compare the checked ideas.",
+}
+_V1_REVIEW_HEADLINE = "Verified review"
+_V1_FALLBACK_MESSAGE = (
+    "Deeper coaching is unavailable right now. "
+    "The verified evidence-backed lesson is shown instead."
+)
+_V1_NO_CLAIM_MESSAGE = "No deeper evidence-backed lesson is available for this position."
 
 CommentaryReservationStatus = Literal[
     "stored",
@@ -1738,18 +1756,23 @@ def _commentary_run_record(
     def value(column: str) -> Any:
         return row[f"{prefix}{column}"]
 
-    response_json, claim_candidates_json = _normalized_commentary_storage(
+    response_json, claim_candidates_json, adapted_v1 = _normalized_commentary_storage(
         response_json=str(value("response_json")),
         claim_candidates_json=str(value("claim_candidates_json")),
+        raw_output=value("raw_output"),
         review=review,
         run_id=str(value("id")),
+        stored_status=str(value("status")),
+        stored_planner_version=str(value("planner_version")),
     )
     response = PositionCoachingResponse.model_validate_json(response_json)
     expected = {
         "run_id": str(value("id")),
         "review_id": str(value("review_id")),
         "status": str(value("status")),
-        "planner_version": str(value("planner_version")),
+        "planner_version": (
+            "commentary-planner-2" if adapted_v1 else str(value("planner_version"))
+        ),
     }
     response_payload = response.model_dump(mode="json")
     if expected["review_id"] != review_id or any(
@@ -1773,7 +1796,7 @@ def _commentary_run_record(
         error_code=value("error_code"),
         provider_called=bool(value("provider_called")),
     )
-    _validate_commentary_run_record(record)
+    _validate_commentary_run_record(record, legacy_v1=adapted_v1)
     _validate_commentary_candidates(record, review=review)
     return record
 
@@ -1782,40 +1805,189 @@ def _normalized_commentary_storage(
     *,
     response_json: str,
     claim_candidates_json: str,
+    raw_output: str | None,
     review: PositionReviewResponse,
     run_id: str,
-) -> tuple[str, str]:
+    stored_status: str,
+    stored_planner_version: str,
+) -> tuple[str, str, bool]:
     response = _json_object(response_json, label="planner response")
-    legacy_lessons = response.get("lessons")
-    if not isinstance(legacy_lessons, list):
-        return response_json, claim_candidates_json
-
-    candidates = commentary_claim_candidates(review.evidence, review.explanation)
-
-    selected_lesson_ids: list[str] = []
-    for legacy_lesson in legacy_lessons:
-        match = next(
-            (
-                candidate
-                for candidate in candidates
-                if candidate.lesson.model_dump(mode="json", exclude={"id"}) == legacy_lesson
-            ),
-            None,
+    is_v1 = response.get("schema_version") == "commentary-planner-1"
+    if is_v1:
+        _validate_v1_commentary_metadata(
+            response,
+            review=review,
+            run_id=run_id,
+            stored_status=stored_status,
+            stored_planner_version=stored_planner_version,
+            raw_output=raw_output,
         )
-        if match is None:
-            raise ValueError("Stored legacy coaching lesson is absent from its review")
-        selected_lesson_ids.append(match.lesson.id)
 
-    response["run_id"] = run_id
-    response["lesson_ids"] = selected_lesson_ids
-    del response["lessons"]
-    return (
-        json.dumps(response, separators=(",", ":")),
-        json.dumps(
+    normalized_candidates_json = claim_candidates_json
+    legacy_lessons = response.get("lessons")
+    if isinstance(legacy_lessons, list):
+        candidates = commentary_claim_candidates(review.evidence, review.explanation)
+        selected_lesson_ids: list[str] = []
+        for legacy_lesson in legacy_lessons:
+            match = next(
+                (
+                    candidate
+                    for candidate in candidates
+                    if candidate.lesson.model_dump(mode="json", exclude={"id"}) == legacy_lesson
+                ),
+                None,
+            )
+            if match is None:
+                raise ValueError("Stored legacy coaching lesson is absent from its review")
+            selected_lesson_ids.append(match.lesson.id)
+        response["lesson_ids"] = selected_lesson_ids
+        del response["lessons"]
+        normalized_candidates_json = json.dumps(
             [candidate.model_dump(mode="json") for candidate in candidates],
             separators=(",", ":"),
+        )
+
+    if is_v1:
+        return (
+            _adapt_v1_commentary_response(
+                response,
+                raw_output=raw_output,
+                review=review,
+                run_id=run_id,
+            ),
+            normalized_candidates_json,
+            True,
+        )
+    if not isinstance(legacy_lessons, list):
+        return response_json, claim_candidates_json, False
+
+    response["run_id"] = run_id
+    return (
+        json.dumps(response, separators=(",", ":")),
+        normalized_candidates_json,
+        False,
+    )
+
+
+def _validate_v1_commentary_metadata(
+    response: dict[str, Any],
+    *,
+    review: PositionReviewResponse,
+    run_id: str,
+    stored_status: str,
+    stored_planner_version: str,
+    raw_output: str | None,
+) -> None:
+    has_embedded_lessons = "lessons" in response
+    has_lesson_ids = "lesson_ids" in response
+    if has_embedded_lessons == has_lesson_ids:
+        raise ValueError("Stored V1 coaching has an invalid lesson shape")
+    lesson_key = "lessons" if has_embedded_lessons else "lesson_ids"
+    lessons = response.get(lesson_key)
+    if not isinstance(lessons, list) or len(lessons) > COMMENTARY_MAX_LESSONS:
+        raise ValueError("Stored V1 coaching has invalid lessons")
+    if has_lesson_ids and (
+        any(not isinstance(lesson_id, str) for lesson_id in lessons)
+        or len(lessons) != len(set(lessons))
+    ):
+        raise ValueError("Stored V1 coaching has invalid lesson IDs")
+    if has_embedded_lessons and any(not isinstance(lesson, dict) for lesson in lessons):
+        raise ValueError("Stored V1 coaching has invalid embedded lessons")
+
+    allowed_keys = {
+        "schema_version",
+        "review_id",
+        "run_id",
+        "status",
+        "planner_version",
+        "headline",
+        lesson_key,
+        "message",
+    }
+    required_keys = allowed_keys - ({"run_id"} if has_embedded_lessons else set())
+    if not required_keys <= set(response) or not set(response) <= allowed_keys:
+        raise ValueError("Stored V1 coaching has unexpected fields")
+    if (
+        response.get("schema_version") != "commentary-planner-1"
+        or response.get("review_id") != review.review_id
+        or response.get("status") != stored_status
+        or response.get("planner_version") != "commentary-planner-1"
+        or stored_planner_version != "commentary-planner-1"
+        or ("run_id" in response and response.get("run_id") != run_id)
+    ):
+        raise ValueError("Stored V1 coaching has conflicting metadata")
+
+    status = response.get("status")
+    if status == "accepted":
+        focus = _v1_commentary_focus(raw_output)
+        if (
+            not lessons
+            or response.get("headline") != _V1_FOCUS_HEADLINES[focus]
+            or response.get("message") is not None
+        ):
+            raise ValueError("Stored accepted V1 coaching has invalid fixed copy")
+        return
+    if status != "fallback":
+        raise ValueError("Stored V1 coaching has an invalid status")
+    expected_message = _V1_FALLBACK_MESSAGE if lessons else _V1_NO_CLAIM_MESSAGE
+    if (
+        response.get("headline") != _V1_REVIEW_HEADLINE
+        or response.get("message") != expected_message
+    ):
+        raise ValueError("Stored fallback V1 coaching has invalid fixed copy")
+
+
+def _adapt_v1_commentary_response(
+    response: dict[str, Any],
+    *,
+    raw_output: str | None,
+    review: PositionReviewResponse,
+    run_id: str,
+) -> str:
+    lesson_ids = response.get("lesson_ids")
+    status = response.get("status")
+    if (
+        not isinstance(lesson_ids, list)
+        or any(not isinstance(lesson_id, str) for lesson_id in lesson_ids)
+        or status not in {"accepted", "fallback"}
+    ):
+        raise ValueError("Stored V1 coaching response is invalid")
+    lessons_by_id = {lesson.id: lesson for lesson in review.explanation}
+    try:
+        lessons = [lessons_by_id[lesson_id] for lesson_id in lesson_ids]
+    except KeyError as error:
+        raise ValueError("Stored V1 coaching lesson is absent from its review") from error
+
+    focus = _v1_commentary_focus(raw_output) if status == "accepted" else "cause"
+    sections = build_coaching_sections(review, lessons, focus=focus)
+    adapted = PositionCoachingResponse(
+        review_id=response.get("review_id"),
+        run_id=run_id,
+        status=status,
+        planner_version="commentary-planner-2",
+        focus=focus if sections else None,
+        headline=sections[0].title if sections else COMMENTARY_REVIEW_HEADLINE,
+        lesson_ids=lesson_ids,
+        sections=sections,
+        message=(
+            None
+            if status == "accepted"
+            else COMMENTARY_FALLBACK_MESSAGE
+            if sections
+            else COMMENTARY_NO_CLAIM_MESSAGE
         ),
     )
+    return adapted.model_dump_json()
+
+
+def _v1_commentary_focus(raw_output: str | None) -> str:
+    if raw_output is None:
+        raise ValueError("Stored accepted V1 coaching has no raw provider output")
+    selection = _json_object(raw_output, label="accepted V1 planner output")
+    focus = selection.get("focus")
+    if focus not in {"cause", "concept", "comparison"}:
+        raise ValueError("Stored accepted V1 coaching has an invalid focus")
+    return str(focus)
 
 
 def _commentary_snapshot(
@@ -1832,7 +2004,8 @@ def _commentary_snapshot(
         "provider": record.provider,
         "model": record.model,
         "prompt_version": record.prompt_version,
-        "planner_version": response.planner_version,
+        "planner_version": stored_response.get("planner_version", response.planner_version),
+        "serving_planner_version": response.planner_version,
         "request": record.request,
         "raw_output": record.raw_output,
         "accepted_claim_ids": list(record.accepted_claim_ids),
@@ -1861,9 +2034,14 @@ def _validate_commentary_candidates(
         raise ValueError(
             f"Stored commentary candidates contradict their review: {record.response.review_id}"
         )
+    validate_commentary_response(review, record.response)
 
 
-def _validate_commentary_run_record(record: CommentaryRunRecord) -> None:
+def _validate_commentary_run_record(
+    record: CommentaryRunRecord,
+    *,
+    legacy_v1: bool = False,
+) -> None:
     response = record.response
     if response.status == "disabled":
         raise ValueError("Disabled coaching is not a planner run")
@@ -1882,6 +2060,18 @@ def _validate_commentary_run_record(record: CommentaryRunRecord) -> None:
             raise ValueError("Accepted commentary contains an unsupported claim ID") from exc
         if [lesson.id for lesson in selected_lessons] != response.lesson_ids:
             raise ValueError("Accepted claim order contradicts the presented lessons")
+        if record.raw_output is None:
+            raise ValueError("Accepted commentary requires raw provider output")
+        try:
+            selected_claim_ids, selected_focus = verified_commentary_selection(
+                record.raw_output,
+                record.claim_candidates,
+                require_causal_primary=not legacy_v1,
+            )
+        except CommentarySelectionError as error:
+            raise ValueError("Stored accepted planner output was never valid") from error
+        if selected_claim_ids != record.accepted_claim_ids or selected_focus != response.focus:
+            raise ValueError("Accepted planner output contradicts the presented selection")
     elif record.accepted_claim_ids:
         raise ValueError("Fallback commentary cannot contain accepted claim IDs")
     else:
