@@ -1958,8 +1958,8 @@ function CoachingSummary({
   if (state.status === "unavailable") {
     return (
       <aside className="coaching-summary is-unavailable" role="status">
-        <strong>Checked analysis is ready.</strong>
-        <small>The optional coach note is unavailable right now.</small>
+        <strong>Extra coaching couldn’t be loaded.</strong>
+        <small>You can still use the engine line and board explanations below.</small>
       </aside>
     );
   }
