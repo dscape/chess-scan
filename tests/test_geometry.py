@@ -52,6 +52,15 @@ def test_tiny_preview_requests_manual_adjustment_without_opencv_errors() -> None
     assert detection.method == "manual_adjustment_needed"
 
 
+def test_fast_live_detection_finds_a_clear_checkerboard() -> None:
+    board = _checkerboard(640)
+
+    detection = detect_board_corners(board, fast=True)
+
+    assert detection.method == "checkerboard"
+    assert detection.confidence == 0.95
+
+
 def test_detects_low_contrast_blurred_checkerboard() -> None:
     board = _checkerboard(640, light=232, dark=202)
     source = np.float32([[0, 0], [639, 0], [639, 639], [0, 639]])
@@ -61,9 +70,11 @@ def test_detects_low_contrast_blurred_checkerboard() -> None:
     photo = cv2.GaussianBlur(photo, (5, 5), 1.2)
 
     detection = detect_board_corners(photo)
+    fast_detection = detect_board_corners(photo, fast=True)
 
     assert detection.method == "checkerboard"
     assert detection.confidence == 0.95
+    assert fast_detection.method == "checkerboard"
 
 
 def test_outer_corner_fit_uses_all_detected_intersections() -> None:

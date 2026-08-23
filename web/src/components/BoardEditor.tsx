@@ -10,6 +10,7 @@ interface BoardEditorProps {
   predictedLabels: number[];
   confidences: number[];
   probabilities: number[][];
+  glareSquares: number[];
   orientation: Orientation;
   onChange: (labels: number[]) => void;
 }
@@ -19,10 +20,12 @@ export default function BoardEditor({
   predictedLabels,
   confidences,
   probabilities,
+  glareSquares,
   orientation,
   onChange,
 }: BoardEditorProps) {
   const [selectedSquare, setSelectedSquare] = useState<number | null>(null);
+  const glareSquareSet = new Set(glareSquares);
 
   function setPiece(piece: number) {
     if (selectedSquare === null) return;
@@ -48,6 +51,7 @@ export default function BoardEditor({
             );
             const square = squareName(index, orientation);
             const option = pieceOptionForLabel(piece);
+            const hasGlare = glareSquareSet.has(index);
             return (
               <button
                 key={index}
@@ -57,11 +61,12 @@ export default function BoardEditor({
                   "board-square",
                   (row + col) % 2 === 0 ? "is-light" : "is-dark",
                   needsReview ? "is-uncertain" : "",
+                  hasGlare ? "is-glare" : "",
                   corrected ? "is-corrected" : "",
                   selectedSquare === index ? "is-selected" : "",
                 ].join(" ")}
-                aria-label={`${square}: ${option.name}`}
-                title={`${square} · ${option.name} · ${Math.round(confidence * 100)}% confidence`}
+                aria-label={`${square}: ${option.name}${hasGlare ? "; glare detected" : ""}`}
+                title={`${square} · ${option.name} · ${Math.round(confidence * 100)}% confidence${hasGlare ? " · glare detected" : ""}`}
                 onClick={() => setSelectedSquare(index)}
               >
                 <span className="board-square__coordinate">{square}</span>

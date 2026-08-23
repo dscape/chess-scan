@@ -1,5 +1,7 @@
 import type {
+  AppCapabilities,
   BoardDetection,
+  CaptureDiagnostic,
   CaptureGeometry,
   CoachingPresentationStatus,
   ConfirmResult,
@@ -66,6 +68,10 @@ function isRecordId(value: string): boolean {
 export const isScanId = isRecordId;
 export const isFeedbackId = isRecordId;
 
+export async function getAppCapabilities(signal?: AbortSignal): Promise<AppCapabilities> {
+  return request<AppCapabilities>("/api/capabilities", { signal });
+}
+
 export async function detectBoard(image: Blob): Promise<BoardDetection> {
   const form = new FormData();
   form.append("image", image, "camera-frame.jpg");
@@ -75,14 +81,30 @@ export async function detectBoard(image: Blob): Promise<BoardDetection> {
 export async function scanImage(
   image: File,
   geometry?: CaptureGeometry,
+  supplementalImages: File[] = [],
 ): Promise<ScanResult> {
   const form = new FormData();
   form.append("image", image);
+  for (const frame of supplementalImages.slice(0, 3)) form.append("frames", frame);
   if (geometry) {
     form.append("corners", JSON.stringify(geometry.corners));
     form.append("detection_method", geometry.method);
   }
   return request<ScanResult>("/api/scans", { method: "POST", body: form });
+}
+
+export async function uploadCaptureDiagnostic(
+  feedbackId: string,
+  diagnostic: CaptureDiagnostic,
+): Promise<{ diagnostic_id: string; expires_at: string }> {
+  const form = new FormData();
+  const extension = diagnostic.blob.type.startsWith("video/mp4") ? "mp4" : "webm";
+  form.append("recording", diagnostic.blob, `camera-diagnostic.${extension}`);
+  form.append("metadata", JSON.stringify(diagnostic.metadata));
+  return request<{ diagnostic_id: string; expires_at: string }>(
+    recordEndpoint("/api/reviews", feedbackId, "feedback", "/capture-diagnostic"),
+    { method: "POST", body: form },
+  );
 }
 
 export async function getScan(scanId: string, signal?: AbortSignal): Promise<ScanResult> {

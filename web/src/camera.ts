@@ -41,6 +41,30 @@ export function scaleCorners(
   return corners.map(([x, y]) => [x * scaleX, y * scaleY]);
 }
 
+export function projectedBoardCell(gridPoints: Point[], index: number): Point[] | null {
+  if (gridPoints.length !== 81 || !Number.isInteger(index) || index < 0 || index >= 64) {
+    return null;
+  }
+  const row = Math.floor(index / 8);
+  const column = index % 8;
+  const topLeft = gridPoints[row * 9 + column];
+  const topRight = gridPoints[row * 9 + column + 1];
+  const bottomRight = gridPoints[(row + 1) * 9 + column + 1];
+  const bottomLeft = gridPoints[(row + 1) * 9 + column];
+  return topLeft && topRight && bottomRight && bottomLeft
+    ? [topLeft, topRight, bottomRight, bottomLeft]
+    : null;
+}
+
+export function polygonCenter(points: Point[]): Point | null {
+  if (points.length === 0) return null;
+  const [x, y] = points.reduce(
+    ([sumX, sumY], [pointX, pointY]) => [sumX + pointX, sumY + pointY],
+    [0, 0],
+  );
+  return [x / points.length, y / points.length];
+}
+
 export function quadrilateralIoU(first: Point[], second: Point[]): number {
   if (first.length !== 4 || second.length !== 4) return 0;
   const firstArea = polygonArea(first);

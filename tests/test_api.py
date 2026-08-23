@@ -81,6 +81,32 @@ class _ApiPlannerProvider:
         )
 
 
+def test_capabilities_publish_camera_diagnostic_policy(tmp_path: Path) -> None:
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        model_dir=PROJECT_ROOT / "models",
+        web_dist=tmp_path / "missing-web",
+        max_upload_bytes=2 * 1024 * 1024,
+        max_image_dimension=1200,
+        cors_origins=(),
+        capture_diagnostics_enabled=False,
+        capture_diagnostic_retention_days=14,
+    )
+
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/api/capabilities").json() == {
+            "capture_diagnostics": False,
+            "capture_diagnostic_retention_days": 14,
+        }
+        disabled_upload = client.post(
+            f"/api/reviews/{'a' * 32}/capture-diagnostic",
+            files={"recording": ("camera.webm", b"\x1a\x45\xdf\xa3video", "video/webm")},
+            data={"metadata": json.dumps(_capture_diagnostic_metadata())},
+        )
+        assert disabled_upload.status_code == 404
+        assert not list((settings.data_dir / "capture-diagnostics").iterdir())
+
+
 def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
     settings = Settings(
         data_dir=tmp_path / "data",
@@ -92,6 +118,13 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
     )
     app = create_app(settings)
     with TestClient(app) as client:
+        capabilities = client.get("/api/capabilities")
+        assert capabilities.status_code == 200
+        assert capabilities.json() == {
+            "capture_diagnostics": True,
+            "capture_diagnostic_retention_days": 30,
+        }
+
         detection_response = client.post(
             "/api/detect-board",
             files={"image": ("board.png", _board_png(), "image/png")},
@@ -101,15 +134,40 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert detection["found"] is True
         assert len(detection["corners"]) == 4
         assert len(detection["grid_points"]) == 81
+        assert len(detection["prediction"]["labels"]) == 64
+        assert detection["prediction"]["model_version"] == "chess-steps-v5"
+        assert detection["processing_ms"] >= 0
+
+        board_payload = _board_png()
+        too_many_frames = client.post(
+            "/api/scans",
+            files=[
+                ("image", ("board.png", board_payload, "image/png")),
+                *[
+                    ("frames", (f"board-{index}.png", board_payload, "image/png"))
+                    for index in range(4)
+                ],
+            ],
+        )
+        assert too_many_frames.status_code == 422
 
         scan_response = client.post(
             "/api/scans",
-            files={"image": ("board.png", _board_png(), "image/png")},
+            files=[
+                ("image", ("board.png", _glared_board_png(), "image/png")),
+                ("frames", ("board-2.png", board_payload, "image/png")),
+            ],
+            data={
+                "corners": json.dumps([[0, 0], [639, 0], [639, 639], [0, 639]]),
+                "detection_method": "checkerboard",
+            },
         )
         assert scan_response.status_code == 200, scan_response.text
         scan = scan_response.json()
         assert len(scan["labels"]) == 64
         assert len(scan["probabilities"]) == 64
+        assert scan["capture_frame_count"] == 2
+        assert scan["glare_squares"] == []
         assert len(scan["prediction_revision"]) == 64
 
         restored_response = client.get(f"/api/scans/{scan['scan_id']}")
@@ -118,8 +176,13 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert restored["labels"] == scan["labels"]
         assert restored["corners"] == scan["corners"]
         assert restored["prediction_revision"] == scan["prediction_revision"]
+        assert restored["capture_frame_count"] == 2
+        assert restored["glare_squares"] == []
         assert client.get(restored["source_image_url"]).status_code == 200
-        assert client.get(restored["rectified_image_url"]).status_code == 200
+        rectified_response = client.get(restored["rectified_image_url"])
+        assert rectified_response.status_code == 200
+        rectified = np.asarray(Image.open(io.BytesIO(rectified_response.content)).convert("RGB"))
+        assert float(rectified[3 * 64 + 32, 4 * 64 + 32].mean()) < 180
 
         predicted_labels = scan["labels"]
         invalid_confirm = client.post(
@@ -168,6 +231,36 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
             predicted != corrected
             for predicted, corrected in zip(predicted_labels, labels, strict=True)
         )
+
+        diagnostic_response = client.post(
+            f"/api/reviews/{confirmation['feedback_id']}/capture-diagnostic",
+            files={"recording": ("camera.webm", b"\x1a\x45\xdf\xa3diagnostic-video", "video/webm")},
+            data={"metadata": json.dumps(_capture_diagnostic_metadata())},
+            headers={"User-Agent": "Chess   Scan   Test Device"},
+        )
+        assert diagnostic_response.status_code == 200, diagnostic_response.text
+        diagnostic = diagnostic_response.json()
+        assert len(diagnostic["diagnostic_id"]) == 32
+        assert list((settings.data_dir / "capture-diagnostics").glob("*.webm"))
+        with sqlite3.connect(settings.data_dir / "chess-scan.sqlite3") as connection:
+            stored_diagnostic = connection.execute(
+                "SELECT user_agent, metadata_json FROM capture_diagnostics"
+            ).fetchone()
+        assert stored_diagnostic is not None
+        assert stored_diagnostic[0] == "Chess Scan Test Device"
+        assert json.loads(stored_diagnostic[1])["consent_version"] == (
+            "camera-diagnostic-consent-1"
+        )
+        exported_diagnostic = list(initialize_database(settings).iter_capture_diagnostics())
+        assert len(exported_diagnostic) == 1
+        assert exported_diagnostic[0]["capture_frame_count"] == 2
+        assert exported_diagnostic[0]["glare_squares_json"] == "[]"
+        duplicate_diagnostic = client.post(
+            f"/api/reviews/{confirmation['feedback_id']}/capture-diagnostic",
+            files={"recording": ("camera.webm", b"\x1a\x45\xdf\xa3again", "video/webm")},
+            data={"metadata": json.dumps(_capture_diagnostic_metadata())},
+        )
+        assert duplicate_diagnostic.status_code == 409
 
         review_position = client.get(f"/api/reviews/{confirmation['feedback_id']}")
         assert review_position.status_code == 200, review_position.text
@@ -681,6 +774,27 @@ def test_startup_rejects_corrupted_active_model(tmp_path: Path) -> None:
     assert json.loads(base_metadata_path.read_text())["artifact_sha256"] == sha256_file(base_path)
 
 
+def _capture_diagnostic_metadata() -> dict[str, object]:
+    return {
+        "schema_version": "capture-diagnostic-1",
+        "consent_version": "camera-diagnostic-consent-1",
+        "recording_duration_ms": 850,
+        "camera_width": 1280,
+        "camera_height": 720,
+        "camera_frame_rate": 30,
+        "detection_attempts": 1,
+        "missed_detections": 0,
+        "lock_method": "checkerboard",
+        "preview_round_trip_ms": 95,
+        "preview_processing_ms": 22,
+        "scan_round_trip_ms": 180,
+        "submitted_frames": 3,
+        "glare_square_count": 2,
+        "glare_score": 0.31,
+        "capture_kind": "automatic",
+    }
+
+
 def _board_png() -> bytes:
     board = np.zeros((640, 640, 3), dtype=np.uint8)
     square = 80
@@ -688,6 +802,16 @@ def _board_png() -> bytes:
         for col in range(8):
             value = 235 if (row + col) % 2 == 0 else 110
             board[row * square : (row + 1) * square, col * square : (col + 1) * square] = value
+    return _png_bytes(board)
+
+
+def _glared_board_png() -> bytes:
+    board = np.asarray(Image.open(io.BytesIO(_board_png())).convert("RGB")).copy()
+    row, column = 3, 4
+    board[
+        row * 80 + 12 : (row + 1) * 80 - 12,
+        column * 80 + 12 : (column + 1) * 80 - 12,
+    ] = 255
     return _png_bytes(board)
 
 

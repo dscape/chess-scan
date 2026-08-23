@@ -4,6 +4,20 @@ export type Point = [number, number];
 export type Orientation = "white" | "black";
 export type SideToMove = "w" | "b";
 
+export interface AppCapabilities {
+  capture_diagnostics: boolean;
+  capture_diagnostic_retention_days: number;
+}
+
+export interface PreviewPrediction {
+  labels: number[];
+  probabilities: number[][];
+  confidences: number[];
+  model_version: string;
+  glare_score: number;
+  glare_squares: number[];
+}
+
 export interface BoardDetection {
   found: boolean;
   confidence: number;
@@ -12,11 +26,44 @@ export interface BoardDetection {
   image_height: number;
   corners: Point[];
   grid_points: Point[];
+  prediction: PreviewPrediction | null;
+  processing_ms: number;
 }
 
 export interface CaptureGeometry {
   corners: Point[];
   method: string;
+}
+
+export interface CaptureDiagnosticMetadata {
+  schema_version: "capture-diagnostic-1";
+  consent_version: "camera-diagnostic-consent-1";
+  recording_duration_ms: number;
+  camera_width: number | null;
+  camera_height: number | null;
+  camera_frame_rate: number | null;
+  detection_attempts: number;
+  missed_detections: number;
+  lock_method: string | null;
+  preview_round_trip_ms: number | null;
+  preview_processing_ms: number | null;
+  scan_round_trip_ms: number;
+  submitted_frames: number;
+  glare_square_count: number;
+  glare_score: number;
+  capture_kind: "automatic" | "manual" | "photo_fallback";
+}
+
+export interface CaptureDiagnostic {
+  blob: Blob;
+  metadata: CaptureDiagnosticMetadata;
+}
+
+export interface CameraCapture {
+  image: File;
+  geometry?: CaptureGeometry;
+  supplementalImages: File[];
+  diagnostic: Promise<CaptureDiagnostic | null>;
 }
 
 export interface ScanResult {
@@ -30,6 +77,9 @@ export interface ScanResult {
   confidences: number[];
   board_fen: string;
   model_version: string;
+  glare_score: number;
+  glare_squares: number[];
+  capture_frame_count: number;
   prediction_revision: string;
   source_image_url: string;
   rectified_image_url: string;

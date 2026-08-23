@@ -24,7 +24,11 @@ class CornerDetection:
     confidence: float
 
 
-def detect_board_corners(image_bgr: np.ndarray) -> CornerDetection:
+def detect_board_corners(
+    image_bgr: np.ndarray,
+    *,
+    fast: bool = False,
+) -> CornerDetection:
     """Find board corners, preferring the diagram's 7x7 internal intersections."""
     if image_bgr.ndim != 3 or image_bgr.shape[2] != 3:
         raise ValueError("Expected a BGR image")
@@ -32,7 +36,7 @@ def detect_board_corners(image_bgr: np.ndarray) -> CornerDetection:
     scaled, scale = _resize_for_detection(image_bgr)
     gray = cv2.cvtColor(scaled, cv2.COLOR_BGR2GRAY)
 
-    inner_corners = _find_checkerboard_corners(gray)
+    inner_corners = _find_checkerboard_corners(gray, fast=fast)
     if inner_corners is not None:
         scaled_outer = _clamp_corners(
             _extrapolate_outer_corners(inner_corners),
@@ -46,7 +50,7 @@ def detect_board_corners(image_bgr: np.ndarray) -> CornerDetection:
                 confidence=0.95,
             )
 
-    contour = _find_contour_board(scaled)
+    contour = _find_contour_board(scaled, max_candidates=24 if fast else 80)
     if contour is not None:
         contour_corners, score = contour
         outer = _clamp_corners(contour_corners / scale, image_bgr.shape)
@@ -158,10 +162,12 @@ def _resize_for_detection(image_bgr: np.ndarray) -> tuple[np.ndarray, float]:
     return resized, scale
 
 
-def _find_checkerboard_corners(gray: np.ndarray) -> np.ndarray | None:
+def _find_checkerboard_corners(gray: np.ndarray, *, fast: bool) -> np.ndarray | None:
     if min(gray.shape) < 16:
         return None
-    sb_flags = cv2.CALIB_CB_EXHAUSTIVE | cv2.CALIB_CB_ACCURACY | cv2.CALIB_CB_NORMALIZE_IMAGE
+    sb_flags = cv2.CALIB_CB_NORMALIZE_IMAGE
+    if not fast:
+        sb_flags |= cv2.CALIB_CB_EXHAUSTIVE | cv2.CALIB_CB_ACCURACY
     enhanced = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
     for candidate in (gray, enhanced):
         try:
@@ -174,6 +180,39 @@ def _find_checkerboard_corners(gray: np.ndarray) -> np.ndarray | None:
             found, corners = False, None
         if found and corners is not None:
             return corners.reshape(-1, 2)
+
+    if fast:
+        regular_flags = (
+            cv2.CALIB_CB_ADAPTIVE_THRESH | cv2.CALIB_CB_NORMALIZE_IMAGE | cv2.CALIB_CB_FAST_CHECK
+        )
+        try:
+            found, corners = cv2.findChessboardCorners(
+                gray,
+                _PATTERN_SIZE,
+                flags=regular_flags,
+            )
+        except cv2.error:
+            found, corners = False, None
+        if found and corners is not None:
+            refined = cv2.cornerSubPix(
+                gray,
+                corners,
+                (5, 5),
+                (-1, -1),
+                (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01),
+            )
+            return refined.reshape(-1, 2)
+        try:
+            found, corners = cv2.findChessboardCornersSB(
+                enhanced,
+                _PATTERN_SIZE,
+                flags=(
+                    cv2.CALIB_CB_EXHAUSTIVE | cv2.CALIB_CB_ACCURACY | cv2.CALIB_CB_NORMALIZE_IMAGE
+                ),
+            )
+        except cv2.error:
+            found, corners = False, None
+        return corners.reshape(-1, 2) if found and corners is not None else None
 
     regular_flags = cv2.CALIB_CB_ADAPTIVE_THRESH | cv2.CALIB_CB_NORMALIZE_IMAGE
     for candidate in (gray, enhanced):
@@ -243,14 +282,18 @@ def _order_detected_grid(grid: np.ndarray) -> np.ndarray:
     return min(candidates, key=endpoint_error).copy()
 
 
-def _find_contour_board(image_bgr: np.ndarray) -> tuple[np.ndarray, float] | None:
+def _find_contour_board(
+    image_bgr: np.ndarray,
+    *,
+    max_candidates: int = 80,
+) -> tuple[np.ndarray, float] | None:
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     edges = cv2.Canny(blurred, 40, 130)
     contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     image_area = float(gray.shape[0] * gray.shape[1])
 
-    for contour in sorted(contours, key=cv2.contourArea, reverse=True)[:80]:
+    for contour in sorted(contours, key=cv2.contourArea, reverse=True)[:max_candidates]:
         area = float(cv2.contourArea(contour))
         if area < image_area * 0.06 or area > image_area * 0.98:
             continue

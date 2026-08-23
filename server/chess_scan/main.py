@@ -32,7 +32,10 @@ from chess_scan.errors import (
     StoredDataIntegrityError,
 )
 from chess_scan.schemas import (
+    AppCapabilitiesResponse,
     BoardDetectionResponse,
+    CaptureDiagnosticMetadata,
+    CaptureDiagnosticResponse,
     ConfirmRequest,
     ConfirmResponse,
     LearningStatusResponse,
@@ -142,6 +145,14 @@ def _register_api_routes(application: FastAPI) -> None:
         version = request.app.state.service.models.active().version
         return {"status": "ok", "model": version}
 
+    @application.get("/api/capabilities", response_model=AppCapabilitiesResponse)
+    def capabilities(request: Request) -> AppCapabilitiesResponse:
+        settings: Settings = request.app.state.settings
+        return AppCapabilitiesResponse(
+            capture_diagnostics=settings.capture_diagnostics_enabled,
+            capture_diagnostic_retention_days=settings.capture_diagnostic_retention_days,
+        )
+
     @application.post("/api/detect-board", response_model=BoardDetectionResponse)
     async def detect_board(
         request: Request,
@@ -162,6 +173,10 @@ def _register_api_routes(application: FastAPI) -> None:
     async def create_scan(
         request: Request,
         image: Annotated[UploadFile, File(description="One photographed chess diagram")],
+        frames: Annotated[
+            list[UploadFile] | None,
+            File(description="Up to three transient frames captured around board lock"),
+        ] = None,
         corners: Annotated[str | None, Form()] = None,
         detection_method: Annotated[str | None, Form()] = None,
     ) -> ScanResponse:
@@ -171,6 +186,19 @@ def _register_api_routes(application: FastAPI) -> None:
             raise HTTPException(413, "Image is larger than the configured upload limit")
         if not payload:
             raise HTTPException(400, "Image is empty")
+        supplemental_uploads = frames or []
+        if len(supplemental_uploads) > 3:
+            raise HTTPException(422, "At most three supplemental camera frames are allowed")
+        supplemental_payloads: list[bytes] = []
+        total_bytes = len(payload)
+        for frame in supplemental_uploads:
+            frame_payload = await frame.read(settings.max_upload_bytes + 1)
+            total_bytes += len(frame_payload)
+            if not frame_payload:
+                raise HTTPException(400, "Supplemental camera frame is empty")
+            if total_bytes > settings.max_upload_bytes:
+                raise HTTPException(413, "Camera frames exceed the configured upload limit")
+            supplemental_payloads.append(frame_payload)
         try:
             captured_corners, captured_method = _parse_capture_geometry(
                 corners,
@@ -182,6 +210,7 @@ def _register_api_routes(application: FastAPI) -> None:
                     payload,
                     corners=captured_corners,
                     detection_method=captured_method,
+                    supplemental_file_bytes=supplemental_payloads,
                 ),
             )
         except ValueError as exc:
@@ -240,6 +269,36 @@ def _register_api_routes(application: FastAPI) -> None:
             raise HTTPException(404, str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
+
+    @application.post(
+        "/api/reviews/{feedback_id}/capture-diagnostic",
+        response_model=CaptureDiagnosticResponse,
+    )
+    async def save_capture_diagnostic(
+        feedback_id: str,
+        request: Request,
+        recording: Annotated[UploadFile, File(description="Opt-in camera-only diagnostic")],
+        metadata: Annotated[str, Form()],
+    ) -> CaptureDiagnosticResponse:
+        settings: Settings = request.app.state.settings
+        if not settings.capture_diagnostics_enabled:
+            raise HTTPException(404, "Camera diagnostics are disabled")
+        payload = await recording.read(8 * 1024 * 1024 + 1)
+        try:
+            parsed_metadata = CaptureDiagnosticMetadata.model_validate_json(metadata)
+            return await asyncio.to_thread(
+                request.app.state.service.save_capture_diagnostic,
+                feedback_id,
+                recording=payload,
+                content_type=recording.content_type or "",
+                metadata=parsed_metadata,
+                user_agent=_bounded_user_agent(request.headers.get("User-Agent")),
+            )
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except ValueError as exc:
+            status = 409 if "already exists" in str(exc) else 422
+            raise HTTPException(status, str(exc)) from exc
 
     @application.get("/api/reviews/{feedback_id}", response_model=ReviewPositionResponse)
     def review_position(feedback_id: str, request: Request) -> ReviewPositionResponse:
@@ -373,6 +432,13 @@ def _register_web_routes(application: FastAPI, web_dist: Path) -> None:
         if path and candidate.is_relative_to(web_dist) and candidate.is_file():
             return FileResponse(candidate)
         return FileResponse(index)
+
+
+def _bounded_user_agent(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = " ".join(value.split())
+    return normalized[:512] or None
 
 
 def _parse_capture_geometry(

@@ -33,6 +33,12 @@ AnnotationId = Annotated[
     StringConstraints(pattern=r"^[a-z][a-z0-9-]{0,63}$"),
 ]
 RecordId = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
+SquareIndex = Annotated[int, Field(ge=0, lt=SQUARE_COUNT)]
+
+
+class AppCapabilitiesResponse(BaseModel):
+    capture_diagnostics: bool
+    capture_diagnostic_retention_days: int = Field(ge=1, le=90)
 
 
 class ReprocessRequest(BaseModel):
@@ -72,6 +78,15 @@ class ConfirmRequest(BaseModel):
         return castling
 
 
+class PreviewPredictionResponse(BaseModel):
+    labels: list[int] = Field(min_length=SQUARE_COUNT, max_length=SQUARE_COUNT)
+    probabilities: list[list[float]] = Field(min_length=SQUARE_COUNT, max_length=SQUARE_COUNT)
+    confidences: list[float] = Field(min_length=SQUARE_COUNT, max_length=SQUARE_COUNT)
+    model_version: str
+    glare_score: float = Field(ge=0, le=1)
+    glare_squares: list[SquareIndex] = Field(max_length=SQUARE_COUNT)
+
+
 class BoardDetectionResponse(BaseModel):
     found: bool
     confidence: float
@@ -80,6 +95,8 @@ class BoardDetectionResponse(BaseModel):
     image_height: int
     corners: list[list[float]]
     grid_points: list[list[float]]
+    prediction: PreviewPredictionResponse | None = None
+    processing_ms: int = Field(ge=0)
 
 
 class ScanResponse(BaseModel):
@@ -93,9 +110,38 @@ class ScanResponse(BaseModel):
     confidences: list[float]
     board_fen: str
     model_version: str
+    glare_score: float = Field(ge=0, le=1)
+    glare_squares: list[SquareIndex] = Field(max_length=SQUARE_COUNT)
+    capture_frame_count: int = Field(ge=1, le=4)
     prediction_revision: str
     source_image_url: str
     rectified_image_url: str
+
+
+class CaptureDiagnosticMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["capture-diagnostic-1"]
+    consent_version: Literal["camera-diagnostic-consent-1"]
+    recording_duration_ms: int = Field(ge=0, le=15_000)
+    camera_width: int | None = Field(default=None, ge=1, le=8192)
+    camera_height: int | None = Field(default=None, ge=1, le=8192)
+    camera_frame_rate: float | None = Field(default=None, gt=0, le=240)
+    detection_attempts: int = Field(ge=0, le=200)
+    missed_detections: int = Field(ge=0, le=200)
+    lock_method: str | None = Field(default=None, max_length=64)
+    preview_round_trip_ms: int | None = Field(default=None, ge=0, le=120_000)
+    preview_processing_ms: int | None = Field(default=None, ge=0, le=120_000)
+    scan_round_trip_ms: int = Field(ge=0, le=120_000)
+    submitted_frames: int = Field(ge=0, le=4)
+    glare_square_count: int = Field(ge=0, le=SQUARE_COUNT)
+    glare_score: float = Field(ge=0, le=1)
+    capture_kind: Literal["automatic", "manual", "photo_fallback"]
+
+
+class CaptureDiagnosticResponse(BaseModel):
+    diagnostic_id: RecordId
+    expires_at: str
 
 
 class ConfirmResponse(BaseModel):

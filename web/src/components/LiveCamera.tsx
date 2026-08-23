@@ -1,43 +1,70 @@
 import { useEffect, useRef, useState } from "react";
 import { detectBoard } from "../api";
 import {
-  cornersAreStable,
   MIN_PREVIEW_BOARD_EDGE,
   minimumBoardEdge,
+  polygonCenter,
+  projectedBoardCell,
   scaleCorners,
 } from "../camera";
-import type { BoardDetection, CaptureGeometry, Point } from "../types";
+import {
+  canvasBlob,
+  captureCameraFrame,
+  captureSupplementalFrames,
+  SOURCE_MAX_DIMENSION,
+  videoFrameCanvas,
+} from "../cameraCapture";
+import {
+  finiteMediaSetting,
+  startDiagnosticRecording,
+  type DiagnosticRecording,
+  type RecordedDiagnostic,
+} from "../cameraDiagnostic";
+import type {
+  BoardDetection,
+  CameraCapture,
+  CaptureDiagnostic,
+  CaptureGeometry,
+  Point,
+} from "../types";
 import PhotoPicker from "./PhotoPicker";
 
-const REQUIRED_STABLE_DETECTIONS = 2;
-const MAX_MISSED_DETECTIONS = 1;
+const SUPPLEMENTAL_FRAME_COUNT = 2;
 
 type CameraPhase =
   | "requesting"
   | "searching"
   | "framing"
-  | "aligning"
   | "capturing"
   | "locked"
   | "error";
 
 interface LiveCameraProps {
-  onCapture: (file: File, geometry?: CaptureGeometry) => void;
+  diagnosticsEnabled: boolean;
+  onCapture: (capture: CameraCapture) => Promise<boolean>;
   onCancel: () => void;
 }
 
-export default function LiveCamera({ onCapture, onCancel }: LiveCameraProps) {
+export default function LiveCamera({
+  diagnosticsEnabled,
+  onCapture,
+  onCancel,
+}: LiveCameraProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const recordingRef = useRef<DiagnosticRecording | null>(null);
+  const photoDiagnosticRef = useRef<Promise<CaptureDiagnostic | null> | null>(null);
   const timerRef = useRef<number | null>(null);
   const stoppedRef = useRef(false);
   const lockedRef = useRef(false);
-  const previousCornersRef = useRef<Point[] | null>(null);
-  const stableFramesRef = useRef(0);
-  const missedDetectionsRef = useRef(0);
   const onCaptureRef = useRef(onCapture);
+  const detectionAttemptsRef = useRef(0);
+  const missedDetectionsRef = useRef(0);
+  const previewRoundTripRef = useRef<number | null>(null);
   const [phase, setPhase] = useState<CameraPhase>("requesting");
   const [detection, setDetection] = useState<BoardDetection | null>(null);
+  const [lockedFrameUrl, setLockedFrameUrl] = useState<string | null>(null);
+  const [diagnosticActive, setDiagnosticActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -53,6 +80,10 @@ export default function LiveCamera({ onCapture, onCancel }: LiveCameraProps) {
       stopCamera();
     };
   }, []);
+
+  useEffect(() => () => {
+    if (lockedFrameUrl) URL.revokeObjectURL(lockedFrameUrl);
+  }, [lockedFrameUrl]);
 
   async function startCamera(isCancelled: () => boolean) {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -86,8 +117,12 @@ export default function LiveCamera({ onCapture, onCancel }: LiveCameraProps) {
         if (streamRef.current === stream) streamRef.current = null;
         return;
       }
+      if (diagnosticsEnabled) {
+        recordingRef.current = startDiagnosticRecording(stream);
+        setDiagnosticActive(recordingRef.current !== null);
+      }
       setPhase("searching");
-      scheduleDetection(120);
+      scheduleDetection(60);
     } catch (cause) {
       if (isCancelled()) return;
       const denied = cause instanceof DOMException && cause.name === "NotAllowedError";
@@ -112,38 +147,38 @@ export default function LiveCamera({ onCapture, onCancel }: LiveCameraProps) {
   async function runDetection() {
     const video = videoRef.current;
     if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-      scheduleDetection(120);
+      scheduleDetection(60);
       return;
     }
     try {
       const frame = await captureCameraFrame(video);
+      detectionAttemptsRef.current += 1;
+      const requestStarted = performance.now();
       const result = await detectBoard(frame.preview);
+      const roundTripMs = Math.max(0, Math.round(performance.now() - requestStarted));
       if (stoppedRef.current || lockedRef.current) return;
       setDetection(result);
       if (!result.found) {
-        registerMissedDetection();
+        missedDetectionsRef.current += 1;
         setPhase("searching");
-        scheduleDetection(260);
+        scheduleDetection(100);
         return;
       }
 
-      missedDetectionsRef.current = 0;
       if (minimumBoardEdge(result.corners) < MIN_PREVIEW_BOARD_EDGE) {
-        previousCornersRef.current = result.corners;
-        stableFramesRef.current = 0;
         setPhase("framing");
-        scheduleDetection(220);
+        scheduleDetection(90);
         return;
       }
 
-      const stable = cornersAreStable(previousCornersRef.current, result.corners);
-      stableFramesRef.current = stable ? stableFramesRef.current + 1 : 1;
-      previousCornersRef.current = result.corners;
-      if (stableFramesRef.current >= REQUIRED_STABLE_DETECTIONS) {
-        lockedRef.current = true;
-        setPhase("locked");
-        navigator.vibrate?.(45);
-        await captureFinalFrame(frame.source, {
+      previewRoundTripRef.current = roundTripMs;
+      lockedRef.current = true;
+      setPhase("locked");
+      navigator.vibrate?.(45);
+      await captureFinalFrame(
+        frame.source,
+        video,
+        {
           corners: scaleCorners(
             result.corners,
             result.image_width,
@@ -152,26 +187,21 @@ export default function LiveCamera({ onCapture, onCancel }: LiveCameraProps) {
             frame.source.height,
           ),
           method: result.method,
-        });
-        return;
-      }
-
-      setPhase("aligning");
-      scheduleDetection(180);
+        },
+        "automatic",
+        result,
+      );
     } catch {
       if (stoppedRef.current) return;
-      lockedRef.current = false;
-      registerMissedDetection();
+      if (lockedRef.current) {
+        stopStream();
+        setCameraError("The locked frame could not be prepared. Close and try again.");
+        return;
+      }
+      missedDetectionsRef.current += 1;
       setPhase("searching");
-      scheduleDetection(500);
+      scheduleDetection(220);
     }
-  }
-
-  function registerMissedDetection() {
-    missedDetectionsRef.current += 1;
-    if (missedDetectionsRef.current <= MAX_MISSED_DETECTIONS) return;
-    previousCornersRef.current = null;
-    stableFramesRef.current = 0;
   }
 
   async function captureManually() {
@@ -181,19 +211,92 @@ export default function LiveCamera({ onCapture, onCancel }: LiveCameraProps) {
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
     setPhase("capturing");
     try {
-      await captureFinalFrame(videoFrameCanvas(video, 2000));
+      await captureFinalFrame(
+        videoFrameCanvas(video, SOURCE_MAX_DIMENSION),
+        video,
+        undefined,
+        "manual",
+        detection,
+      );
     } catch {
       lockedRef.current = false;
       setCameraError("The frame could not be captured. Close and try again, or choose a photo.");
     }
   }
 
-  async function captureFinalFrame(source: HTMLCanvasElement, geometry?: CaptureGeometry) {
-    const blob = await canvasBlob(source, 0.93);
+  async function captureFinalFrame(
+    source: HTMLCanvasElement,
+    video: HTMLVideoElement,
+    geometry: CaptureGeometry | undefined,
+    captureKind: "automatic" | "manual",
+    currentDetection: BoardDetection | null,
+  ) {
+    const primaryBlobPromise = canvasBlob(source, 0.88);
+    const supplementalCount = geometry && currentDetection?.prediction?.glare_squares.length
+      ? SUPPLEMENTAL_FRAME_COUNT
+      : 0;
+    const supplementalPromise = supplementalCount > 0
+      ? captureSupplementalFrames(video, supplementalCount)
+      : Promise.resolve([]);
+    const recordedPromise = recordingRef.current?.stop() ?? Promise.resolve(null);
+    const primaryBlob = await primaryBlobPromise;
     if (stoppedRef.current) return;
-    const file = new File([blob], `chess-board-${Date.now()}.jpg`, { type: "image/jpeg" });
+    setLockedFrameUrl(URL.createObjectURL(primaryBlob));
+    setPhase("locked");
+
+    const supplementalImages = await supplementalPromise;
+    if (stoppedRef.current) return;
     stopStream();
-    onCaptureRef.current(file, geometry);
+    const image = new File([primaryBlob], `chess-board-${Date.now()}.jpg`, {
+      type: "image/jpeg",
+    });
+    const diagnostic = recordedPromise.then((recorded) => recorded
+      ? buildCaptureDiagnostic(
+          recorded,
+          currentDetection,
+          captureKind,
+          supplementalImages.length + 1,
+        )
+      : null);
+    const accepted = await onCaptureRef.current({
+      image,
+      geometry,
+      supplementalImages,
+      diagnostic,
+    });
+    if (!accepted && !stoppedRef.current) {
+      setCameraError("This frame could not be read. Close the camera and try again.");
+    }
+  }
+
+  function buildCaptureDiagnostic(
+    recorded: RecordedDiagnostic,
+    currentDetection: BoardDetection | null,
+    captureKind: "automatic" | "manual" | "photo_fallback",
+    submittedFrames: number,
+  ): CaptureDiagnostic {
+    const prediction = currentDetection?.prediction;
+    return {
+      blob: recorded.blob,
+      metadata: {
+        schema_version: "capture-diagnostic-1",
+        consent_version: "camera-diagnostic-consent-1",
+        recording_duration_ms: recorded.durationMs,
+        camera_width: finiteMediaSetting(recorded.settings.width),
+        camera_height: finiteMediaSetting(recorded.settings.height),
+        camera_frame_rate: finiteMediaSetting(recorded.settings.frameRate),
+        detection_attempts: detectionAttemptsRef.current,
+        missed_detections: missedDetectionsRef.current,
+        lock_method: currentDetection?.method ?? null,
+        preview_round_trip_ms: previewRoundTripRef.current,
+        preview_processing_ms: currentDetection?.processing_ms ?? null,
+        scan_round_trip_ms: 0,
+        submitted_frames: submittedFrames,
+        glare_square_count: prediction?.glare_squares.length ?? 0,
+        glare_score: prediction?.glare_score ?? 0,
+        capture_kind: captureKind,
+      },
+    };
   }
 
   function stopStream() {
@@ -204,6 +307,8 @@ export default function LiveCamera({ onCapture, onCancel }: LiveCameraProps) {
   function stopCamera() {
     stoppedRef.current = true;
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    recordingRef.current?.discard();
+    recordingRef.current = null;
     stopStream();
   }
 
@@ -213,22 +318,38 @@ export default function LiveCamera({ onCapture, onCancel }: LiveCameraProps) {
   }
 
   function openPhotoPicker() {
-    stopCamera();
+    stoppedRef.current = true;
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    const recorded = recordingRef.current?.stop() ?? Promise.resolve(null);
+    recordingRef.current = null;
+    photoDiagnosticRef.current = recorded.then((result) => result
+      ? buildCaptureDiagnostic(result, detection, "photo_fallback", 0)
+      : null);
+    stopStream();
   }
 
   function choosePhoto(file: File) {
     stopCamera();
-    onCaptureRef.current(file);
+    void onCaptureRef.current({
+      image: file,
+      supplementalImages: [],
+      diagnostic: photoDiagnosticRef.current ?? Promise.resolve(null),
+    });
+    onCancel();
   }
 
-  const status = cameraStatus(phase, stableFramesRef.current);
+  const status = cameraStatus(phase, detection);
+  const locked = phase === "locked";
 
   return (
     <section className={`live-camera is-${phase}`} aria-label="Live chess board camera">
       <video ref={videoRef} className="live-camera__video" muted playsInline />
+      {lockedFrameUrl && (
+        <img className="live-camera__video is-frozen" src={lockedFrameUrl} alt="" />
+      )}
       <div className="live-camera__shade" aria-hidden="true" />
       {detection?.found && (
-        <BoardGridOverlay detection={detection} locked={phase === "locked"} />
+        <BoardGridOverlay detection={detection} locked={locked} />
       )}
       <div className="live-camera__corners" aria-hidden="true">
         <i />
@@ -241,14 +362,16 @@ export default function LiveCamera({ onCapture, onCancel }: LiveCameraProps) {
           ×
         </button>
         <span className="live-camera__mode">Board scanner</span>
-        <span className="live-camera__live">Live</span>
+        <span className={`live-camera__live${diagnosticActive ? " is-diagnostic" : ""}`}>
+          {diagnosticActive ? "Diagnostic" : "Live"}
+        </span>
       </header>
-      {phase !== "error" && (
+      {phase !== "error" && !locked && (
         <div className="live-camera__manual-controls">
           <button
             type="button"
             className="camera-shutter"
-            disabled={phase === "requesting" || phase === "capturing" || phase === "locked"}
+            disabled={phase === "requesting" || phase === "capturing"}
             onClick={() => void captureManually()}
           >
             <span aria-hidden="true"><i /></span>
@@ -300,6 +423,7 @@ function BoardGridOverlay({ detection, locked }: { detection: BoardDetection; lo
       (point): point is Point => point !== undefined,
     ),
   );
+  const prediction = detection.prediction;
   return (
     <svg
       className={`camera-grid ${locked ? "is-locked" : ""}`}
@@ -311,6 +435,31 @@ function BoardGridOverlay({ detection, locked }: { detection: BoardDetection; lo
       {[...rows, ...columns].map((points, index) => (
         <polyline key={index} points={pointString(points)} className="camera-grid__line" />
       ))}
+      {prediction?.glare_squares.map((index) => {
+        const cell = projectedBoardCell(detection.grid_points, index);
+        return cell
+          ? <polygon key={`glare-${index}`} points={pointString(cell)} className="camera-grid__glare" />
+          : null;
+      })}
+      {prediction?.labels.map((label, index) => {
+        if (label === 0 || (prediction.confidences[index] ?? 0) < 0.45) return null;
+        const cell = projectedBoardCell(detection.grid_points, index);
+        const center = cell ? polygonCenter(cell) : null;
+        if (!cell || !center) return null;
+        const size = Math.max(15, averageEdge(cell) * 0.68);
+        return (
+          <text
+            key={`piece-${index}`}
+            x={center[0]}
+            y={center[1]}
+            className="camera-grid__piece"
+            fontSize={size}
+            style={{ animationDelay: `${Math.min(index, 40) * 9}ms` }}
+          >
+            {PIECE_GLYPHS[label]}
+          </text>
+        );
+      })}
       {detection.corners.map(([x, y], index) => (
         <circle key={index} cx={x} cy={y} r={9} className="camera-grid__corner" />
       ))}
@@ -318,72 +467,24 @@ function BoardGridOverlay({ detection, locked }: { detection: BoardDetection; lo
   );
 }
 
-interface CameraFrame {
-  source: HTMLCanvasElement;
-  preview: Blob;
-}
-
-async function captureCameraFrame(video: HTMLVideoElement): Promise<CameraFrame> {
-  // Derive detection and final images from one draw so accepted corners cannot outlive their frame.
-  const source = videoFrameCanvas(video, 2000);
-  const preview = resizedCanvas(source, 960);
-  return { source, preview: await canvasBlob(preview, 0.74) };
-}
-
-function videoFrameCanvas(video: HTMLVideoElement, maxDimension: number): HTMLCanvasElement {
-  const sourceWidth = video.videoWidth;
-  const sourceHeight = video.videoHeight;
-  if (!sourceWidth || !sourceHeight) throw new Error("Camera has no frame yet");
-  const scale = Math.min(1, maxDimension / Math.max(sourceWidth, sourceHeight));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(sourceWidth * scale));
-  canvas.height = Math.max(1, Math.round(sourceHeight * scale));
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("Canvas is unavailable");
-  context.drawImage(video, 0, 0, canvas.width, canvas.height);
-  return canvas;
-}
-
-function resizedCanvas(source: HTMLCanvasElement, maxDimension: number): HTMLCanvasElement {
-  const scale = Math.min(1, maxDimension / Math.max(source.width, source.height));
-  if (scale === 1) return source;
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(source.width * scale));
-  canvas.height = Math.max(1, Math.round(source.height * scale));
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("Canvas is unavailable");
-  context.drawImage(source, 0, 0, canvas.width, canvas.height);
-  return canvas;
-}
-
-function canvasBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => (blob ? resolve(blob) : reject(new Error("Could not capture camera frame"))),
-      "image/jpeg",
-      quality,
-    );
-  });
-}
-
-function cameraStatus(phase: CameraPhase, stableFrames: number) {
+function cameraStatus(phase: CameraPhase, detection: BoardDetection | null) {
   if (phase === "requesting") {
     return { title: "Opening camera", detail: "Camera permission is required once." };
   }
   if (phase === "framing") {
     return { title: "Move closer", detail: "Keep all four edges visible and fill the guide." };
   }
-  if (phase === "aligning") {
-    return {
-      title: "Board identified",
-      detail: stableFrames >= 1 ? "Almost there — hold steady." : "Squares found — hold steady.",
-    };
-  }
   if (phase === "capturing") {
-    return { title: "Photo captured", detail: "Reading this frame now." };
+    return { title: "Photo captured", detail: "Identifying the pieces now." };
   }
   if (phase === "locked") {
-    return { title: "Board locked", detail: "Using this exact frame now." };
+    const glareSquares = detection?.prediction?.glare_squares.length ?? 0;
+    return glareSquares > 0
+      ? {
+          title: "Board locked",
+          detail: `Combining nearby frames to reduce glare on ${glareSquares} square${glareSquares === 1 ? "" : "s"}.`,
+        }
+      : { title: "Board locked", detail: "Pieces found. Preparing the board now." };
   }
   if (phase === "error") {
     return { title: "Camera unavailable", detail: "Use an existing photograph instead." };
@@ -394,3 +495,26 @@ function cameraStatus(phase: CameraPhase, stableFrames: number) {
 function pointString(points: Point[]): string {
   return points.map(([x, y]) => `${x},${y}`).join(" ");
 }
+
+function averageEdge(points: Point[]): number {
+  if (points.length < 2) return 0;
+  return points.reduce((sum, [x, y], index) => {
+    const next = points[(index + 1) % points.length];
+    return next ? sum + Math.hypot(next[0] - x, next[1] - y) : sum;
+  }, 0) / points.length;
+}
+
+const PIECE_GLYPHS: Record<number, string> = {
+  1: "♙",
+  2: "♘",
+  3: "♗",
+  4: "♖",
+  5: "♕",
+  6: "♔",
+  7: "♟",
+  8: "♞",
+  9: "♝",
+  10: "♜",
+  11: "♛",
+  12: "♚",
+};

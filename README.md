@@ -7,7 +7,7 @@ Chess Scan extracts the useful single-image classifier from [Argus](https://gith
 ## Product flow
 
 1. Open the in-app camera and frame one diagram.
-2. Watch the projected 8×8 grid align; two agreeing detections capture the exact identified frame, or use the manual shutter for a faint board.
+2. Let the first complete grid lock the exact frame; provisional pieces appear immediately while two nearby frames refine glare-affected squares, or use the manual shutter for a faint board.
 3. Check the rectified crop immediately and adjust four corners when automatic framing was uncertain.
 4. Heed low-resolution or king-count warnings and correct any piece on the editable board.
 5. Select side to move and orientation.
@@ -75,6 +75,8 @@ The board pieces adapt [Chess Simple Assets](https://www.figma.com/community/fil
 
 ## Production
 
+The live camera uses a bounded fast detector, provisional 64-square inference, and a transient three-frame burst to select the clearest source for each square. An unchecked diagnostic option can retain a short camera-only clip for 30 days after confirmation; it never records audio or the browser screen. See [`docs/camera-scanner.md`](docs/camera-scanner.md) for the pipeline, privacy contract, and replay export.
+
 The Docker image builds the React frontend and serves it from FastAPI:
 
 ```bash
@@ -141,6 +143,7 @@ Manual tools remain available for audits and experiments:
 uv run python scripts/export_feedback.py
 uv run python scripts/export_preferences.py
 uv run python scripts/export_review_feedback.py --rating unhelpful
+uv run python scripts/export_capture_diagnostics.py
 uv run python scripts/adjudicate_review_feedback.py REVIEW_FEEDBACK_ID \
   --reviewer NAME --disposition approved_fix --notes REASON \
   --regression-fixture tests/test_review.py::TEST_NAME
@@ -153,7 +156,8 @@ See [`docs/learning-loop.md`](docs/learning-loop.md) for the distinction between
 
 ## Data handling
 
-- Low-resolution live detection frames are processed transiently and never written to storage.
+- Low-resolution live detection frames and supplemental glare-reduction frames are processed transiently and never written to storage.
+- Optional camera diagnostics are separately consented, contain no audio or screen capture, upload only after confirmation, and expire after 30 days.
 - Final full photographs are deleted after confirmation or after 24 hours.
 - Confirmed rectified board crops are retained only when training consent is enabled.
 - Every feedback event records the model version that made the prediction.

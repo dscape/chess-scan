@@ -2,12 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
   confirmScan,
+  getAppCapabilities,
   getReviewedPosition,
   getScan,
   isFeedbackId,
   isScanId,
   reprocessScan,
   scanImage,
+  uploadCaptureDiagnostic,
 } from "./api";
 import { countKings, fenError, fullFen, predictionNeedsReview } from "./board";
 import { minimumBoardEdge } from "./camera";
@@ -16,7 +18,9 @@ import CapturePanel from "./components/CapturePanel";
 import CornerEditor from "./components/CornerEditor";
 import PositionReview from "./components/PositionReview";
 import type {
-  CaptureGeometry,
+  AppCapabilities,
+  CameraCapture,
+  CaptureDiagnostic,
   Orientation,
   Point,
   ReviewedPosition,
@@ -61,11 +65,16 @@ export default function App() {
   const [busy, setBusy] = useState<BusyAction>(null);
   const [error, setError] = useState<string | null>(null);
   const [reviewPosition, setReviewPosition] = useState<ReviewedPosition | null>(null);
+  const [pendingDiagnostic, setPendingDiagnostic] = useState<Promise<CaptureDiagnostic | null> | null>(null);
   const [geometryOpen, setGeometryOpen] = useState(false);
   const [geometryMounted, setGeometryMounted] = useState(false);
   const [routeLoadError, setRouteLoadError] = useState<string | null>(null);
   const [routeLoadAttempt, setRouteLoadAttempt] = useState(0);
   const [clientSessionId] = useState(getClientSessionId);
+  const [capabilities, setCapabilities] = useState<AppCapabilities>({
+    capture_diagnostics: false,
+    capture_diagnostic_retention_days: 30,
+  });
   const requestGeneration = useRef(0);
   const pendingDraftRef = useRef<PendingScanDraft | null>(null);
   const routeLoading = (
@@ -126,6 +135,18 @@ export default function App() {
     });
     return () => controller.abort();
   }, [route, routeLoadAttempt]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void getAppCapabilities(controller.signal)
+      .then(setCapabilities)
+      .catch((cause: unknown) => {
+        if (!(cause instanceof DOMException && cause.name === "AbortError")) {
+          console.warn("App capabilities could not be loaded", cause);
+        }
+      });
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     if (!sourceFile) {
@@ -230,24 +251,42 @@ export default function App() {
       ).length
     : 0;
 
-  async function handleImage(file: File, geometry?: CaptureGeometry) {
+  async function handleCapture(capture: CameraCapture): Promise<boolean> {
     const generation = ++requestGeneration.current;
+    const started = performance.now();
     setError(null);
     setReviewPosition(null);
     setBusy("scan");
-    setSourceFile(file);
+    setSourceFile(capture.image);
     try {
-      const result = await scanImage(file, geometry);
-      if (generation !== requestGeneration.current) return;
+      const result = await scanImage(
+        capture.image,
+        capture.geometry,
+        capture.supplementalImages,
+      );
+      if (generation !== requestGeneration.current) return false;
       applyScan(result);
+      const scanRoundTripMs = Math.max(0, Math.round(performance.now() - started));
+      setPendingDiagnostic(capture.diagnostic.then((diagnostic) => diagnostic
+        ? {
+            ...diagnostic,
+            metadata: {
+              ...diagnostic.metadata,
+              scan_round_trip_ms: scanRoundTripMs,
+            },
+          }
+        : null));
       const needsManualFrame = result.detection_method === "manual_adjustment_needed";
       setGeometryOpen(needsManualFrame);
       setGeometryMounted(needsManualFrame);
       navigate({ page: "scan", scanId: result.scan_id });
+      return true;
     } catch (cause) {
-      if (generation !== requestGeneration.current) return;
+      if (generation !== requestGeneration.current) return false;
       setError(messageFrom(cause));
       setSourceFile(null);
+      setPendingDiagnostic(null);
+      return false;
     } finally {
       if (generation === requestGeneration.current) setBusy(null);
     }
@@ -316,6 +355,17 @@ export default function App() {
       if (generation !== requestGeneration.current) return;
       pendingDraftRef.current = null;
       removeScanDraft(scan.scan_id);
+      const diagnostic = pendingDiagnostic;
+      setPendingDiagnostic(null);
+      if (diagnostic) {
+        void diagnostic
+          .then((capture) => capture
+            ? uploadCaptureDiagnostic(result.feedback_id, capture)
+            : null)
+          .catch((cause: unknown) => {
+            console.warn("Camera diagnostic upload failed", cause);
+          });
+      }
       setReviewPosition({
         feedback_id: result.feedback_id,
         full_fen: result.full_fen,
@@ -351,6 +401,7 @@ export default function App() {
     setCastlingRights([]);
     setConsentTraining(true);
     setReviewPosition(null);
+    setPendingDiagnostic(null);
     setGeometryOpen(false);
     setGeometryMounted(false);
     setBusy(null);
@@ -376,6 +427,11 @@ export default function App() {
     const warnings: string[] = [];
     if (minimumBoardEdge(scan.corners) < 256) {
       warnings.push("The board is low resolution. A closer photo will be more accurate.");
+    }
+    if (scan.glare_squares.length > 0) {
+      warnings.push(
+        `Glare remains on ${scan.glare_squares.length} square${scan.glare_squares.length === 1 ? "" : "s"}. Check every gold-outlined square.`,
+      );
     }
     if (uncertainPredictionCount > 0) {
       warnings.push(
@@ -432,7 +488,12 @@ export default function App() {
           onScanAnother={reset}
         />
       ) : route.page === "home" || !scan ? (
-        <CapturePanel busy={busy === "scan"} onImage={handleImage} />
+        <CapturePanel
+          busy={busy === "scan"}
+          captureDiagnosticsEnabled={capabilities.capture_diagnostics}
+          diagnosticRetentionDays={capabilities.capture_diagnostic_retention_days}
+          onCapture={handleCapture}
+        />
       ) : (
         <main className="review-shell">
           <nav className="progress-rail" aria-label="Scan progress">
@@ -533,6 +594,7 @@ export default function App() {
                 predictedLabels={scan.labels}
                 confidences={scan.confidences}
                 probabilities={scan.probabilities}
+                glareSquares={scan.glare_squares}
                 orientation={orientation}
                 onChange={setLabels}
               />

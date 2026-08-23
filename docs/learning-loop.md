@@ -127,4 +127,4 @@ At 99% independent square accuracy, expected board exact match is only about `0.
 
 ## Privacy
 
-Low-resolution live camera frames are processed transiently for grid detection and are never written to disk. The final full photograph may contain people, handwriting, and location metadata; it is temporary and deleted after confirmation. The training corpus stores only the perspective-rectified diagram crop, prediction, and labels when consent is enabled.
+Low-resolution live camera frames and the adjacent frames used for glare reduction are processed transiently and are never written to disk. The final full photograph may contain people, handwriting, and location metadata; it is temporary and deleted after confirmation. A separate unchecked camera-diagnostic consent may retain up to ten seconds of camera-only video for scanner replay, never audio or screen capture; it is not training input and expires after 30 days. The training corpus stores only the perspective-rectified diagram crop, prediction, and labels when training consent is enabled. See [`camera-scanner.md`](camera-scanner.md).

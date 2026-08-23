@@ -137,6 +137,9 @@ class Database:
         labels: list[int],
         probabilities: list[list[float]],
         board_fen: str,
+        glare_score: float = 0.0,
+        glare_squares: list[int] | None = None,
+        capture_frame_count: int = 1,
     ) -> None:
         with closing(self._connect()) as connection:
             connection.execute(
@@ -145,8 +148,8 @@ class Database:
                     id, created_at, image_sha256, source_width, source_height,
                     source_image_path, rectified_image_path, corners_json, detection_method,
                     model_version, predicted_labels_json, predicted_probabilities_json,
-                    predicted_board_fen
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    predicted_board_fen, glare_score, glare_squares_json, capture_frame_count
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     scan_id,
@@ -162,6 +165,9 @@ class Database:
                     json.dumps(labels),
                     json.dumps(probabilities),
                     board_fen,
+                    glare_score,
+                    json.dumps(glare_squares or []),
+                    capture_frame_count,
                 ),
             )
             connection.commit()
@@ -177,6 +183,9 @@ class Database:
         labels: list[int],
         probabilities: list[list[float]],
         board_fen: str,
+        glare_score: float = 0.0,
+        glare_squares: list[int] | None = None,
+        capture_frame_count: int = 1,
     ) -> Path:
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -196,7 +205,8 @@ class Database:
                 UPDATE scans
                 SET rectified_image_path = ?, corners_json = ?, detection_method = ?,
                     model_version = ?, predicted_labels_json = ?,
-                    predicted_probabilities_json = ?, predicted_board_fen = ?
+                    predicted_probabilities_json = ?, predicted_board_fen = ?,
+                    glare_score = ?, glare_squares_json = ?, capture_frame_count = ?
                 WHERE id = ? AND state = 'open'
                 """,
                 (
@@ -207,6 +217,9 @@ class Database:
                     json.dumps(labels),
                     json.dumps(probabilities),
                     board_fen,
+                    glare_score,
+                    json.dumps(glare_squares or []),
+                    capture_frame_count,
                     scan_id,
                 ),
             )
@@ -221,7 +234,7 @@ class Database:
             """
             state, source_width, source_height, corners_json, detection_method,
             model_version, predicted_labels_json, predicted_probabilities_json,
-            predicted_board_fen
+            predicted_board_fen, glare_score, glare_squares_json, capture_frame_count
             """,
         )
         if scan["state"] == "confirmed":
@@ -328,6 +341,64 @@ class Database:
             "source_image_path": str(scan["source_image_path"]),
             "rectified_image_path": str(scan["rectified_image_path"]),
         }
+
+    def save_capture_diagnostic(
+        self,
+        *,
+        diagnostic_id: str,
+        feedback_id: str,
+        recording_path: Path,
+        content_type: str,
+        byte_count: int,
+        sha256: str,
+        metadata: dict[str, Any],
+        user_agent: str | None,
+        expires_at: str,
+    ) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if (
+                connection.execute(
+                    "SELECT 1 FROM feedback_events WHERE id = ?",
+                    (feedback_id,),
+                ).fetchone()
+                is None
+            ):
+                raise KeyError(f"Unknown feedback: {feedback_id}")
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO capture_diagnostics (
+                        id, feedback_id, created_at, expires_at, recording_path,
+                        content_type, byte_count, sha256, metadata_json, user_agent
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        diagnostic_id,
+                        feedback_id,
+                        _now(),
+                        expires_at,
+                        str(recording_path),
+                        content_type,
+                        byte_count,
+                        sha256,
+                        json.dumps(metadata, sort_keys=True, separators=(",", ":")),
+                        user_agent,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                if (
+                    connection.execute(
+                        "SELECT 1 FROM capture_diagnostics WHERE feedback_id = ?",
+                        (feedback_id,),
+                    ).fetchone()
+                    is not None
+                ):
+                    raise ValueError(
+                        "A camera diagnostic already exists for this position"
+                    ) from exc
+                raise
+            connection.commit()
 
     def review_position(self, feedback_id: str) -> dict[str, Any]:
         with closing(self._connect()) as connection:
@@ -1643,6 +1714,78 @@ class Database:
             ).fetchone()
         return row is not None
 
+    def capture_diagnostics_for_cleanup(
+        self,
+        *,
+        expires_before: str,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT id, recording_path
+                FROM capture_diagnostics
+                WHERE expires_at <= ?
+                ORDER BY expires_at
+                LIMIT ?
+                """,
+                (expires_before, limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def has_expired_capture_diagnostics(self, *, expires_before: str) -> bool:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT 1 FROM capture_diagnostics WHERE expires_at <= ? LIMIT 1",
+                (expires_before,),
+            ).fetchone()
+        return row is not None
+
+    def delete_capture_diagnostics(self, diagnostic_ids: list[str]) -> None:
+        if not diagnostic_ids:
+            return
+        placeholders = ", ".join("?" for _ in diagnostic_ids)
+        with closing(self._connect()) as connection:
+            connection.execute(
+                f"DELETE FROM capture_diagnostics WHERE id IN ({placeholders})",
+                diagnostic_ids,
+            )
+            connection.commit()
+
+    def iter_capture_diagnostics(self) -> Iterator[dict[str, Any]]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    diagnostic.id AS diagnostic_id,
+                    diagnostic.created_at,
+                    diagnostic.expires_at,
+                    diagnostic.recording_path,
+                    diagnostic.content_type,
+                    diagnostic.byte_count,
+                    diagnostic.sha256,
+                    diagnostic.metadata_json,
+                    diagnostic.user_agent,
+                    feedback.id AS feedback_id,
+                    feedback.final_labels_json,
+                    feedback.orientation,
+                    feedback.final_fen,
+                    scan.id AS scan_id,
+                    scan.model_version,
+                    scan.predicted_labels_json,
+                    scan.detection_method,
+                    scan.glare_score,
+                    scan.glare_squares_json,
+                    scan.capture_frame_count
+                FROM capture_diagnostics diagnostic
+                JOIN feedback_events feedback ON feedback.id = diagnostic.feedback_id
+                JOIN scans scan ON scan.id = feedback.scan_id
+                ORDER BY diagnostic.created_at, diagnostic.id
+                """
+            ).fetchall()
+        for row in rows:
+            yield dict(row)
+
     def referenced_file_paths(self) -> set[Path]:
         with closing(self._connect()) as connection:
             rows = connection.execute(
@@ -1655,6 +1798,8 @@ class Database:
                 FROM scans s
                 JOIN feedback_events f ON f.scan_id = s.id
                 WHERE s.state = 'confirmed' AND f.consent_training = 1
+                UNION ALL
+                SELECT recording_path AS path FROM capture_diagnostics
                 """
             ).fetchall()
         return {Path(row["path"]).resolve() for row in rows}
@@ -2277,6 +2422,16 @@ def _migrate_scans_table(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE scans ADD COLUMN cleanup_attempted_at TEXT")
     if "cleanup_completed_at" not in columns:
         connection.execute("ALTER TABLE scans ADD COLUMN cleanup_completed_at TEXT")
+    if "glare_score" not in columns:
+        connection.execute("ALTER TABLE scans ADD COLUMN glare_score REAL NOT NULL DEFAULT 0")
+    if "glare_squares_json" not in columns:
+        connection.execute(
+            "ALTER TABLE scans ADD COLUMN glare_squares_json TEXT NOT NULL DEFAULT '[]'"
+        )
+    if "capture_frame_count" not in columns:
+        connection.execute(
+            "ALTER TABLE scans ADD COLUMN capture_frame_count INTEGER NOT NULL DEFAULT 1"
+        )
     if state_added:
         connection.execute(
             """
@@ -2364,6 +2519,10 @@ CREATE TABLE IF NOT EXISTS scans (
     predicted_labels_json TEXT NOT NULL,
     predicted_probabilities_json TEXT NOT NULL,
     predicted_board_fen TEXT NOT NULL,
+    glare_score REAL NOT NULL DEFAULT 0 CHECK (glare_score >= 0 AND glare_score <= 1),
+    glare_squares_json TEXT NOT NULL DEFAULT '[]',
+    capture_frame_count INTEGER NOT NULL DEFAULT 1
+        CHECK (capture_frame_count >= 1 AND capture_frame_count <= 4),
     state TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'confirmed', 'expired')),
     expired_at TEXT,
     cleanup_attempted_at TEXT,
@@ -2384,6 +2543,19 @@ CREATE TABLE IF NOT EXISTS feedback_events (
     changed_squares INTEGER NOT NULL,
     consent_training INTEGER NOT NULL CHECK (consent_training IN (0, 1)),
     client_session_id TEXT
+);
+
+CREATE TABLE IF NOT EXISTS capture_diagnostics (
+    id TEXT PRIMARY KEY,
+    feedback_id TEXT NOT NULL UNIQUE REFERENCES feedback_events(id),
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    recording_path TEXT NOT NULL UNIQUE,
+    content_type TEXT NOT NULL CHECK (content_type IN ('video/mp4', 'video/webm')),
+    byte_count INTEGER NOT NULL CHECK (byte_count > 0 AND byte_count <= 8388608),
+    sha256 TEXT NOT NULL,
+    metadata_json TEXT NOT NULL,
+    user_agent TEXT
 );
 
 CREATE TABLE IF NOT EXISTS feedback_adjudications (
@@ -2546,6 +2718,9 @@ CREATE TABLE IF NOT EXISTS shadow_evaluations (
 
 CREATE INDEX IF NOT EXISTS idx_feedback_training
 ON feedback_events(consent_training, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_capture_diagnostics_expiry
+ON capture_diagnostics(expires_at);
 
 CREATE INDEX IF NOT EXISTS idx_feedback_adjudications_latest
 ON feedback_adjudications(feedback_id, created_at, id);

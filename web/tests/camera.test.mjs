@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   cornersAreStable,
   minimumBoardEdge,
+  polygonCenter,
+  projectedBoardCell,
   quadrilateralIoU,
   scaleCorners,
 } from "../src/camera.ts";
@@ -41,6 +43,15 @@ test("scales detected corners onto the retained camera frame", () => {
     [[20, 60], [180, 60], [180, 240], [20, 240]],
   );
   assert.throws(() => scaleCorners(board, 0, 100, 200, 200), RangeError);
+});
+
+test("maps classifier squares onto the projected camera grid", () => {
+  const grid = Array.from({ length: 81 }, (_, index) => [index % 9, Math.floor(index / 9)]);
+
+  assert.deepEqual(projectedBoardCell(grid, 9), [[1, 1], [2, 1], [2, 2], [1, 2]]);
+  assert.deepEqual(polygonCenter(projectedBoardCell(grid, 9)), [1.5, 1.5]);
+  assert.equal(projectedBoardCell(grid, 64), null);
+  assert.equal(projectedBoardCell([], 0), null);
 });
 
 test("uses the shortest projected board edge as the resolution floor", () => {

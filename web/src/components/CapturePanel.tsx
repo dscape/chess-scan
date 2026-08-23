@@ -1,23 +1,35 @@
 import { useState } from "react";
-import type { CaptureGeometry } from "../types";
+import type { CameraCapture } from "../types";
 import LiveCamera from "./LiveCamera";
 import PhotoPicker from "./PhotoPicker";
 
 interface CapturePanelProps {
   busy: boolean;
-  onImage: (file: File, geometry?: CaptureGeometry) => void;
+  captureDiagnosticsEnabled: boolean;
+  diagnosticRetentionDays: number;
+  onCapture: (capture: CameraCapture) => Promise<boolean>;
 }
 
-export default function CapturePanel({ busy, onImage }: CapturePanelProps) {
+export default function CapturePanel({
+  busy,
+  captureDiagnosticsEnabled,
+  diagnosticRetentionDays,
+  onCapture,
+}: CapturePanelProps) {
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [shareDiagnostic, setShareDiagnostic] = useState(false);
+  const recordingSupported = typeof MediaRecorder !== "undefined";
+  const diagnosticAvailable = captureDiagnosticsEnabled && recordingSupported;
 
   if (cameraOpen) {
     return (
       <main className="camera-shell">
         <LiveCamera
-          onCapture={(file, geometry) => {
-            setCameraOpen(false);
-            onImage(file, geometry);
+          diagnosticsEnabled={shareDiagnostic && diagnosticAvailable}
+          onCapture={async (capture) => {
+            const accepted = await onCapture(capture);
+            if (accepted) setCameraOpen(false);
+            return accepted;
           }}
           onCancel={() => setCameraOpen(false)}
         />
@@ -54,6 +66,22 @@ export default function CapturePanel({ busy, onImage }: CapturePanelProps) {
               Fill the frame, keep the page flat, and include the black turn dot
               if present.
             </p>
+            <label className={`capture-diagnostic-option${shareDiagnostic ? " is-selected" : ""}`}>
+              <input
+                type="checkbox"
+                checked={shareDiagnostic}
+                disabled={busy || !diagnosticAvailable}
+                onChange={(event) => setShareDiagnostic(event.target.checked)}
+              />
+              <span>
+                <strong>Share a short camera diagnostic</strong>
+                {diagnosticAvailable
+                  ? `Camera only—no audio or screen. The clip and browser/timing details upload after you save; deleted after ${diagnosticRetentionDays} days.`
+                  : captureDiagnosticsEnabled
+                    ? "Diagnostic recording is not supported by this browser."
+                    : "Diagnostic recording is not available on this deployment."}
+              </span>
+            </label>
           </div>
         </div>
         <button
@@ -67,7 +95,11 @@ export default function CapturePanel({ busy, onImage }: CapturePanelProps) {
         <PhotoPicker
           className="text-button capture-library-button"
           disabled={busy}
-          onPhoto={onImage}
+          onPhoto={(file) => void onCapture({
+            image: file,
+            supplementalImages: [],
+            diagnostic: Promise.resolve(null),
+          })}
         >
           Choose an existing photo instead
         </PhotoPicker>

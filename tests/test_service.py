@@ -13,7 +13,11 @@ from chess_scan.classifier import ModelManager
 from chess_scan.config import Settings
 from chess_scan.database import Database
 from chess_scan.errors import ScanExpiredError, StoredDataIntegrityError
-from chess_scan.schemas import PositionAttemptRequest, PositionReviewRequest
+from chess_scan.schemas import (
+    CaptureDiagnosticMetadata,
+    PositionAttemptRequest,
+    PositionReviewRequest,
+)
 from chess_scan.service import ScannerService
 
 
@@ -199,8 +203,11 @@ def test_cleanup_reconciles_confirmed_and_orphaned_files(tmp_path: Path) -> None
     )
     orphan = settings.data_dir / "source-temp/orphan.jpg"
     orphan.write_bytes(b"orphan")
+    orphan_diagnostic = settings.data_dir / "capture-diagnostics/orphan.webm"
+    orphan_diagnostic.write_bytes(b"orphan")
     old = time.time() - 2 * 24 * 60 * 60
     os.utime(orphan, (old, old))
+    os.utime(orphan_diagnostic, (old, old))
 
     result = service.remove_stale_sources()
 
@@ -210,6 +217,47 @@ def test_cleanup_reconciles_confirmed_and_orphaned_files(tmp_path: Path) -> None
     assert not deleted_source.exists()
     assert not deleted_rectified.exists()
     assert not orphan.exists()
+    assert not orphan_diagnostic.exists()
+
+
+def test_cleanup_removes_expired_opt_in_camera_diagnostics(tmp_path: Path) -> None:
+    service, database, settings = _service(tmp_path)
+    _create_scan_files(database, settings, scan_id="diagnostic")
+    database.confirm_scan(
+        feedback_id="d" * 32,
+        scan_id="diagnostic",
+        labels=[0] * 64,
+        orientation="white",
+        side_to_move="w",
+        castling="-",
+        en_passant="-",
+        full_fen="8/8/8/8/8/8/8/8 w - - 0 1",
+        consent_training=False,
+        client_session_id=None,
+    )
+    response = service.save_capture_diagnostic(
+        "d" * 32,
+        recording=b"\x1a\x45\xdf\xa3short-video",
+        content_type="video/webm;codecs=vp8",
+        metadata=CaptureDiagnosticMetadata(**_capture_diagnostic_metadata()),
+        user_agent="test",
+    )
+    recording = next((settings.data_dir / "capture-diagnostics").glob("*.webm"))
+    with sqlite3.connect(database.path) as connection:
+        connection.execute(
+            "UPDATE capture_diagnostics SET expires_at = '2000-01-01T00:00:00+00:00'"
+        )
+        connection.commit()
+
+    result = service.remove_stale_sources()
+
+    assert result.backlog is False
+    assert not recording.exists()
+    with sqlite3.connect(database.path) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM capture_diagnostics WHERE id = ?",
+            (response.diagnostic_id,),
+        ).fetchone() == (0,)
 
 
 def test_cleanup_drains_more_than_one_batch_and_uses_state_indexes(tmp_path: Path) -> None:
@@ -250,6 +298,22 @@ def test_cleanup_drains_more_than_one_batch_and_uses_state_indexes(tmp_path: Pat
         }
     assert "idx_scans_open_cleanup" in indexes
     assert "idx_scans_pending_cleanup" in indexes
+
+
+def _capture_diagnostic_metadata() -> dict[str, object]:
+    return {
+        "schema_version": "capture-diagnostic-1",
+        "consent_version": "camera-diagnostic-consent-1",
+        "recording_duration_ms": 500,
+        "detection_attempts": 1,
+        "missed_detections": 0,
+        "lock_method": "checkerboard",
+        "scan_round_trip_ms": 120,
+        "submitted_frames": 3,
+        "glare_square_count": 0,
+        "glare_score": 0,
+        "capture_kind": "automatic",
+    }
 
 
 def _service(tmp_path: Path) -> tuple[ScannerService, Database, Settings]:

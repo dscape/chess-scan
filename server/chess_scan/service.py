@@ -15,6 +15,7 @@ import cv2
 import numpy as np
 
 from chess_scan.board import build_full_fen, lichess_analysis_url, validate_full_fen
+from chess_scan.capture_quality import board_capture_quality, compose_best_board
 from chess_scan.classifier import BoardPrediction, ModelManager
 from chess_scan.commentary_planner import (
     CommentaryCoach,
@@ -39,6 +40,8 @@ from chess_scan.image_io import decode_uploaded_image, write_jpeg
 from chess_scan.review import build_position_attempt, build_position_review
 from chess_scan.schemas import (
     BoardDetectionResponse,
+    CaptureDiagnosticMetadata,
+    CaptureDiagnosticResponse,
     ConfirmRequest,
     ConfirmResponse,
     LearningStatusResponse,
@@ -48,6 +51,7 @@ from chess_scan.schemas import (
     PositionReviewFeedbackResponse,
     PositionReviewRequest,
     PositionReviewResponse,
+    PreviewPredictionResponse,
     ReviewAttemptResponse,
     ReviewPositionResponse,
     ScanResponse,
@@ -55,6 +59,8 @@ from chess_scan.schemas import (
 
 logger = logging.getLogger(__name__)
 _CLEANUP_RETRY_SECONDS = 60 * 60
+_CAPTURE_DIAGNOSTIC_CONTENT_TYPES = {"video/mp4", "video/webm"}
+_CAPTURE_DIAGNOSTIC_MAX_BYTES = 8 * 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,14 +100,29 @@ class ScannerService:
         self.commentary_coach.close()
 
     def detect(self, file_bytes: bytes) -> BoardDetectionResponse:
+        started = time.monotonic()
         source = decode_uploaded_image(
             file_bytes,
             max_dimension=min(self.settings.max_image_dimension, DETECTION_MAX_DIMENSION),
         )
         source_height, source_width = source.shape[:2]
-        detection = detect_board_corners(source)
+        detection = detect_board_corners(source, fast=True)
         found = detection.method != "manual_adjustment_needed"
         corners = [[float(x), float(y)] for x, y in detection.corners] if found else []
+        preview_prediction: PreviewPredictionResponse | None = None
+        if found:
+            rectified = rectify_board(source, detection.corners)
+            quality = board_capture_quality(rectified)
+            classifier = self.models.active()
+            prediction = classifier.predict(rectified)
+            preview_prediction = PreviewPredictionResponse(
+                labels=prediction.labels,
+                probabilities=prediction.probabilities,
+                confidences=prediction.confidences,
+                model_version=classifier.version,
+                glare_score=quality.glare_score,
+                glare_squares=list(quality.glare_squares),
+            )
         return BoardDetectionResponse(
             found=found,
             confidence=detection.confidence,
@@ -110,6 +131,8 @@ class ScannerService:
             image_height=source_height,
             corners=corners,
             grid_points=project_board_grid(corners) if found else [],
+            prediction=preview_prediction,
+            processing_ms=max(0, round((time.monotonic() - started) * 1000)),
         )
 
     def scan(
@@ -118,6 +141,7 @@ class ScannerService:
         *,
         corners: list[list[float]] | None = None,
         detection_method: str | None = None,
+        supplemental_file_bytes: list[bytes] | None = None,
     ) -> ScanResponse:
         source = decode_uploaded_image(
             file_bytes,
@@ -143,7 +167,21 @@ class ScannerService:
             )
 
         selected_corners = [[float(x), float(y)] for x, y in selected]
-        rectified = rectify_board(source, selected)
+        rectified_frames = [rectify_board(source, selected)]
+        for supplemental_bytes in (supplemental_file_bytes or [])[:3]:
+            supplemental = decode_uploaded_image(
+                supplemental_bytes,
+                max_dimension=self.settings.max_image_dimension,
+            )
+            if supplemental.shape != source.shape or not board_grid_fits(supplemental, selected):
+                continue
+            rectified_frames.append(rectify_board(supplemental, selected))
+        rectified = (
+            rectified_frames[0]
+            if len(rectified_frames) == 1
+            else compose_best_board(rectified_frames)[0]
+        )
+        quality = board_capture_quality(rectified)
         classifier = self.models.active()
         prediction = classifier.predict(rectified)
 
@@ -166,6 +204,9 @@ class ScannerService:
                 labels=prediction.labels,
                 probabilities=prediction.probabilities,
                 board_fen=prediction.board_fen,
+                glare_score=quality.glare_score,
+                glare_squares=list(quality.glare_squares),
+                capture_frame_count=len(rectified_frames),
             )
         except Exception:
             source_path.unlink(missing_ok=True)
@@ -179,6 +220,9 @@ class ScannerService:
             detection_method=method,
             prediction=prediction,
             model_version=classifier.version,
+            glare_score=quality.glare_score,
+            glare_squares=list(quality.glare_squares),
+            capture_frame_count=len(rectified_frames),
         )
 
     def get_scan(self, scan_id: str) -> ScanResponse:
@@ -201,6 +245,9 @@ class ScannerService:
             detection_method=str(scan["detection_method"]),
             prediction=prediction,
             model_version=str(scan["model_version"]),
+            glare_score=float(scan["glare_score"]),
+            glare_squares=[int(value) for value in json.loads(scan["glare_squares_json"])],
+            capture_frame_count=int(scan["capture_frame_count"]),
         )
 
     def reprocess(self, scan_id: str, corners: list[list[float]]) -> ScanResponse:
@@ -215,6 +262,7 @@ class ScannerService:
             raise ValueError("The selected corners must stay inside the photograph")
         ordered_corners = [[float(x), float(y)] for x, y in ordered]
         rectified = rectify_board(source, ordered)
+        quality = board_capture_quality(rectified)
         classifier = self.models.active()
         prediction = classifier.predict(rectified)
         rectified_path = Path(scan["rectified_image_path"]).with_name(
@@ -231,6 +279,9 @@ class ScannerService:
                 labels=prediction.labels,
                 probabilities=prediction.probabilities,
                 board_fen=prediction.board_fen,
+                glare_score=quality.glare_score,
+                glare_squares=list(quality.glare_squares),
+                capture_frame_count=1,
             )
         except Exception:
             rectified_path.unlink(missing_ok=True)
@@ -244,6 +295,9 @@ class ScannerService:
             detection_method="manual",
             prediction=prediction,
             model_version=classifier.version,
+            glare_score=quality.glare_score,
+            glare_squares=list(quality.glare_squares),
+            capture_frame_count=1,
         )
 
     def confirm(self, scan_id: str, request: ConfirmRequest) -> ConfirmResponse:
@@ -284,6 +338,55 @@ class ScannerService:
             changed_squares=int(confirmed["changed_squares"]),
             warnings=[],
             coaching_available=self.commentary_coach.enabled,
+        )
+
+    def save_capture_diagnostic(
+        self,
+        feedback_id: str,
+        *,
+        recording: bytes,
+        content_type: str,
+        metadata: CaptureDiagnosticMetadata,
+        user_agent: str | None,
+    ) -> CaptureDiagnosticResponse:
+        if not self.settings.capture_diagnostics_enabled:
+            raise ValueError("Camera diagnostics are disabled")
+        normalized_content_type = content_type.partition(";")[0].strip().lower()
+        if normalized_content_type not in _CAPTURE_DIAGNOSTIC_CONTENT_TYPES:
+            raise ValueError("Camera diagnostics must be MP4 or WebM video")
+        if not recording:
+            raise ValueError("Camera diagnostic is empty")
+        if len(recording) > _CAPTURE_DIAGNOSTIC_MAX_BYTES:
+            raise ValueError("Camera diagnostic exceeds the 8 MB limit")
+        if not _capture_diagnostic_matches_type(recording, normalized_content_type):
+            raise ValueError("Camera diagnostic does not match its declared video type")
+
+        diagnostic_id = uuid.uuid4().hex
+        suffix = ".mp4" if normalized_content_type == "video/mp4" else ".webm"
+        recording_path = self.settings.data_dir / "capture-diagnostics" / f"{diagnostic_id}{suffix}"
+        expires_at = datetime.now(UTC) + timedelta(
+            days=self.settings.capture_diagnostic_retention_days
+        )
+        recording_path.parent.mkdir(parents=True, exist_ok=True)
+        recording_path.write_bytes(recording)
+        try:
+            self.database.save_capture_diagnostic(
+                diagnostic_id=diagnostic_id,
+                feedback_id=feedback_id,
+                recording_path=recording_path,
+                content_type=normalized_content_type,
+                byte_count=len(recording),
+                sha256=hashlib.sha256(recording).hexdigest(),
+                metadata=metadata.model_dump(mode="json"),
+                user_agent=user_agent,
+                expires_at=expires_at.isoformat(),
+            )
+        except Exception:
+            recording_path.unlink(missing_ok=True)
+            raise
+        return CaptureDiagnosticResponse(
+            diagnostic_id=diagnostic_id,
+            expires_at=expires_at.isoformat(),
         )
 
     def review_position(self, feedback_id: str) -> ReviewPositionResponse:
@@ -549,6 +652,12 @@ class ScannerService:
             self.database.complete_scan_cleanup(completed)
             removed += len(completed)
 
+        diagnostic_count, diagnostic_backlog = self._remove_expired_capture_diagnostics(
+            expires_before=now.isoformat(),
+            deadline=deadline,
+            batch_size=batch_size,
+        )
+        removed += diagnostic_count
         orphan_count, orphan_backlog = self._remove_orphaned_files(
             cutoff=cutoff.timestamp(),
             deadline=deadline,
@@ -558,30 +667,70 @@ class ScannerService:
             created_before=cutoff.isoformat(),
             retry_before=retry_before.isoformat(),
         )
-        return CleanupResult(removed=removed, backlog=database_backlog or orphan_backlog)
+        return CleanupResult(
+            removed=removed,
+            backlog=(database_backlog or diagnostic_backlog or orphan_backlog),
+        )
+
+    def _remove_expired_capture_diagnostics(
+        self,
+        *,
+        expires_before: str,
+        deadline: float,
+        batch_size: int,
+    ) -> tuple[int, bool]:
+        removed = 0
+        while time.monotonic() < deadline:
+            rows = self.database.capture_diagnostics_for_cleanup(
+                expires_before=expires_before,
+                limit=batch_size,
+            )
+            if not rows:
+                return removed, False
+            completed: list[str] = []
+            for row in rows:
+                try:
+                    Path(row["recording_path"]).unlink(missing_ok=True)
+                except OSError:
+                    logger.exception(
+                        "Failed to remove capture diagnostic %s",
+                        row["id"],
+                    )
+                    continue
+                completed.append(str(row["id"]))
+            self.database.delete_capture_diagnostics(completed)
+            removed += len(completed)
+            if len(rows) < batch_size or not completed:
+                return removed, self.database.has_expired_capture_diagnostics(
+                    expires_before=expires_before
+                )
+        return removed, self.database.has_expired_capture_diagnostics(expires_before=expires_before)
 
     def _remove_orphaned_files(self, *, cutoff: float, deadline: float) -> tuple[int, bool]:
         referenced = self.database.referenced_file_paths()
         removed = 0
-        for directory in (
-            self.settings.data_dir / "source-temp",
-            self.settings.data_dir / "rectified",
-        ):
-            for path in directory.glob("*.jpg"):
-                if time.monotonic() >= deadline:
-                    return removed, True
-                if path.resolve() in referenced:
-                    continue
-                try:
-                    if path.stat().st_mtime >= cutoff:
+        directories = (
+            (self.settings.data_dir / "source-temp", ("*.jpg",)),
+            (self.settings.data_dir / "rectified", ("*.jpg",)),
+            (self.settings.data_dir / "capture-diagnostics", ("*.webm", "*.mp4")),
+        )
+        for directory, patterns in directories:
+            for pattern in patterns:
+                for path in directory.glob(pattern):
+                    if time.monotonic() >= deadline:
+                        return removed, True
+                    if path.resolve() in referenced:
                         continue
-                    path.unlink(missing_ok=True)
-                except FileNotFoundError:
-                    continue
-                except OSError:
-                    logger.exception("Failed to remove orphaned scan file %s", path)
-                    continue
-                removed += 1
+                    try:
+                        if path.stat().st_mtime >= cutoff:
+                            continue
+                        path.unlink(missing_ok=True)
+                    except FileNotFoundError:
+                        continue
+                    except OSError:
+                        logger.exception("Failed to remove orphaned scan file %s", path)
+                        continue
+                    removed += 1
         return removed, False
 
 
@@ -594,6 +743,9 @@ def _scan_response(
     detection_method: str,
     prediction: BoardPrediction,
     model_version: str,
+    glare_score: float,
+    glare_squares: list[int],
+    capture_frame_count: int,
 ) -> ScanResponse:
     cache_key = uuid.uuid4().hex[:8]
     return ScanResponse(
@@ -607,6 +759,9 @@ def _scan_response(
         confidences=prediction.confidences,
         board_fen=prediction.board_fen,
         model_version=model_version,
+        glare_score=glare_score,
+        glare_squares=glare_squares,
+        capture_frame_count=capture_frame_count,
         prediction_revision=_prediction_revision(
             corners=corners,
             detection_method=detection_method,
@@ -637,6 +792,14 @@ def _prediction_revision(
         separators=(",", ":"),
     )
     return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _capture_diagnostic_matches_type(recording: bytes, content_type: str) -> bool:
+    if content_type == "video/webm":
+        return recording.startswith(b"\x1a\x45\xdf\xa3")
+    if content_type == "video/mp4":
+        return len(recording) >= 12 and recording[4:8] == b"ftyp"
+    return False
 
 
 def _corners_array(corners: list[list[float]]) -> np.ndarray:

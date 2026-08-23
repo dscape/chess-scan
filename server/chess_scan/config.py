@@ -40,6 +40,8 @@ class Settings:
     max_upload_bytes: int
     max_image_dimension: int
     cors_origins: tuple[str, ...]
+    capture_diagnostics_enabled: bool = True
+    capture_diagnostic_retention_days: int = 30
     commentary_planner_enabled: bool = False
     commentary_planner_endpoint: str | None = None
     commentary_planner_provider: str = "openai-compatible"
@@ -65,6 +67,8 @@ class Settings:
                 max_length=COMMENTARY_MODEL_MAX_LENGTH,
             )
             object.__setattr__(self, "commentary_planner_model", model)
+        if not 1 <= self.capture_diagnostic_retention_days <= 90:
+            raise ValueError("Capture diagnostic retention must be between 1 and 90 days")
         if self.commentary_planner_enabled and not (
             self.commentary_planner_endpoint and self.commentary_planner_model
         ):
@@ -94,6 +98,13 @@ class Settings:
             max_upload_bytes=int(os.getenv("CHESS_SCAN_MAX_UPLOAD_MB", "12")) * 1024 * 1024,
             max_image_dimension=int(os.getenv("CHESS_SCAN_MAX_IMAGE_DIMENSION", "2400")),
             cors_origins=origins,
+            capture_diagnostics_enabled=_bool_from_env(
+                "CHESS_SCAN_CAPTURE_DIAGNOSTICS_ENABLED",
+                True,
+            ),
+            capture_diagnostic_retention_days=int(
+                os.getenv("CHESS_SCAN_CAPTURE_DIAGNOSTIC_RETENTION_DAYS", "30")
+            ),
             commentary_planner_enabled=_bool_from_env("CHESS_SCAN_COMMENTARY_PLANNER_ENABLED"),
             commentary_planner_endpoint=(
                 os.getenv("CHESS_SCAN_COMMENTARY_PLANNER_ENDPOINT") or None
@@ -125,3 +136,4 @@ class Settings:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         (self.data_dir / "source-temp").mkdir(parents=True, exist_ok=True)
         (self.data_dir / "rectified").mkdir(parents=True, exist_ok=True)
+        (self.data_dir / "capture-diagnostics").mkdir(parents=True, exist_ok=True)

@@ -314,6 +314,58 @@ button:disabled,
   line-height: 1.55;
 }
 
+.capture-diagnostic-option {
+  max-width: 440px;
+  min-height: 48px;
+  margin-top: 18px;
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  align-items: start;
+  gap: 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 253, 246, 0.66);
+  cursor: pointer;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08) inset;
+  transition-property: background-color, color;
+  transition-duration: 160ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.capture-diagnostic-option.is-selected {
+  background: rgba(220, 172, 61, 0.16);
+  color: rgba(255, 253, 246, 0.82);
+}
+
+.capture-diagnostic-option input {
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  accent-color: var(--gold);
+}
+
+.capture-diagnostic-option span,
+.capture-diagnostic-option strong {
+  display: block;
+}
+
+.capture-diagnostic-option span {
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.capture-diagnostic-option strong {
+  margin-bottom: 2px;
+  color: var(--paper-clean);
+  font-size: 11px;
+}
+
+.capture-diagnostic-option:has(input:disabled) {
+  cursor: default;
+  opacity: 0.58;
+}
+
 .step-number {
   color: var(--gold);
   font: italic 700 14px/1 var(--display);
@@ -728,12 +780,21 @@ button:disabled,
   z-index: 1;
 }
 
+.board-square.is-glare::before,
 .board-square.is-uncertain::after {
   content: "";
   position: absolute;
-  inset: 4px;
-  border: 2px dashed var(--teacher-red);
   pointer-events: none;
+}
+
+.board-square.is-glare::before {
+  inset: 1px;
+  border: 3px solid var(--gold);
+}
+
+.board-square.is-uncertain::after {
+  inset: 5px;
+  border: 2px dashed var(--teacher-red);
 }
 
 .chess-piece {
@@ -1221,6 +1282,12 @@ button:disabled,
   object-fit: cover;
 }
 
+.live-camera__video.is-frozen {
+  z-index: 0;
+  outline: 1px solid rgba(255, 255, 255, 0.1);
+  outline-offset: -1px;
+}
+
 .live-camera__shade {
   position: absolute;
   inset: 0;
@@ -1291,6 +1358,11 @@ button:disabled,
   display: inline-block;
   border-radius: 50%;
   background: #ff604d;
+}
+
+.live-camera__live.is-diagnostic {
+  color: #ffe7a4;
+  background: rgba(58, 42, 6, 0.76);
 }
 
 .live-camera__corners {
@@ -1384,6 +1456,40 @@ button:disabled,
   vector-effect: non-scaling-stroke;
   transition-property: fill;
   transition-duration: 220ms;
+}
+
+.camera-grid__glare {
+  fill: rgba(255, 117, 70, 0.26);
+  stroke: rgba(255, 229, 166, 0.9);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.camera-grid__piece {
+  fill: white;
+  stroke: rgba(3, 10, 7, 0.92);
+  stroke-width: 2.5px;
+  paint-order: stroke fill;
+  text-anchor: middle;
+  dominant-baseline: central;
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+  animation: camera-piece-in 240ms cubic-bezier(0.2, 0, 0, 1) forwards;
+}
+
+@keyframes camera-piece-in {
+  from {
+    opacity: 0;
+    transform: scale(0.25);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 0.94;
+    transform: scale(1);
+    filter: blur(0);
+  }
 }
 
 .camera-grid.is-locked .camera-grid__fill {
