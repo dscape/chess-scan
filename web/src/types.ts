@@ -16,6 +16,7 @@ export interface PreviewPrediction {
   model_version: string;
   glare_score: number;
   glare_squares: number[];
+  sharpness_score: number;
 }
 
 export interface BoardDetection {
@@ -47,6 +48,7 @@ export interface CaptureDiagnosticMetadata {
   lock_method: string | null;
   preview_round_trip_ms: number | null;
   preview_processing_ms: number | null;
+  preview_sharpness_score: number | null;
   scan_round_trip_ms: number;
   submitted_frames: number;
   glare_square_count: number;
@@ -64,6 +66,7 @@ export interface CameraCapture {
   geometry?: CaptureGeometry;
   supplementalImages: File[];
   diagnostic: Promise<CaptureDiagnostic | null>;
+  diagnosticRequested: boolean;
 }
 
 export interface ScanResult {
@@ -79,6 +82,7 @@ export interface ScanResult {
   model_version: string;
   glare_score: number;
   glare_squares: number[];
+  sharpness_score: number | null;
   capture_frame_count: number;
   prediction_revision: string;
   source_image_url: string;

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { diagnosticRecordingSupported } from "../cameraDiagnostic";
 import type { CameraCapture } from "../types";
 import LiveCamera from "./LiveCamera";
 import PhotoPicker from "./PhotoPicker";
@@ -18,8 +19,7 @@ export default function CapturePanel({
 }: CapturePanelProps) {
   const [cameraOpen, setCameraOpen] = useState(false);
   const [shareDiagnostic, setShareDiagnostic] = useState(false);
-  const recordingSupported = typeof MediaRecorder !== "undefined";
-  const diagnosticAvailable = captureDiagnosticsEnabled && recordingSupported;
+  const diagnosticAvailable = captureDiagnosticsEnabled && diagnosticRecordingSupported();
 
   if (cameraOpen) {
     return (
@@ -99,6 +99,7 @@ export default function CapturePanel({
             image: file,
             supplementalImages: [],
             diagnostic: Promise.resolve(null),
+            diagnosticRequested: false,
           })}
         >
           Choose an existing photo instead

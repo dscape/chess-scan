@@ -15,6 +15,9 @@ _MIN_PATTERN_CONTRAST = 8.0
 _MIN_PATTERN_CONSISTENCY = 0.9
 _MAX_GRID_ALIGNMENT_ERROR = 0.1
 _RECTIFICATION_SUPERSAMPLING = 2
+_TRACK_MIN_POINTS = 16
+_TRACK_MAX_ERROR = 45.0
+_TRACK_MIN_INLIER_FRACTION = 0.65
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +100,81 @@ def board_grid_fits(
         return False
     preview = rectify_board(image_bgr, points, output_size=_PATTERN_PREVIEW_SIZE)
     return _checkerboard_score(preview) >= _MIN_PATTERN_CONTRAST
+
+
+def track_board_corners(
+    source_bgr: np.ndarray,
+    target_bgr: np.ndarray,
+    corners: list[list[float]] | tuple[tuple[float, float], ...] | np.ndarray,
+) -> np.ndarray | None:
+    """Track a detected board into a nearby frame using its internal grid."""
+    if source_bgr.shape != target_bgr.shape or source_bgr.ndim != 3:
+        return None
+    source_corners = order_corners(np.asarray(corners, dtype=np.float32))
+    if not _quad_is_usable(source_corners, source_bgr.shape):
+        return None
+
+    projected = np.asarray(project_board_grid(source_corners), dtype=np.float32).reshape(9, 9, 2)
+    source_points = projected[1:8, 1:8].reshape(-1, 1, 2)
+    source_gray = cv2.cvtColor(source_bgr, cv2.COLOR_BGR2GRAY)
+    target_gray = cv2.cvtColor(target_bgr, cv2.COLOR_BGR2GRAY)
+    try:
+        target_points, status, errors = cv2.calcOpticalFlowPyrLK(
+            source_gray,
+            target_gray,
+            source_points,
+            None,
+            winSize=(31, 31),
+            maxLevel=3,
+            criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01),
+        )
+    except cv2.error:
+        return None
+    if target_points is None or status is None or errors is None:
+        return None
+    valid = (
+        status.reshape(-1).astype(bool)
+        & np.isfinite(target_points.reshape(-1, 2)).all(axis=1)
+        & (errors.reshape(-1) <= _TRACK_MAX_ERROR)
+    )
+    if int(valid.sum()) < _TRACK_MIN_POINTS:
+        return None
+
+    try:
+        transform, inliers = cv2.findHomography(
+            source_points.reshape(-1, 2)[valid],
+            target_points.reshape(-1, 2)[valid],
+            cv2.RANSAC,
+            3.0,
+        )
+    except cv2.error:
+        return None
+    if transform is None or inliers is None:
+        return None
+    if float(inliers.mean()) < _TRACK_MIN_INLIER_FRACTION:
+        return None
+
+    tracked = cv2.perspectiveTransform(source_corners.reshape(1, 4, 2), transform)[0]
+    if not _corners_are_inside_image(tracked, target_bgr.shape):
+        return None
+    tracked = order_corners(tracked)
+    return tracked if board_grid_fits(target_bgr, tracked) else None
+
+
+def board_corners_overlap(
+    first: list[list[float]] | tuple[tuple[float, float], ...] | np.ndarray,
+    second: list[list[float]] | tuple[tuple[float, float], ...] | np.ndarray,
+) -> float:
+    """Return intersection-over-union for two convex board quadrilaterals."""
+    first_points = order_corners(np.asarray(first, dtype=np.float32))
+    second_points = order_corners(np.asarray(second, dtype=np.float32))
+    first_area = abs(float(cv2.contourArea(first_points)))
+    second_area = abs(float(cv2.contourArea(second_points)))
+    if first_area <= 0 or second_area <= 0:
+        return 0.0
+    intersection, _polygon = cv2.intersectConvexConvex(first_points, second_points)
+    union = first_area + second_area - float(intersection)
+    return max(0.0, min(1.0, float(intersection) / union)) if union > 0 else 0.0
 
 
 def rectify_board(
@@ -423,6 +501,17 @@ def _quad_is_usable(corners: np.ndarray, image_shape: tuple[int, ...]) -> bool:
         return False
     edges = np.linalg.norm(np.roll(corners, -1, axis=0) - corners, axis=1)
     return bool(edges.min() >= 16 and edges.max() / edges.min() <= 6.0)
+
+
+def _corners_are_inside_image(corners: np.ndarray, image_shape: tuple[int, ...]) -> bool:
+    height, width = image_shape[:2]
+    return bool(
+        _quad_is_usable(corners, image_shape)
+        and (corners[:, 0] >= 0).all()
+        and (corners[:, 0] <= width - 1).all()
+        and (corners[:, 1] >= 0).all()
+        and (corners[:, 1] <= height - 1).all()
+    )
 
 
 def _clamp_corners(corners: np.ndarray, image_shape: tuple[int, ...]) -> np.ndarray:

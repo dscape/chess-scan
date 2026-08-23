@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { detectBoard } from "../api";
 import {
-  MIN_PREVIEW_BOARD_EDGE,
   minimumBoardEdge,
+  requiredCaptureBoardEdge,
   polygonCenter,
   projectedBoardCell,
   scaleCorners,
@@ -29,7 +29,7 @@ import type {
 } from "../types";
 import PhotoPicker from "./PhotoPicker";
 
-const SUPPLEMENTAL_FRAME_COUNT = 2;
+const SUPPLEMENTAL_FRAME_COUNT = 3;
 
 type CameraPhase =
   | "requesting"
@@ -157,7 +157,6 @@ export default function LiveCamera({
       const result = await detectBoard(frame.preview);
       const roundTripMs = Math.max(0, Math.round(performance.now() - requestStarted));
       if (stoppedRef.current || lockedRef.current) return;
-      setDetection(result);
       if (!result.found) {
         missedDetectionsRef.current += 1;
         setPhase("searching");
@@ -165,9 +164,20 @@ export default function LiveCamera({
         return;
       }
 
-      if (minimumBoardEdge(result.corners) < MIN_PREVIEW_BOARD_EDGE) {
+      setDetection(result);
+      const capturedCorners = scaleCorners(
+        result.corners,
+        result.image_width,
+        result.image_height,
+        frame.source.width,
+        frame.source.height,
+      );
+      if (
+        minimumBoardEdge(capturedCorners)
+        < requiredCaptureBoardEdge(frame.source.width, frame.source.height)
+      ) {
         setPhase("framing");
-        scheduleDetection(90);
+        scheduleDetection(40);
         return;
       }
 
@@ -179,13 +189,7 @@ export default function LiveCamera({
         frame.source,
         video,
         {
-          corners: scaleCorners(
-            result.corners,
-            result.image_width,
-            result.image_height,
-            frame.source.width,
-            frame.source.height,
-          ),
+          corners: capturedCorners,
           method: result.method,
         },
         "automatic",
@@ -232,12 +236,10 @@ export default function LiveCamera({
     currentDetection: BoardDetection | null,
   ) {
     const primaryBlobPromise = canvasBlob(source, 0.88);
-    const supplementalCount = geometry && currentDetection?.prediction?.glare_squares.length
-      ? SUPPLEMENTAL_FRAME_COUNT
-      : 0;
-    const supplementalPromise = supplementalCount > 0
-      ? captureSupplementalFrames(video, supplementalCount)
-      : Promise.resolve([]);
+    const supplementalPromise = captureSupplementalFrames(
+      video,
+      SUPPLEMENTAL_FRAME_COUNT,
+    );
     const recordedPromise = recordingRef.current?.stop() ?? Promise.resolve(null);
     const primaryBlob = await primaryBlobPromise;
     if (stoppedRef.current) return;
@@ -263,6 +265,7 @@ export default function LiveCamera({
       geometry,
       supplementalImages,
       diagnostic,
+      diagnosticRequested: diagnosticsEnabled,
     });
     if (!accepted && !stoppedRef.current) {
       setCameraError("This frame could not be read. Close the camera and try again.");
@@ -290,6 +293,7 @@ export default function LiveCamera({
         lock_method: currentDetection?.method ?? null,
         preview_round_trip_ms: previewRoundTripRef.current,
         preview_processing_ms: currentDetection?.processing_ms ?? null,
+        preview_sharpness_score: prediction?.sharpness_score ?? null,
         scan_round_trip_ms: 0,
         submitted_frames: submittedFrames,
         glare_square_count: prediction?.glare_squares.length ?? 0,
@@ -334,6 +338,7 @@ export default function LiveCamera({
       image: file,
       supplementalImages: [],
       diagnostic: photoDiagnosticRef.current ?? Promise.resolve(null),
+      diagnosticRequested: diagnosticsEnabled,
     });
     onCancel();
   }
@@ -363,7 +368,11 @@ export default function LiveCamera({
         </button>
         <span className="live-camera__mode">Board scanner</span>
         <span className={`live-camera__live${diagnosticActive ? " is-diagnostic" : ""}`}>
-          {diagnosticActive ? "Diagnostic" : "Live"}
+          {diagnosticActive
+            ? "Diagnostic"
+            : diagnosticsEnabled
+              ? "No diagnostic"
+              : "Live"}
         </span>
       </header>
       {phase !== "error" && !locked && (
@@ -479,12 +488,12 @@ function cameraStatus(phase: CameraPhase, detection: BoardDetection | null) {
   }
   if (phase === "locked") {
     const glareSquares = detection?.prediction?.glare_squares.length ?? 0;
-    return glareSquares > 0
-      ? {
-          title: "Board locked",
-          detail: `Combining nearby frames to reduce glare on ${glareSquares} square${glareSquares === 1 ? "" : "s"}.`,
-        }
-      : { title: "Board locked", detail: "Pieces found. Preparing the board now." };
+    return {
+      title: "Board locked",
+      detail: glareSquares > 0
+        ? `Stabilizing nearby frames and reducing glare on ${glareSquares} square${glareSquares === 1 ? "" : "s"}.`
+        : "Stabilizing nearby frames and choosing the clearest pieces.",
+    };
   }
   if (phase === "error") {
     return { title: "Camera unavailable", detail: "Use an existing photograph instead." };

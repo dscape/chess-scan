@@ -1,6 +1,11 @@
 import type { Point } from "./types";
 
-export const MIN_PREVIEW_BOARD_EDGE = 256;
+const TARGET_CAPTURE_BOARD_EDGE = 384;
+
+export function requiredCaptureBoardEdge(width: number, height: number): number {
+  if (width <= 0 || height <= 0) throw new RangeError("Image dimensions must be positive");
+  return Math.min(TARGET_CAPTURE_BOARD_EDGE, Math.min(width, height) * 0.5);
+}
 
 export function minimumBoardEdge(corners: Point[]): number {
   if (corners.length !== 4) return 0;

@@ -10,6 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import cv2
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
@@ -136,6 +137,7 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert len(detection["grid_points"]) == 81
         assert len(detection["prediction"]["labels"]) == 64
         assert detection["prediction"]["model_version"] == "chess-steps-v5"
+        assert detection["prediction"]["sharpness_score"] > 0
         assert detection["processing_ms"] >= 0
 
         board_payload = _board_png()
@@ -151,14 +153,20 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         )
         assert too_many_frames.status_code == 422
 
+        primary_payload, primary_corners = _framed_board_png(
+            offset=(80, 80),
+            glare=True,
+            motion_blur=True,
+        )
+        drifted_payload, drifted_corners = _framed_board_png(offset=(105, 65))
         scan_response = client.post(
             "/api/scans",
             files=[
-                ("image", ("board.png", _glared_board_png(), "image/png")),
-                ("frames", ("board-2.png", board_payload, "image/png")),
+                ("image", ("board.png", primary_payload, "image/png")),
+                ("frames", ("board-2.png", drifted_payload, "image/png")),
             ],
             data={
-                "corners": json.dumps([[0, 0], [639, 0], [639, 639], [0, 639]]),
+                "corners": json.dumps(primary_corners),
                 "detection_method": "checkerboard",
             },
         )
@@ -168,6 +176,9 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert len(scan["probabilities"]) == 64
         assert scan["capture_frame_count"] == 2
         assert scan["glare_squares"] == []
+        assert scan["sharpness_score"] > 0
+        assert scan["detection_method"] == "tracked"
+        assert np.max(np.abs(np.asarray(scan["corners"]) - np.asarray(drifted_corners))) < 3
         assert len(scan["prediction_revision"]) == 64
 
         restored_response = client.get(f"/api/scans/{scan['scan_id']}")
@@ -178,7 +189,11 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert restored["prediction_revision"] == scan["prediction_revision"]
         assert restored["capture_frame_count"] == 2
         assert restored["glare_squares"] == []
-        assert client.get(restored["source_image_url"]).status_code == 200
+        assert restored["sharpness_score"] == scan["sharpness_score"]
+        source_response = client.get(restored["source_image_url"])
+        assert source_response.status_code == 200
+        retained_source = np.asarray(Image.open(io.BytesIO(source_response.content)).convert("L"))
+        assert cv2.Laplacian(retained_source, cv2.CV_32F).var() > 500
         rectified_response = client.get(restored["rectified_image_url"])
         assert rectified_response.status_code == 200
         rectified = np.asarray(Image.open(io.BytesIO(rectified_response.content)).convert("RGB"))
@@ -255,6 +270,7 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert len(exported_diagnostic) == 1
         assert exported_diagnostic[0]["capture_frame_count"] == 2
         assert exported_diagnostic[0]["glare_squares_json"] == "[]"
+        assert exported_diagnostic[0]["sharpness_score"] == scan["sharpness_score"]
         duplicate_diagnostic = client.post(
             f"/api/reviews/{confirmation['feedback_id']}/capture-diagnostic",
             files={"recording": ("camera.webm", b"\x1a\x45\xdf\xa3again", "video/webm")},
@@ -805,14 +821,35 @@ def _board_png() -> bytes:
     return _png_bytes(board)
 
 
-def _glared_board_png() -> bytes:
-    board = np.asarray(Image.open(io.BytesIO(_board_png())).convert("RGB")).copy()
-    row, column = 3, 4
-    board[
-        row * 80 + 12 : (row + 1) * 80 - 12,
-        column * 80 + 12 : (column + 1) * 80 - 12,
-    ] = 255
-    return _png_bytes(board)
+def _framed_board_png(
+    *,
+    offset: tuple[int, int],
+    glare: bool = False,
+    motion_blur: bool = False,
+) -> tuple[bytes, list[list[int]]]:
+    left, top = offset
+    board = cv2.resize(
+        np.asarray(Image.open(io.BytesIO(_board_png())).convert("RGB")),
+        (560, 560),
+        interpolation=cv2.INTER_AREA,
+    )
+    if glare:
+        row, column = 3, 4
+        board[
+            row * 70 + 10 : (row + 1) * 70 - 10,
+            column * 70 + 10 : (column + 1) * 70 - 10,
+        ] = 255
+    frame = np.full((720, 720, 3), 242, dtype=np.uint8)
+    frame[top : top + 560, left : left + 560] = board
+    if motion_blur:
+        frame = cv2.GaussianBlur(frame, (0, 0), 2.5)
+    corners = [
+        [left, top],
+        [left + 559, top],
+        [left + 559, top + 559],
+        [left, top + 559],
+    ]
+    return _png_bytes(frame), corners
 
 
 def _solid_png() -> bytes:

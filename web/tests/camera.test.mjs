@@ -7,6 +7,7 @@ import {
   polygonCenter,
   projectedBoardCell,
   quadrilateralIoU,
+  requiredCaptureBoardEdge,
   scaleCorners,
 } from "../src/camera.ts";
 
@@ -52,6 +53,19 @@ test("maps classifier squares onto the projected camera grid", () => {
   assert.deepEqual(polygonCenter(projectedBoardCell(grid, 9)), [1.5, 1.5]);
   assert.equal(projectedBoardCell(grid, 64), null);
   assert.equal(projectedBoardCell([], 0), null);
+});
+
+test("scales the capture resolution floor instead of tying it to preview size", () => {
+  assert.equal(requiredCaptureBoardEdge(900, 1600), 384);
+  assert.equal(requiredCaptureBoardEdge(640, 1080), 320);
+  assert.throws(() => requiredCaptureBoardEdge(0, 1080), RangeError);
+
+  const portraitPreview = [
+    [125.5, 277.7], [331.2, 272.6], [338.9, 481.9], [129.6, 483.4],
+  ];
+  const retained = scaleCorners(portraitPreview, 405, 720, 900, 1600);
+  assert.ok(minimumBoardEdge(portraitPreview) < 256);
+  assert.ok(minimumBoardEdge(retained) > requiredCaptureBoardEdge(900, 1600));
 });
 
 test("uses the shortest projected board edge as the resolution floor", () => {

@@ -1,4 +1,5 @@
 const PREVIEW_MAX_DIMENSION = 720;
+const SUPPLEMENTAL_FRAME_INTERVAL_MS = 90;
 
 export const SOURCE_MAX_DIMENSION = 1600;
 
@@ -20,6 +21,7 @@ export async function captureSupplementalFrames(
 ): Promise<File[]> {
   const canvases: HTMLCanvasElement[] = [];
   for (let index = 0; index < count; index += 1) {
+    await delay(SUPPLEMENTAL_FRAME_INTERVAL_MS);
     await nextVideoFrame(video);
     canvases.push(videoFrameCanvas(video, SOURCE_MAX_DIMENSION));
   }
@@ -68,6 +70,10 @@ function resizedCanvas(source: HTMLCanvasElement, maxDimension: number): HTMLCan
   if (!context) throw new Error("Canvas is unavailable");
   context.drawImage(source, 0, 0, canvas.width, canvas.height);
   return canvas;
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
 function nextVideoFrame(video: HTMLVideoElement): Promise<void> {

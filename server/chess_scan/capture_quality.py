@@ -21,6 +21,7 @@ class BoardCaptureQuality:
     glare_score: float
     glare_squares: tuple[int, ...]
     square_glare: tuple[float, ...]
+    sharpness_score: float
 
 
 def board_capture_quality(board_bgr: np.ndarray) -> BoardCaptureQuality:
@@ -43,10 +44,12 @@ def board_capture_quality(board_bgr: np.ndarray) -> BoardCaptureQuality:
         or value >= _SEVERE_GLARE_FRACTION
     )
     glare_score = max((float(excess[index]) for index in glare_squares), default=0.0)
+    gray = cv2.cvtColor(board_bgr, cv2.COLOR_BGR2GRAY)
     return BoardCaptureQuality(
         glare_score=min(1.0, glare_score),
         glare_squares=glare_squares,
         square_glare=tuple(float(value) for value in square_glare),
+        sharpness_score=_sharpness_score(gray),
     )
 
 
@@ -81,6 +84,16 @@ def compose_best_board(frames: list[np.ndarray]) -> tuple[np.ndarray, tuple[int,
             column_boundaries[column] : column_boundaries[column + 1],
         ] = crop
     return composite, tuple(selected_frames)
+
+
+def _sharpness_score(gray: np.ndarray) -> float:
+    laplacian = float(cv2.Laplacian(gray, cv2.CV_32F).var())
+    horizontal = cv2.Sobel(gray, cv2.CV_32F, 1, 0)
+    vertical = cv2.Sobel(gray, cv2.CV_32F, 0, 1)
+    gradient_energy = float(np.mean(horizontal * horizontal + vertical * vertical))
+    if gradient_energy <= 1e-6:
+        return 0.0
+    return max(0.0, 1000.0 * laplacian / gradient_energy)
 
 
 def _square_utility(crop_bgr: np.ndarray) -> float:

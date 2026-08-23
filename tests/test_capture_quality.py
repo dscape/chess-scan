@@ -21,6 +21,17 @@ def test_localizes_glare_without_flagging_white_board_squares() -> None:
     assert glare_quality.glare_score > 0.2
 
 
+def test_reports_when_motion_blur_removes_board_detail() -> None:
+    board = _textured_board()
+    blurred = cv2.GaussianBlur(board, (0, 0), 4.0)
+
+    clear_quality = board_capture_quality(board)
+    blurred_quality = board_capture_quality(blurred)
+
+    assert clear_quality.sharpness_score > blurred_quality.sharpness_score * 5
+    assert blurred_quality.sharpness_score >= 0
+
+
 def test_composes_each_square_from_its_clearest_aligned_frame() -> None:
     clear = _textured_board()
     first = clear.copy()

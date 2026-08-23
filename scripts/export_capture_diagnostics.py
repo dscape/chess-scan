@@ -45,6 +45,7 @@ def main() -> None:
                 "detection_method": row["detection_method"],
                 "final_glare_score": row["glare_score"],
                 "final_glare_squares": json.loads(row["glare_squares_json"]),
+                "final_sharpness_score": row["sharpness_score"],
                 "accepted_frame_count": row["capture_frame_count"],
             }
             handle.write(json.dumps(record, separators=(",", ":")) + "\n")

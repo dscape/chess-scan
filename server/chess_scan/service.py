@@ -15,7 +15,11 @@ import cv2
 import numpy as np
 
 from chess_scan.board import build_full_fen, lichess_analysis_url, validate_full_fen
-from chess_scan.capture_quality import board_capture_quality, compose_best_board
+from chess_scan.capture_quality import (
+    BoardCaptureQuality,
+    board_capture_quality,
+    compose_best_board,
+)
 from chess_scan.classifier import BoardPrediction, ModelManager
 from chess_scan.commentary_planner import (
     CommentaryCoach,
@@ -30,11 +34,13 @@ from chess_scan.errors import (
 )
 from chess_scan.geometry import (
     DETECTION_MAX_DIMENSION,
+    board_corners_overlap,
     board_grid_fits,
     detect_board_corners,
     order_corners,
     project_board_grid,
     rectify_board,
+    track_board_corners,
 )
 from chess_scan.image_io import decode_uploaded_image, write_jpeg
 from chess_scan.review import build_position_attempt, build_position_review
@@ -61,6 +67,7 @@ logger = logging.getLogger(__name__)
 _CLEANUP_RETRY_SECONDS = 60 * 60
 _CAPTURE_DIAGNOSTIC_CONTENT_TYPES = {"video/mp4", "video/webm"}
 _CAPTURE_DIAGNOSTIC_MAX_BYTES = 8 * 1024 * 1024
+_MIN_SUPPLEMENTAL_BOARD_OVERLAP = 0.45
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +84,16 @@ class ImmediatePositionCoaching:
 @dataclass(frozen=True, slots=True)
 class PreparedPositionCoaching:
     review: PositionReviewResponse
+
+
+@dataclass(frozen=True, slots=True)
+class CapturedBoardFrame:
+    payload: bytes
+    source: np.ndarray
+    corners: np.ndarray
+    method: str
+    rectified: np.ndarray
+    quality: BoardCaptureQuality
 
 
 PositionCoachingPreflight = ImmediatePositionCoaching | PreparedPositionCoaching
@@ -122,6 +139,7 @@ class ScannerService:
                 model_version=classifier.version,
                 glare_score=quality.glare_score,
                 glare_squares=list(quality.glare_squares),
+                sharpness_score=quality.sharpness_score,
             )
         return BoardDetectionResponse(
             found=found,
@@ -147,7 +165,6 @@ class ScannerService:
             file_bytes,
             max_dimension=self.settings.max_image_dimension,
         )
-        source_height, source_width = source.shape[:2]
         if corners is None:
             if detection_method is not None:
                 raise ValueError("A detection method cannot be used without captured corners")
@@ -166,22 +183,38 @@ class ScannerService:
                 else "manual_adjustment_needed"
             )
 
-        selected_corners = [[float(x), float(y)] for x, y in selected]
-        rectified_frames = [rectify_board(source, selected)]
+        primary = _captured_board_frame(file_bytes, source, selected, method)
+        captured_frames = [primary]
         for supplemental_bytes in (supplemental_file_bytes or [])[:3]:
             supplemental = decode_uploaded_image(
                 supplemental_bytes,
                 max_dimension=self.settings.max_image_dimension,
             )
-            if supplemental.shape != source.shape or not board_grid_fits(supplemental, selected):
+            geometry = _supplemental_frame_geometry(primary, supplemental)
+            if geometry is None:
                 continue
-            rectified_frames.append(rectify_board(supplemental, selected))
+            supplemental_corners, supplemental_method = geometry
+            captured_frames.append(
+                _captured_board_frame(
+                    supplemental_bytes,
+                    supplemental,
+                    supplemental_corners,
+                    supplemental_method,
+                )
+            )
+
+        retained_frame = max(captured_frames, key=_capture_frame_utility)
         rectified = (
-            rectified_frames[0]
-            if len(rectified_frames) == 1
-            else compose_best_board(rectified_frames)[0]
+            retained_frame.rectified
+            if len(captured_frames) == 1
+            else compose_best_board([frame.rectified for frame in captured_frames])[0]
         )
         quality = board_capture_quality(rectified)
+        source = retained_frame.source
+        source_height, source_width = source.shape[:2]
+        selected = retained_frame.corners
+        selected_corners = [[float(x), float(y)] for x, y in selected]
+        method = retained_frame.method
         classifier = self.models.active()
         prediction = classifier.predict(rectified)
 
@@ -193,7 +226,7 @@ class ScannerService:
         try:
             self.database.create_scan(
                 scan_id=scan_id,
-                image_sha256=hashlib.sha256(file_bytes).hexdigest(),
+                image_sha256=hashlib.sha256(retained_frame.payload).hexdigest(),
                 source_width=source_width,
                 source_height=source_height,
                 source_image_path=source_path,
@@ -206,7 +239,8 @@ class ScannerService:
                 board_fen=prediction.board_fen,
                 glare_score=quality.glare_score,
                 glare_squares=list(quality.glare_squares),
-                capture_frame_count=len(rectified_frames),
+                sharpness_score=quality.sharpness_score,
+                capture_frame_count=len(captured_frames),
             )
         except Exception:
             source_path.unlink(missing_ok=True)
@@ -222,7 +256,8 @@ class ScannerService:
             model_version=classifier.version,
             glare_score=quality.glare_score,
             glare_squares=list(quality.glare_squares),
-            capture_frame_count=len(rectified_frames),
+            sharpness_score=quality.sharpness_score,
+            capture_frame_count=len(captured_frames),
         )
 
     def get_scan(self, scan_id: str) -> ScanResponse:
@@ -247,6 +282,9 @@ class ScannerService:
             model_version=str(scan["model_version"]),
             glare_score=float(scan["glare_score"]),
             glare_squares=[int(value) for value in json.loads(scan["glare_squares_json"])],
+            sharpness_score=(
+                float(scan["sharpness_score"]) if scan["sharpness_score"] is not None else None
+            ),
             capture_frame_count=int(scan["capture_frame_count"]),
         )
 
@@ -281,6 +319,7 @@ class ScannerService:
                 board_fen=prediction.board_fen,
                 glare_score=quality.glare_score,
                 glare_squares=list(quality.glare_squares),
+                sharpness_score=quality.sharpness_score,
                 capture_frame_count=1,
             )
         except Exception:
@@ -297,6 +336,7 @@ class ScannerService:
             model_version=classifier.version,
             glare_score=quality.glare_score,
             glare_squares=list(quality.glare_squares),
+            sharpness_score=quality.sharpness_score,
             capture_frame_count=1,
         )
 
@@ -734,6 +774,54 @@ class ScannerService:
         return removed, False
 
 
+def _captured_board_frame(
+    payload: bytes,
+    source: np.ndarray,
+    corners: np.ndarray,
+    method: str,
+) -> CapturedBoardFrame:
+    rectified = rectify_board(source, corners)
+    return CapturedBoardFrame(
+        payload=payload,
+        source=source,
+        corners=order_corners(corners),
+        method=method,
+        rectified=rectified,
+        quality=board_capture_quality(rectified),
+    )
+
+
+def _supplemental_frame_geometry(
+    primary: CapturedBoardFrame,
+    supplemental: np.ndarray,
+) -> tuple[np.ndarray, str] | None:
+    if supplemental.shape != primary.source.shape:
+        return None
+    if board_grid_fits(supplemental, primary.corners):
+        return primary.corners.copy(), primary.method
+
+    tracked = track_board_corners(primary.source, supplemental, primary.corners)
+    if tracked is not None and board_corners_overlap(primary.corners, tracked) >= (
+        _MIN_SUPPLEMENTAL_BOARD_OVERLAP
+    ):
+        return tracked, "tracked"
+
+    detection = detect_board_corners(supplemental, fast=True)
+    if detection.method == "manual_adjustment_needed":
+        return None
+    detected = order_corners(np.asarray(detection.corners, dtype=np.float32))
+    if (
+        primary.method != "manual_adjustment_needed"
+        and board_corners_overlap(primary.corners, detected) < _MIN_SUPPLEMENTAL_BOARD_OVERLAP
+    ):
+        return None
+    return detected, detection.method
+
+
+def _capture_frame_utility(frame: CapturedBoardFrame) -> float:
+    return float(np.log1p(frame.quality.sharpness_score)) - 5.0 * frame.quality.glare_score
+
+
 def _scan_response(
     *,
     scan_id: str,
@@ -745,6 +833,7 @@ def _scan_response(
     model_version: str,
     glare_score: float,
     glare_squares: list[int],
+    sharpness_score: float | None,
     capture_frame_count: int,
 ) -> ScanResponse:
     cache_key = uuid.uuid4().hex[:8]
@@ -761,6 +850,7 @@ def _scan_response(
         model_version=model_version,
         glare_score=glare_score,
         glare_squares=glare_squares,
+        sharpness_score=sharpness_score,
         capture_frame_count=capture_frame_count,
         prediction_revision=_prediction_revision(
             corners=corners,

@@ -12,20 +12,27 @@ export interface DiagnosticRecording {
   discard: () => void;
 }
 
+export function diagnosticRecordingSupported(): boolean {
+  return diagnosticMimeTypes().length > 0;
+}
+
 export function startDiagnosticRecording(stream: MediaStream): DiagnosticRecording | null {
-  if (typeof MediaRecorder === "undefined") return null;
-  const mimeType = diagnosticMimeType();
-  if (!mimeType) return null;
+  for (const mimeType of diagnosticMimeTypes()) {
+    const recording = startRecordingWithMimeType(stream, mimeType);
+    if (recording) return recording;
+  }
+  return null;
+}
+
+function startRecordingWithMimeType(
+  stream: MediaStream,
+  mimeType: string,
+): DiagnosticRecording | null {
   try {
     const startedAt = performance.now();
     const settings = stream.getVideoTracks()[0]?.getSettings() ?? {};
-    const recorder = new MediaRecorder(
-      new MediaStream(stream.getVideoTracks()),
-      {
-        mimeType,
-        videoBitsPerSecond: DIAGNOSTIC_VIDEO_BITS_PER_SECOND,
-      },
-    );
+    const recordingStream = new MediaStream(stream.getVideoTracks());
+    const recorder = createMediaRecorder(recordingStream, mimeType);
     const chunks: Blob[] = [];
     let discarded = false;
     let resolveResult: (value: RecordedDiagnostic | null) => void = () => undefined;
@@ -98,6 +105,17 @@ export function finiteMediaSetting(value: number | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
 }
 
+function createMediaRecorder(stream: MediaStream, mimeType: string): MediaRecorder {
+  try {
+    return new MediaRecorder(stream, {
+      mimeType,
+      videoBitsPerSecond: DIAGNOSTIC_VIDEO_BITS_PER_SECOND,
+    });
+  } catch {
+    return new MediaRecorder(stream, { mimeType });
+  }
+}
+
 function resultWithTimeout(
   result: Promise<RecordedDiagnostic | null>,
 ): Promise<RecordedDiagnostic | null> {
@@ -110,11 +128,17 @@ function resultWithTimeout(
   });
 }
 
-function diagnosticMimeType(): string | null {
+function diagnosticMimeTypes(): string[] {
+  if (
+    typeof MediaRecorder === "undefined"
+    || typeof MediaRecorder.isTypeSupported !== "function"
+  ) return [];
   const candidates = [
+    "video/mp4;codecs=avc1.42000a",
+    "video/mp4;codecs=avc1",
     "video/webm;codecs=vp8",
     "video/webm",
     "video/mp4",
   ];
-  return candidates.find((type) => MediaRecorder.isTypeSupported(type)) ?? null;
+  return candidates.filter((type) => MediaRecorder.isTypeSupported(type));
 }

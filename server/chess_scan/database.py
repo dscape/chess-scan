@@ -139,6 +139,7 @@ class Database:
         board_fen: str,
         glare_score: float = 0.0,
         glare_squares: list[int] | None = None,
+        sharpness_score: float | None = None,
         capture_frame_count: int = 1,
     ) -> None:
         with closing(self._connect()) as connection:
@@ -148,8 +149,9 @@ class Database:
                     id, created_at, image_sha256, source_width, source_height,
                     source_image_path, rectified_image_path, corners_json, detection_method,
                     model_version, predicted_labels_json, predicted_probabilities_json,
-                    predicted_board_fen, glare_score, glare_squares_json, capture_frame_count
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    predicted_board_fen, glare_score, glare_squares_json, sharpness_score,
+                    capture_frame_count
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     scan_id,
@@ -167,6 +169,7 @@ class Database:
                     board_fen,
                     glare_score,
                     json.dumps(glare_squares or []),
+                    sharpness_score,
                     capture_frame_count,
                 ),
             )
@@ -185,6 +188,7 @@ class Database:
         board_fen: str,
         glare_score: float = 0.0,
         glare_squares: list[int] | None = None,
+        sharpness_score: float | None = None,
         capture_frame_count: int = 1,
     ) -> Path:
         with closing(self._connect()) as connection:
@@ -206,7 +210,8 @@ class Database:
                 SET rectified_image_path = ?, corners_json = ?, detection_method = ?,
                     model_version = ?, predicted_labels_json = ?,
                     predicted_probabilities_json = ?, predicted_board_fen = ?,
-                    glare_score = ?, glare_squares_json = ?, capture_frame_count = ?
+                    glare_score = ?, glare_squares_json = ?, sharpness_score = ?,
+                    capture_frame_count = ?
                 WHERE id = ? AND state = 'open'
                 """,
                 (
@@ -219,6 +224,7 @@ class Database:
                     board_fen,
                     glare_score,
                     json.dumps(glare_squares or []),
+                    sharpness_score,
                     capture_frame_count,
                     scan_id,
                 ),
@@ -234,7 +240,8 @@ class Database:
             """
             state, source_width, source_height, corners_json, detection_method,
             model_version, predicted_labels_json, predicted_probabilities_json,
-            predicted_board_fen, glare_score, glare_squares_json, capture_frame_count
+            predicted_board_fen, glare_score, glare_squares_json, sharpness_score,
+            capture_frame_count
             """,
         )
         if scan["state"] == "confirmed":
@@ -1776,6 +1783,7 @@ class Database:
                     scan.detection_method,
                     scan.glare_score,
                     scan.glare_squares_json,
+                    scan.sharpness_score,
                     scan.capture_frame_count
                 FROM capture_diagnostics diagnostic
                 JOIN feedback_events feedback ON feedback.id = diagnostic.feedback_id
@@ -2428,6 +2436,8 @@ def _migrate_scans_table(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE scans ADD COLUMN glare_squares_json TEXT NOT NULL DEFAULT '[]'"
         )
+    if "sharpness_score" not in columns:
+        connection.execute("ALTER TABLE scans ADD COLUMN sharpness_score REAL")
     if "capture_frame_count" not in columns:
         connection.execute(
             "ALTER TABLE scans ADD COLUMN capture_frame_count INTEGER NOT NULL DEFAULT 1"
@@ -2521,6 +2531,7 @@ CREATE TABLE IF NOT EXISTS scans (
     predicted_board_fen TEXT NOT NULL,
     glare_score REAL NOT NULL DEFAULT 0 CHECK (glare_score >= 0 AND glare_score <= 1),
     glare_squares_json TEXT NOT NULL DEFAULT '[]',
+    sharpness_score REAL CHECK (sharpness_score IS NULL OR sharpness_score >= 0),
     capture_frame_count INTEGER NOT NULL DEFAULT 1
         CHECK (capture_frame_count >= 1 AND capture_frame_count <= 4),
     state TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'confirmed', 'expired')),

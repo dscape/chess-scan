@@ -85,6 +85,7 @@ class PreviewPredictionResponse(BaseModel):
     model_version: str
     glare_score: float = Field(ge=0, le=1)
     glare_squares: list[SquareIndex] = Field(max_length=SQUARE_COUNT)
+    sharpness_score: float = Field(ge=0)
 
 
 class BoardDetectionResponse(BaseModel):
@@ -112,6 +113,7 @@ class ScanResponse(BaseModel):
     model_version: str
     glare_score: float = Field(ge=0, le=1)
     glare_squares: list[SquareIndex] = Field(max_length=SQUARE_COUNT)
+    sharpness_score: float | None = Field(default=None, ge=0)
     capture_frame_count: int = Field(ge=1, le=4)
     prediction_revision: str
     source_image_url: str
@@ -132,6 +134,7 @@ class CaptureDiagnosticMetadata(BaseModel):
     lock_method: str | None = Field(default=None, max_length=64)
     preview_round_trip_ms: int | None = Field(default=None, ge=0, le=120_000)
     preview_processing_ms: int | None = Field(default=None, ge=0, le=120_000)
+    preview_sharpness_score: float | None = Field(default=None, ge=0)
     scan_round_trip_ms: int = Field(ge=0, le=120_000)
     submitted_frames: int = Field(ge=0, le=4)
     glare_square_count: int = Field(ge=0, le=SQUARE_COUNT)

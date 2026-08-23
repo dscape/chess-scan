@@ -6,11 +6,13 @@ import numpy as np
 from chess_scan.geometry import (
     _checkerboard_score,
     _extrapolate_outer_corners,
+    board_corners_overlap,
     board_grid_fits,
     detect_board_corners,
     order_corners,
     project_board_grid,
     rectify_board,
+    track_board_corners,
 )
 
 
@@ -31,6 +33,36 @@ def test_detects_and_rectifies_perspective_checkerboard() -> None:
     light = rectified[8:24, 8:24].mean()
     dark = rectified[8:24, 40:56].mean()
     assert abs(float(light - dark)) > 80
+
+
+def test_tracks_a_detected_board_across_nearby_camera_drift() -> None:
+    board = _checkerboard(640)
+    board_corners = np.float32([[0, 0], [639, 0], [639, 639], [0, 639]])
+    source_corners = np.float32([[170, 90], [720, 145], [670, 720], [105, 650]])
+    source = cv2.warpPerspective(
+        board,
+        cv2.getPerspectiveTransform(board_corners, source_corners),
+        (860, 820),
+        borderValue=(240, 236, 224),
+    )
+    drift = np.float32([[1.0, 0.012, 18.0], [-0.008, 1.0, -11.0], [0.0, 0.0, 1.0]])
+    target = cv2.warpPerspective(source, drift, (860, 820), borderValue=(240, 236, 224))
+    expected = cv2.perspectiveTransform(source_corners.reshape(1, 4, 2), drift)[0]
+
+    tracked = track_board_corners(source, target, source_corners)
+
+    assert tracked is not None
+    assert board_corners_overlap(tracked, expected) > 0.98
+    assert board_corners_overlap(source_corners, expected) > 0.8
+
+
+def test_board_corner_overlap_rejects_a_different_region() -> None:
+    first = [[10, 10], [110, 10], [110, 110], [10, 110]]
+    shifted = [[30, 20], [130, 20], [130, 120], [30, 120]]
+    separate = [[150, 150], [250, 150], [250, 250], [150, 250]]
+
+    assert 0.5 < board_corners_overlap(first, shifted) < 1.0
+    assert board_corners_overlap(first, separate) == 0.0
 
 
 def test_rectification_antialiases_print_screen_patterns() -> None:
@@ -59,6 +91,24 @@ def test_fast_live_detection_finds_a_clear_checkerboard() -> None:
 
     assert detection.method == "checkerboard"
     assert detection.confidence == 0.95
+
+
+def test_fast_detection_finds_a_small_blurred_board_in_a_portrait_preview() -> None:
+    board = _checkerboard(512, light=218, dark=150)
+    source = np.float32([[0, 0], [511, 0], [511, 511], [0, 511]])
+    target = np.float32([[125, 278], [331, 273], [339, 482], [130, 483]])
+    preview = cv2.warpPerspective(
+        board,
+        cv2.getPerspectiveTransform(source, target),
+        (405, 720),
+        borderValue=(235, 232, 222),
+    )
+    preview = cv2.GaussianBlur(preview, (5, 5), 1.0)
+
+    detection = detect_board_corners(preview, fast=True)
+
+    assert detection.method in {"checkerboard", "contour"}
+    assert board_corners_overlap(detection.corners, target) > 0.9
 
 
 def test_detects_low_contrast_blurred_checkerboard() -> None:

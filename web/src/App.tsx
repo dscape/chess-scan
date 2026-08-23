@@ -28,6 +28,8 @@ import type {
   SideToMove,
 } from "./types";
 
+const BLUR_WARNING_SHARPNESS_SCORE = 20;
+
 type BusyAction = "scan" | "reprocess" | "confirm" | null;
 type AppRoute =
   | { page: "home"; error?: string }
@@ -50,10 +52,13 @@ interface PendingScanDraft {
   draft: ScanDraft;
 }
 
+interface PendingCaptureDiagnostic {
+  requested: boolean;
+  result: Promise<CaptureDiagnostic | null>;
+}
+
 export default function App() {
   const [route, navigate] = useAppRoute();
-  const [sourceFile, setSourceFile] = useState<File | null>(null);
-  const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [scan, setScan] = useState<ScanResult | null>(null);
   const [corners, setCorners] = useState<Point[]>([]);
   const [labels, setLabels] = useState<number[]>([]);
@@ -65,7 +70,8 @@ export default function App() {
   const [busy, setBusy] = useState<BusyAction>(null);
   const [error, setError] = useState<string | null>(null);
   const [reviewPosition, setReviewPosition] = useState<ReviewedPosition | null>(null);
-  const [pendingDiagnostic, setPendingDiagnostic] = useState<Promise<CaptureDiagnostic | null> | null>(null);
+  const [pendingDiagnostic, setPendingDiagnostic] = useState<PendingCaptureDiagnostic | null>(null);
+  const [diagnosticError, setDiagnosticError] = useState<string | null>(null);
   const [geometryOpen, setGeometryOpen] = useState(false);
   const [geometryMounted, setGeometryMounted] = useState(false);
   const [routeLoadError, setRouteLoadError] = useState<string | null>(null);
@@ -148,16 +154,6 @@ export default function App() {
     return () => controller.abort();
   }, []);
 
-  useEffect(() => {
-    if (!sourceFile) {
-      setSourceUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(sourceFile);
-    setSourceUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [sourceFile]);
-
   const rectifiedSourceUrl = scan?.rectified_image_url;
   useEffect(() => {
     setRectifiedImageUrl(null);
@@ -232,7 +228,7 @@ export default function App() {
     sideToMove,
   ]);
 
-  const sourceImageUrl = sourceUrl ?? scan?.source_image_url ?? null;
+  const sourceImageUrl = scan?.source_image_url ?? null;
   const castling = castlingRights.length > 0 ? "KQkq".split("").filter((right) => castlingRights.includes(right)).join("") : "-";
   const fen = scan ? fullFen(labels, orientation, sideToMove, castling) : "";
   const fenValidationError = scan ? fenError(fen) : null;
@@ -255,9 +251,9 @@ export default function App() {
     const generation = ++requestGeneration.current;
     const started = performance.now();
     setError(null);
+    setDiagnosticError(null);
     setReviewPosition(null);
     setBusy("scan");
-    setSourceFile(capture.image);
     try {
       const result = await scanImage(
         capture.image,
@@ -267,15 +263,18 @@ export default function App() {
       if (generation !== requestGeneration.current) return false;
       applyScan(result);
       const scanRoundTripMs = Math.max(0, Math.round(performance.now() - started));
-      setPendingDiagnostic(capture.diagnostic.then((diagnostic) => diagnostic
-        ? {
-            ...diagnostic,
-            metadata: {
-              ...diagnostic.metadata,
-              scan_round_trip_ms: scanRoundTripMs,
-            },
-          }
-        : null));
+      setPendingDiagnostic({
+        requested: capture.diagnosticRequested,
+        result: capture.diagnostic.then((diagnostic) => diagnostic
+          ? {
+              ...diagnostic,
+              metadata: {
+                ...diagnostic.metadata,
+                scan_round_trip_ms: scanRoundTripMs,
+              },
+            }
+          : null),
+      });
       const needsManualFrame = result.detection_method === "manual_adjustment_needed";
       setGeometryOpen(needsManualFrame);
       setGeometryMounted(needsManualFrame);
@@ -284,7 +283,6 @@ export default function App() {
     } catch (cause) {
       if (generation !== requestGeneration.current) return false;
       setError(messageFrom(cause));
-      setSourceFile(null);
       setPendingDiagnostic(null);
       return false;
     } finally {
@@ -303,7 +301,6 @@ export default function App() {
     const predictionDraft = draft?.predictionRevision === result.prediction_revision
       ? draft
       : null;
-    setSourceFile(null);
     setScan(result);
     setCorners(predictionDraft?.corners ?? result.corners);
     setLabels(predictionDraft?.labels ?? result.labels);
@@ -357,15 +354,28 @@ export default function App() {
       removeScanDraft(scan.scan_id);
       const diagnostic = pendingDiagnostic;
       setPendingDiagnostic(null);
-      if (diagnostic) {
-        void diagnostic
-          .then((capture) => capture
-            ? uploadCaptureDiagnostic(result.feedback_id, capture)
-            : null)
-          .catch((cause: unknown) => {
-            console.warn("Camera diagnostic upload failed", cause);
-          });
+      let captureDiagnosticError: string | null = null;
+      if (diagnostic?.requested) {
+        try {
+          const capture = await diagnostic.result;
+          if (!capture) {
+            captureDiagnosticError = (
+              "Position saved, but this browser did not produce the requested camera diagnostic. "
+              + "No recording was retained."
+            );
+          } else {
+            await uploadCaptureDiagnostic(result.feedback_id, capture);
+          }
+        } catch (cause) {
+          console.warn("Camera diagnostic upload failed", cause);
+          captureDiagnosticError = (
+            "Position saved, but the camera diagnostic could not be uploaded. "
+            + "No recording was retained."
+          );
+        }
       }
+      if (generation !== requestGeneration.current) return;
+      setDiagnosticError(captureDiagnosticError);
       setReviewPosition({
         feedback_id: result.feedback_id,
         full_fen: result.full_fen,
@@ -386,12 +396,12 @@ export default function App() {
   function reset() {
     requestGeneration.current += 1;
     setError(null);
+    setDiagnosticError(null);
     navigate({ page: "home" });
   }
 
   function clearBoard() {
     flushPendingDraft();
-    setSourceFile(null);
     setScan(null);
     setCorners([]);
     setLabels([]);
@@ -402,6 +412,7 @@ export default function App() {
     setConsentTraining(true);
     setReviewPosition(null);
     setPendingDiagnostic(null);
+    setDiagnosticError(null);
     setGeometryOpen(false);
     setGeometryMounted(false);
     setBusy(null);
@@ -433,6 +444,14 @@ export default function App() {
         `Glare remains on ${scan.glare_squares.length} square${scan.glare_squares.length === 1 ? "" : "s"}. Check every gold-outlined square.`,
       );
     }
+    if (
+      scan.sharpness_score !== null
+      && scan.sharpness_score < BLUR_WARNING_SHARPNESS_SCORE
+    ) {
+      warnings.push(
+        "The clearest available frame is blurry. Check every piece or retake the photo if its outline is soft.",
+      );
+    }
     if (uncertainPredictionCount > 0) {
       warnings.push(
         `${uncertainPredictionCount} square prediction${uncertainPredictionCount === 1 ? " needs" : "s need"} review. Check every outlined square.`,
@@ -454,6 +473,19 @@ export default function App() {
           <span>!</span>
           <p>{error}</p>
           <button type="button" onClick={() => setError(null)} aria-label="Dismiss error">×</button>
+        </div>
+      )}
+      {diagnosticError && (
+        <div className="error-banner" role="alert">
+          <span>!</span>
+          <p>{diagnosticError}</p>
+          <button
+            type="button"
+            onClick={() => setDiagnosticError(null)}
+            aria-label="Dismiss diagnostic error"
+          >
+            ×
+          </button>
         </div>
       )}
 
@@ -541,7 +573,12 @@ export default function App() {
             <summary>
               <span>
                 <b>Board frame</b>
-                <small>{geometryMessage(scan.detection_method)}</small>
+                <small>
+                  {geometryMessage(scan.detection_method)}
+                  {scan.capture_frame_count > 1
+                    ? ` · ${scan.capture_frame_count} frames stabilized`
+                    : ""}
+                </small>
               </span>
               <span className="summary-action">Adjust corners</span>
             </summary>
