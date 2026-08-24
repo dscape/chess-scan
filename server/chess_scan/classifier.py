@@ -17,6 +17,11 @@ from chess_scan.model_artifact import verify_model_artifact
 
 INPUT_SIZE = 64
 NUM_CLASSES = len(CLASS_NAMES)
+_MULTIVIEW_OFFSETS = tuple(
+    (offset_x, offset_y) for offset_y in (-2, 0, 2) for offset_x in (-2, 0, 2)
+)
+_MULTIVIEW_CENTER_INDEX = _MULTIVIEW_OFFSETS.index((0, 0))
+_MULTIVIEW_METHOD = "multi-view-mean-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +30,30 @@ class BoardPrediction:
     probabilities: list[list[float]]
     confidences: list[float]
     board_fen: str
+
+
+@dataclass(frozen=True, slots=True)
+class MultiViewPrediction:
+    prediction: BoardPrediction
+    raw_prediction: BoardPrediction
+    frame_agreements: list[float]
+    view_agreements: list[float]
+    frame_labels: list[list[int]]
+    view_labels: list[list[int]]
+    inference_view_count: int
+    method: str = _MULTIVIEW_METHOD
+
+    def evidence(self) -> dict[str, Any]:
+        return {
+            "method": self.method,
+            "raw_labels": self.raw_prediction.labels,
+            "raw_probabilities": self.raw_prediction.probabilities,
+            "frame_agreements": self.frame_agreements,
+            "view_agreements": self.view_agreements,
+            "frame_labels": self.frame_labels,
+            "view_labels": self.view_labels,
+            "inference_view_count": self.inference_view_count,
+        }
 
 
 class DiagramClassifier:
@@ -51,6 +80,41 @@ class DiagramClassifier:
         predictions = self.predict_preprocessed(preprocess_board(rectified_board_bgr))
         return predictions[0]
 
+    def predict_multiview(
+        self,
+        composite_board_bgr: np.ndarray,
+        supporting_boards_bgr: list[np.ndarray],
+    ) -> MultiViewPrediction:
+        """Average nearby visual views and measure agreement without chess-rule repair."""
+        view_boards = [
+            _shift_board(composite_board_bgr, offset_x, offset_y)
+            for offset_x, offset_y in _MULTIVIEW_OFFSETS
+        ]
+        inputs = np.concatenate(
+            [preprocess_board(board) for board in [*view_boards, *supporting_boards_bgr]]
+        )
+        predictions = self.predict_preprocessed(inputs)
+        view_predictions = predictions[: len(view_boards)]
+        frame_predictions = predictions[len(view_boards) :]
+        view_probabilities = np.asarray(
+            [prediction.probabilities for prediction in view_predictions],
+            dtype=np.float32,
+        )
+        prediction = _board_prediction(view_probabilities.mean(axis=0))
+        raw_prediction = view_predictions[_MULTIVIEW_CENTER_INDEX]
+        consensus_labels = np.asarray(prediction.labels, dtype=np.int64)
+        view_labels = [candidate.labels for candidate in view_predictions]
+        frame_labels = [candidate.labels for candidate in frame_predictions]
+        return MultiViewPrediction(
+            prediction=prediction,
+            raw_prediction=raw_prediction,
+            frame_agreements=_label_agreements(frame_labels, consensus_labels),
+            view_agreements=_label_agreements(view_labels, consensus_labels),
+            frame_labels=frame_labels,
+            view_labels=view_labels,
+            inference_view_count=len(predictions),
+        )
+
     def predict_preprocessed(self, inputs: np.ndarray) -> list[BoardPrediction]:
         """Classify one or more boards represented as consecutive batches of 64 squares."""
         if inputs.ndim != 4 or inputs.shape[1:] != (3, INPUT_SIZE, INPUT_SIZE):
@@ -69,18 +133,7 @@ class DiagramClassifier:
             raise RuntimeError(f"Expected model output {expected_shape}, got {logits.shape}")
 
         probabilities = _softmax(logits).reshape(-1, SQUARE_COUNT, NUM_CLASSES)
-        predictions: list[BoardPrediction] = []
-        for board_probabilities in probabilities:
-            labels = board_probabilities.argmax(axis=1).astype(np.int64).tolist()
-            predictions.append(
-                BoardPrediction(
-                    labels=labels,
-                    probabilities=board_probabilities.astype(float).tolist(),
-                    confidences=board_probabilities.max(axis=1).astype(float).tolist(),
-                    board_fen=labels_to_board_fen(labels),
-                )
-            )
-        return predictions
+        return [_board_prediction(board_probabilities) for board_probabilities in probabilities]
 
 
 def normalize_board_contrast(board_bgr: np.ndarray) -> np.ndarray:
@@ -134,6 +187,42 @@ def preprocess_square_crops(crops: list[np.ndarray]) -> np.ndarray:
         resized.append(cv2.resize(rgb, (INPUT_SIZE, INPUT_SIZE), interpolation=interpolation))
     batch = np.stack(resized).astype(np.float32) / 255.0
     return np.transpose(batch, (0, 3, 1, 2))
+
+
+def _shift_board(board_bgr: np.ndarray, offset_x: int, offset_y: int) -> np.ndarray:
+    if board_bgr.ndim != 3 or board_bgr.shape[2] != 3:
+        raise ValueError("Expected a BGR board image")
+    height, width = board_bgr.shape[:2]
+    transform = np.asarray([[1.0, 0.0, offset_x], [0.0, 1.0, offset_y]], dtype=np.float32)
+    return cv2.warpAffine(
+        board_bgr,
+        transform,
+        (width, height),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REPLICATE,
+    )
+
+
+def _label_agreements(
+    candidate_labels: list[list[int]],
+    consensus_labels: np.ndarray,
+) -> list[float]:
+    if not candidate_labels:
+        return [1.0] * SQUARE_COUNT
+    candidates = np.asarray(candidate_labels, dtype=np.int64)
+    if candidates.shape != (len(candidate_labels), SQUARE_COUNT):
+        raise ValueError("Candidate labels must contain complete boards")
+    return np.mean(candidates == consensus_labels[None, :], axis=0).astype(float).tolist()
+
+
+def _board_prediction(probabilities: np.ndarray) -> BoardPrediction:
+    labels = probabilities.argmax(axis=1).astype(np.int64).tolist()
+    return BoardPrediction(
+        labels=labels,
+        probabilities=probabilities.astype(float).tolist(),
+        confidences=probabilities.max(axis=1).astype(float).tolist(),
+        board_fen=labels_to_board_fen(labels),
+    )
 
 
 def read_model_metadata(path: Path) -> dict[str, Any]:

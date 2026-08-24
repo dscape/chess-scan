@@ -75,7 +75,7 @@ The board pieces adapt [Chess Simple Assets](https://www.figma.com/community/fil
 
 ## Production
 
-The live camera uses a bounded fast detector, provisional 64-square inference, and three transient refinement frames to select the clearest source for each square. Optical grid tracking keeps those frames aligned despite normal hand drift, and blurry retained scans are called out explicitly. An unchecked diagnostic option can retain a short camera-only clip for 30 days after confirmation; it never records audio or the browser screen. See [`docs/camera-scanner.md`](docs/camera-scanner.md) for the pipeline, privacy contract, and replay export.
+The live camera uses a bounded fast detector, provisional 64-square inference, and three transient refinement frames to select the clearest source for each square. Optical grid tracking keeps those frames aligned despite normal hand drift. Nine nearby crop views improve the presented prediction, while independent frame/view agreement keeps unstable squares visibly marked and preserves the raw center prediction for audit. An unchecked diagnostic option can retain a short camera-only clip for 30 days after confirmation; it never records audio or the browser screen. See [`docs/camera-scanner.md`](docs/camera-scanner.md) for the pipeline, privacy contract, and replay export.
 
 The Docker image builds the React frontend and serves it from FastAPI:
 

@@ -137,6 +137,7 @@ class Database:
         labels: list[int],
         probabilities: list[list[float]],
         board_fen: str,
+        prediction_evidence: Mapping[str, Any] | None = None,
         glare_score: float = 0.0,
         glare_squares: list[int] | None = None,
         sharpness_score: float | None = None,
@@ -149,9 +150,9 @@ class Database:
                     id, created_at, image_sha256, source_width, source_height,
                     source_image_path, rectified_image_path, corners_json, detection_method,
                     model_version, predicted_labels_json, predicted_probabilities_json,
-                    predicted_board_fen, glare_score, glare_squares_json, sharpness_score,
-                    capture_frame_count
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    predicted_board_fen, prediction_evidence_json, glare_score,
+                    glare_squares_json, sharpness_score, capture_frame_count
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     scan_id,
@@ -167,6 +168,7 @@ class Database:
                     json.dumps(labels),
                     json.dumps(probabilities),
                     board_fen,
+                    _json_or_none(prediction_evidence),
                     glare_score,
                     json.dumps(glare_squares or []),
                     sharpness_score,
@@ -186,6 +188,7 @@ class Database:
         labels: list[int],
         probabilities: list[list[float]],
         board_fen: str,
+        prediction_evidence: Mapping[str, Any] | None = None,
         glare_score: float = 0.0,
         glare_squares: list[int] | None = None,
         sharpness_score: float | None = None,
@@ -210,8 +213,8 @@ class Database:
                 SET rectified_image_path = ?, corners_json = ?, detection_method = ?,
                     model_version = ?, predicted_labels_json = ?,
                     predicted_probabilities_json = ?, predicted_board_fen = ?,
-                    glare_score = ?, glare_squares_json = ?, sharpness_score = ?,
-                    capture_frame_count = ?
+                    prediction_evidence_json = ?, glare_score = ?, glare_squares_json = ?,
+                    sharpness_score = ?, capture_frame_count = ?
                 WHERE id = ? AND state = 'open'
                 """,
                 (
@@ -222,6 +225,7 @@ class Database:
                     json.dumps(labels),
                     json.dumps(probabilities),
                     board_fen,
+                    _json_or_none(prediction_evidence),
                     glare_score,
                     json.dumps(glare_squares or []),
                     sharpness_score,
@@ -240,8 +244,8 @@ class Database:
             """
             state, source_width, source_height, corners_json, detection_method,
             model_version, predicted_labels_json, predicted_probabilities_json,
-            predicted_board_fen, glare_score, glare_squares_json, sharpness_score,
-            capture_frame_count
+            predicted_board_fen, prediction_evidence_json, glare_score,
+            glare_squares_json, sharpness_score, capture_frame_count
             """,
         )
         if scan["state"] == "confirmed":
@@ -1609,7 +1613,7 @@ class Database:
                 COALESCE(a.changed_squares, f.changed_squares) AS changed_squares,
                 COALESCE(a.corrected_labels_json, f.final_labels_json) AS final_labels_json,
                 s.rectified_image_path, s.model_version, s.predicted_labels_json,
-                s.predicted_probabilities_json
+                s.predicted_probabilities_json, s.prediction_evidence_json
             FROM feedback_events f
             JOIN scans s ON s.id = f.scan_id
             LEFT JOIN feedback_adjudications a ON a.id = (
@@ -1780,6 +1784,7 @@ class Database:
                     scan.id AS scan_id,
                     scan.model_version,
                     scan.predicted_labels_json,
+                    scan.prediction_evidence_json,
                     scan.detection_method,
                     scan.glare_score,
                     scan.glare_squares_json,
@@ -2261,6 +2266,12 @@ def _limited_feedback_ids(
     return feedback_ids
 
 
+def _json_or_none(value: Mapping[str, Any] | None) -> str | None:
+    if value is None:
+        return None
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -2430,6 +2441,8 @@ def _migrate_scans_table(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE scans ADD COLUMN cleanup_attempted_at TEXT")
     if "cleanup_completed_at" not in columns:
         connection.execute("ALTER TABLE scans ADD COLUMN cleanup_completed_at TEXT")
+    if "prediction_evidence_json" not in columns:
+        connection.execute("ALTER TABLE scans ADD COLUMN prediction_evidence_json TEXT")
     if "glare_score" not in columns:
         connection.execute("ALTER TABLE scans ADD COLUMN glare_score REAL NOT NULL DEFAULT 0")
     if "glare_squares_json" not in columns:
@@ -2529,6 +2542,7 @@ CREATE TABLE IF NOT EXISTS scans (
     predicted_labels_json TEXT NOT NULL,
     predicted_probabilities_json TEXT NOT NULL,
     predicted_board_fen TEXT NOT NULL,
+    prediction_evidence_json TEXT,
     glare_score REAL NOT NULL DEFAULT 0 CHECK (glare_score >= 0 AND glare_score <= 1),
     glare_squares_json TEXT NOT NULL DEFAULT '[]',
     sharpness_score REAL CHECK (sharpness_score IS NULL OR sharpness_score >= 0),

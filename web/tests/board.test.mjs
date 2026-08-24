@@ -7,6 +7,7 @@ import {
   parentFensForMoves,
   pieceName,
   pieceOptionForLabel,
+  predictionNeedsReview,
   positionAt,
 } from "../src/board.ts";
 
@@ -33,6 +34,16 @@ test("maps classifier labels to canonical piece metadata", () => {
   assert.deepEqual(pieceOptionForLabel(0), { name: "Empty", fenSymbol: "", piece: null });
   assert.throws(() => pieceOptionForLabel(13), RangeError);
   assert.throws(() => pieceOptionForLabel(1.5), RangeError);
+});
+
+test("requires agreement before treating a square as settled", () => {
+  const probabilities = [0.05, 0.9, ...Array(11).fill(0.05 / 11)];
+
+  assert.equal(predictionNeedsReview(1, 0.9, probabilities, 1, 1), false);
+  assert.equal(predictionNeedsReview(1, 0.68, probabilities, 1, 1), true);
+  assert.equal(predictionNeedsReview(1, 0.68, probabilities, 1, 1, true), false);
+  assert.equal(predictionNeedsReview(1, 0.9, probabilities, 0.5, 1), true);
+  assert.equal(predictionNeedsReview(1, 0.9, probabilities, 1, 5 / 9), true);
 });
 
 test("replays review moves through one validated board helper", () => {

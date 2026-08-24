@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import sqlite3
 import time
@@ -33,6 +35,32 @@ def test_detect_requests_manual_adjustment_for_an_image_without_a_grid(tmp_path:
     assert detection.corners == []
     assert not list((settings.data_dir / "source-temp").iterdir())
     assert not list((settings.data_dir / "rectified").iterdir())
+
+
+def test_legacy_scan_preserves_raw_prediction_and_revision(tmp_path: Path) -> None:
+    service, database, settings = _service(tmp_path)
+    _create_scan_files(database, settings, scan_id="legacy-scan")
+
+    scan = service.get_scan("legacy-scan")
+    expected_revision = hashlib.sha256(
+        json.dumps(
+            {
+                "corners": [[0, 0], [99, 0], [99, 99], [0, 99]],
+                "detection_method": "test",
+                "labels": [0] * 64,
+                "model_version": "base",
+                "probabilities": [[1.0] + [0.0] * 12 for _ in range(64)],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+
+    assert scan.prediction_method == "single-view-v1"
+    assert scan.labels == scan.raw_labels
+    assert scan.frame_agreements == [1.0] * 64
+    assert scan.view_agreements == [1.0] * 64
+    assert scan.prediction_revision == expected_revision
 
 
 def test_review_position_rejects_an_invalid_stored_fen(tmp_path: Path) -> None:

@@ -39,6 +39,11 @@ def main() -> None:
                 "user_agent": row["user_agent"],
                 "labels": json.loads(row["final_labels_json"]),
                 "predicted_labels": json.loads(row["predicted_labels_json"]),
+                "prediction_evidence": (
+                    json.loads(row["prediction_evidence_json"])
+                    if row["prediction_evidence_json"]
+                    else None
+                ),
                 "orientation": row["orientation"],
                 "fen": row["final_fen"],
                 "model_version": row["model_version"],

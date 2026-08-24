@@ -14,13 +14,19 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from chess_scan.board import build_full_fen, lichess_analysis_url, validate_full_fen
+from chess_scan.board import (
+    SQUARE_COUNT,
+    build_full_fen,
+    labels_to_board_fen,
+    lichess_analysis_url,
+    validate_full_fen,
+)
 from chess_scan.capture_quality import (
     BoardCaptureQuality,
     board_capture_quality,
     compose_best_board,
 )
-from chess_scan.classifier import BoardPrediction, ModelManager
+from chess_scan.classifier import BoardPrediction, ModelManager, MultiViewPrediction
 from chess_scan.commentary_planner import (
     CommentaryCoach,
     CommentaryPlannerRun,
@@ -216,7 +222,11 @@ class ScannerService:
         selected_corners = [[float(x), float(y)] for x, y in selected]
         method = retained_frame.method
         classifier = self.models.active()
-        prediction = classifier.predict(rectified)
+        inference = classifier.predict_multiview(
+            rectified,
+            [frame.rectified for frame in captured_frames],
+        )
+        prediction = inference.prediction
 
         scan_id = uuid.uuid4().hex
         source_path = self.settings.data_dir / "source-temp" / f"{scan_id}.jpg"
@@ -237,6 +247,7 @@ class ScannerService:
                 labels=prediction.labels,
                 probabilities=prediction.probabilities,
                 board_fen=prediction.board_fen,
+                prediction_evidence=inference.evidence(),
                 glare_score=quality.glare_score,
                 glare_squares=list(quality.glare_squares),
                 sharpness_score=quality.sharpness_score,
@@ -252,7 +263,7 @@ class ScannerService:
             source_height=source_height,
             corners=selected_corners,
             detection_method=method,
-            prediction=prediction,
+            inference=inference,
             model_version=classifier.version,
             glare_score=quality.glare_score,
             glare_squares=list(quality.glare_squares),
@@ -272,13 +283,17 @@ class ScannerService:
             confidences=[max(square) for square in probabilities],
             board_fen=str(scan["predicted_board_fen"]),
         )
+        inference = _stored_multiview_prediction(
+            prediction,
+            scan["prediction_evidence_json"],
+        )
         return _scan_response(
             scan_id=scan_id,
             source_width=int(scan["source_width"]),
             source_height=int(scan["source_height"]),
             corners=json.loads(scan["corners_json"]),
             detection_method=str(scan["detection_method"]),
-            prediction=prediction,
+            inference=inference,
             model_version=str(scan["model_version"]),
             glare_score=float(scan["glare_score"]),
             glare_squares=[int(value) for value in json.loads(scan["glare_squares_json"])],
@@ -302,7 +317,8 @@ class ScannerService:
         rectified = rectify_board(source, ordered)
         quality = board_capture_quality(rectified)
         classifier = self.models.active()
-        prediction = classifier.predict(rectified)
+        inference = classifier.predict_multiview(rectified, [rectified])
+        prediction = inference.prediction
         rectified_path = Path(scan["rectified_image_path"]).with_name(
             f"{scan_id}-{uuid.uuid4().hex[:8]}.jpg"
         )
@@ -317,6 +333,7 @@ class ScannerService:
                 labels=prediction.labels,
                 probabilities=prediction.probabilities,
                 board_fen=prediction.board_fen,
+                prediction_evidence=inference.evidence(),
                 glare_score=quality.glare_score,
                 glare_squares=list(quality.glare_squares),
                 sharpness_score=quality.sharpness_score,
@@ -332,7 +349,7 @@ class ScannerService:
             source_height=int(scan["source_height"]),
             corners=ordered_corners,
             detection_method="manual",
-            prediction=prediction,
+            inference=inference,
             model_version=classifier.version,
             glare_score=quality.glare_score,
             glare_squares=list(quality.glare_squares),
@@ -822,6 +839,44 @@ def _capture_frame_utility(frame: CapturedBoardFrame) -> float:
     return float(np.log1p(frame.quality.sharpness_score)) - 5.0 * frame.quality.glare_score
 
 
+def _stored_multiview_prediction(
+    prediction: BoardPrediction,
+    evidence_json: str | None,
+) -> MultiViewPrediction:
+    if evidence_json is None:
+        return MultiViewPrediction(
+            prediction=prediction,
+            raw_prediction=prediction,
+            frame_agreements=[1.0] * SQUARE_COUNT,
+            view_agreements=[1.0] * SQUARE_COUNT,
+            frame_labels=[prediction.labels],
+            view_labels=[prediction.labels],
+            inference_view_count=1,
+            method="single-view-v1",
+        )
+    evidence = json.loads(evidence_json)
+    raw_probabilities = [
+        [float(value) for value in square] for square in evidence["raw_probabilities"]
+    ]
+    raw_labels = [int(value) for value in evidence["raw_labels"]]
+    raw_prediction = BoardPrediction(
+        labels=raw_labels,
+        probabilities=raw_probabilities,
+        confidences=[max(square) for square in raw_probabilities],
+        board_fen=labels_to_board_fen(raw_labels),
+    )
+    return MultiViewPrediction(
+        prediction=prediction,
+        raw_prediction=raw_prediction,
+        frame_agreements=[float(value) for value in evidence["frame_agreements"]],
+        view_agreements=[float(value) for value in evidence["view_agreements"]],
+        frame_labels=[[int(value) for value in labels] for labels in evidence["frame_labels"]],
+        view_labels=[[int(value) for value in labels] for labels in evidence["view_labels"]],
+        inference_view_count=int(evidence["inference_view_count"]),
+        method=str(evidence["method"]),
+    )
+
+
 def _scan_response(
     *,
     scan_id: str,
@@ -829,7 +884,7 @@ def _scan_response(
     source_height: int,
     corners: list[list[float]],
     detection_method: str,
-    prediction: BoardPrediction,
+    inference: MultiViewPrediction,
     model_version: str,
     glare_score: float,
     glare_squares: list[int],
@@ -837,6 +892,8 @@ def _scan_response(
     capture_frame_count: int,
 ) -> ScanResponse:
     cache_key = uuid.uuid4().hex[:8]
+    prediction = inference.prediction
+    raw_prediction = inference.raw_prediction
     return ScanResponse(
         scan_id=scan_id,
         source_width=source_width,
@@ -846,6 +903,13 @@ def _scan_response(
         labels=prediction.labels,
         probabilities=prediction.probabilities,
         confidences=prediction.confidences,
+        raw_labels=raw_prediction.labels,
+        raw_probabilities=raw_prediction.probabilities,
+        raw_confidences=raw_prediction.confidences,
+        frame_agreements=inference.frame_agreements,
+        view_agreements=inference.view_agreements,
+        prediction_method=inference.method,
+        inference_view_count=inference.inference_view_count,
         board_fen=prediction.board_fen,
         model_version=model_version,
         glare_score=glare_score,
@@ -855,7 +919,7 @@ def _scan_response(
         prediction_revision=_prediction_revision(
             corners=corners,
             detection_method=detection_method,
-            prediction=prediction,
+            inference=inference,
             model_version=model_version,
         ),
         source_image_url=f"/api/scans/{scan_id}/source?v={cache_key}",
@@ -867,17 +931,26 @@ def _prediction_revision(
     *,
     corners: list[list[float]],
     detection_method: str,
-    prediction: BoardPrediction,
+    inference: MultiViewPrediction,
     model_version: str,
 ) -> str:
+    prediction = inference.prediction
+    revision = {
+        "corners": corners,
+        "detection_method": detection_method,
+        "labels": prediction.labels,
+        "model_version": model_version,
+        "probabilities": prediction.probabilities,
+    }
+    if inference.method != "single-view-v1":
+        revision.update(
+            {
+                "prediction_method": inference.method,
+                "raw_labels": inference.raw_prediction.labels,
+            }
+        )
     payload = json.dumps(
-        {
-            "corners": corners,
-            "detection_method": detection_method,
-            "labels": prediction.labels,
-            "model_version": model_version,
-            "probabilities": prediction.probabilities,
-        },
+        revision,
         sort_keys=True,
         separators=(",", ":"),
     )

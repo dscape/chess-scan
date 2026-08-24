@@ -29,6 +29,11 @@ def main() -> None:
                 "chosen_labels": json.loads(row["final_labels_json"]),
                 "rejected_labels": json.loads(row["predicted_labels_json"]),
                 "rejected_probabilities": json.loads(row["predicted_probabilities_json"]),
+                "prediction_evidence": (
+                    json.loads(row["prediction_evidence_json"])
+                    if row["prediction_evidence_json"]
+                    else None
+                ),
                 "source_model": row["model_version"],
                 "changed_squares": row["changed_squares"],
             }

@@ -243,6 +243,9 @@ export default function App() {
           label,
           scan.confidences[index] ?? 0,
           scan.probabilities[index] ?? [],
+          scan.frame_agreements[index] ?? 0,
+          scan.view_agreements[index] ?? 0,
+          scan.prediction_method === "multi-view-mean-v1",
         ),
       ).length
     : 0;
@@ -454,7 +457,7 @@ export default function App() {
     }
     if (uncertainPredictionCount > 0) {
       warnings.push(
-        `${uncertainPredictionCount} square prediction${uncertainPredictionCount === 1 ? " needs" : "s need"} review. Check every outlined square.`,
+        `${uncertainPredictionCount} square suggestion${uncertainPredictionCount === 1 ? " remains" : "s remain"} uncertain after frame and crop checks. Check every outlined square.`,
       );
     } else if (confidence < 80) {
       warnings.push("Model confidence is low. Review every square.");
@@ -578,6 +581,9 @@ export default function App() {
                   {scan.capture_frame_count > 1
                     ? ` · ${scan.capture_frame_count} frames stabilized`
                     : ""}
+                  {scan.prediction_method === "multi-view-mean-v1"
+                    ? ` · ${scan.inference_view_count} model views`
+                    : ""}
                 </small>
               </span>
               <span className="summary-action">Adjust corners</span>
@@ -631,6 +637,9 @@ export default function App() {
                 predictedLabels={scan.labels}
                 confidences={scan.confidences}
                 probabilities={scan.probabilities}
+                frameAgreements={scan.frame_agreements}
+                viewAgreements={scan.view_agreements}
+                predictionMethod={scan.prediction_method}
                 glareSquares={scan.glare_squares}
                 orientation={orientation}
                 onChange={setLabels}

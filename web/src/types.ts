@@ -78,6 +78,13 @@ export interface ScanResult {
   labels: number[];
   probabilities: number[][];
   confidences: number[];
+  raw_labels: number[];
+  raw_probabilities: number[][];
+  raw_confidences: number[];
+  frame_agreements: number[];
+  view_agreements: number[];
+  prediction_method: "single-view-v1" | "multi-view-mean-v1";
+  inference_view_count: number;
   board_fen: string;
   model_version: string;
   glare_score: number;

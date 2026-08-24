@@ -23,9 +23,11 @@ Every camera lock—automatic or manual—captures three adjacent refinement fra
 
 The backend first tests the locked geometry, then tracks the 7×7 internal grid with optical flow when the camera has drifted. A bounded independent detection is the fallback. Frames with a different shape, invalid grid, or insufficient overlap with the locked board are rejected. Accepted frames are rectified with their own tracked corners rather than reusing stale coordinates.
 
-For each of the 64 squares, deterministic image quality weighs specular clipping, local contrast, and sharpness. The clearest square crop is selected into one 512×512 composite board, and the normal ONNX classifier runs once on that image. The sharpest accepted full frame is retained for corner adjustment. The runtime still returns raw model predictions; it does not repair king counts or alter labels from chess legality.
+For each of the 64 squares, deterministic image quality weighs specular clipping, local contrast, and sharpness. The clearest square crop is selected into one 512×512 composite board. The classifier then averages nine raw probability views at ±2-pixel crop offsets, while one raw center prediction from every accepted camera frame measures temporal agreement. The presented suggestion is the explicit multi-view mean; the unmodified center prediction, per-view labels, per-frame labels, and agreement scores are stored alongside it for audit. No chess legality, king count, or piece-count rule participates in either result.
 
-This can recover a square when hand movement shifts glare or one frame is motion-blurred. It cannot recover ink hidden or out of focus in every frame. Residual glare is stored with the scan and outlined in gold; low sharpness produces an explicit whole-board warning for human review.
+This can recover a square when hand movement shifts glare, one frame is motion-blurred, or a piece sits close to a crop boundary. It cannot recover ink hidden or out of focus in every frame. Squares remain outlined when the camera frames or crop views disagree, even if one view reports high confidence. Residual glare is stored with the scan and outlined in gold; low sharpness produces an explicit whole-board warning for human review.
+
+On a 97-board replay of consented production feedback, the same `chess-steps-v5` weights improved from 60 to 71 exact boards and from 92.84% to 95.55% accuracy on occupied-or-mistaken squares. All 96 clean, faded, halftone, low-resolution, and perspective/blur stress variants remained exact. This is operational inference evidence, not a replacement for the held-out model-promotion gates. The 9–13 CPU views add roughly 100–150 ms locally after frame composition.
 
 ## Opt-in camera diagnostics
 

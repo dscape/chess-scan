@@ -19,7 +19,8 @@ Every confirmation stores:
 - immutable feedback id and timestamp
 - model version
 - rectified board crop
-- original 64 predicted labels and probabilities
+- presented 64 multi-view labels and mean probabilities
+- raw center labels/probabilities plus per-frame and per-crop agreement evidence
 - final 64 image-order labels
 - changed-square count
 - orientation and side to move
@@ -33,7 +34,7 @@ Only explicit confirmations are training labels. Intermediate taps are not. Unch
 For corrected boards:
 
 - `chosen`: final human-confirmed labels
-- `rejected`: original model labels
+- `rejected`: the presented multi-view labels the learner corrected
 - `context`: rectified board crop and model version
 
 A simple pairwise objective scores a board with the sum of its square log-probabilities:

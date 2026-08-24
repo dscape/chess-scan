@@ -34,6 +34,7 @@ AnnotationId = Annotated[
 ]
 RecordId = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
 SquareIndex = Annotated[int, Field(ge=0, lt=SQUARE_COUNT)]
+Agreement = Annotated[float, Field(ge=0, le=1)]
 
 
 class AppCapabilitiesResponse(BaseModel):
@@ -106,9 +107,25 @@ class ScanResponse(BaseModel):
     source_height: int
     corners: list[list[float]]
     detection_method: str
-    labels: list[int]
-    probabilities: list[list[float]]
-    confidences: list[float]
+    labels: list[int] = Field(min_length=SQUARE_COUNT, max_length=SQUARE_COUNT)
+    probabilities: list[list[float]] = Field(min_length=SQUARE_COUNT, max_length=SQUARE_COUNT)
+    confidences: list[float] = Field(min_length=SQUARE_COUNT, max_length=SQUARE_COUNT)
+    raw_labels: list[int] = Field(min_length=SQUARE_COUNT, max_length=SQUARE_COUNT)
+    raw_probabilities: list[list[float]] = Field(
+        min_length=SQUARE_COUNT,
+        max_length=SQUARE_COUNT,
+    )
+    raw_confidences: list[float] = Field(min_length=SQUARE_COUNT, max_length=SQUARE_COUNT)
+    frame_agreements: list[Agreement] = Field(
+        min_length=SQUARE_COUNT,
+        max_length=SQUARE_COUNT,
+    )
+    view_agreements: list[Agreement] = Field(
+        min_length=SQUARE_COUNT,
+        max_length=SQUARE_COUNT,
+    )
+    prediction_method: Literal["single-view-v1", "multi-view-mean-v1"]
+    inference_view_count: int = Field(ge=1, le=64)
     board_fen: str
     model_version: str
     glare_score: float = Field(ge=0, le=1)

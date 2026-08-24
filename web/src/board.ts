@@ -112,8 +112,12 @@ export function predictionNeedsReview(
   label: number,
   confidence: number,
   probabilities: number[],
+  frameAgreement = 1,
+  viewAgreement = 1,
+  multiview = false,
 ): boolean {
-  if (confidence < 0.72) return true;
+  if (Math.min(frameAgreement, viewAgreement) < 2 / 3) return true;
+  if (confidence < (multiview ? 0.65 : 0.72)) return true;
   if (label === 5) return (probabilities[11] ?? 0) >= 0.1;
   if (label === 11) return (probabilities[5] ?? 0) >= 0.1;
   return false;

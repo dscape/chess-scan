@@ -10,6 +10,9 @@ interface BoardEditorProps {
   predictedLabels: number[];
   confidences: number[];
   probabilities: number[][];
+  frameAgreements: number[];
+  viewAgreements: number[];
+  predictionMethod: "single-view-v1" | "multi-view-mean-v1";
   glareSquares: number[];
   orientation: Orientation;
   onChange: (labels: number[]) => void;
@@ -20,6 +23,9 @@ export default function BoardEditor({
   predictedLabels,
   confidences,
   probabilities,
+  frameAgreements,
+  viewAgreements,
+  predictionMethod,
   glareSquares,
   orientation,
   onChange,
@@ -44,10 +50,16 @@ export default function BoardEditor({
             const col = index % 8;
             const confidence = confidences[index] ?? 0;
             const corrected = piece !== predictedLabels[index];
+            const frameAgreement = frameAgreements[index] ?? 0;
+            const viewAgreement = viewAgreements[index] ?? 0;
+            const viewsDisagree = Math.min(frameAgreement, viewAgreement) < 2 / 3;
             const needsReview = predictionNeedsReview(
               predictedLabels[index] ?? 0,
               confidence,
               probabilities[index] ?? [],
+              frameAgreement,
+              viewAgreement,
+              predictionMethod === "multi-view-mean-v1",
             );
             const square = squareName(index, orientation);
             const option = pieceOptionForLabel(piece);
@@ -65,8 +77,8 @@ export default function BoardEditor({
                   corrected ? "is-corrected" : "",
                   selectedSquare === index ? "is-selected" : "",
                 ].join(" ")}
-                aria-label={`${square}: ${option.name}${hasGlare ? "; glare detected" : ""}`}
-                title={`${square} · ${option.name} · ${Math.round(confidence * 100)}% confidence${hasGlare ? " · glare detected" : ""}`}
+                aria-label={`${square}: ${option.name}${viewsDisagree ? "; model views disagree" : ""}${hasGlare ? "; glare detected" : ""}`}
+                title={`${square} · ${option.name} · ${Math.round(confidence * 100)}% confidence · ${Math.round(frameAgreement * 100)}% frame agreement · ${Math.round(viewAgreement * 100)}% crop agreement${hasGlare ? " · glare detected" : ""}`}
                 onClick={() => setSelectedSquare(index)}
               >
                 <span className="board-square__coordinate">{square}</span>
