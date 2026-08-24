@@ -22,6 +22,8 @@ _MULTIVIEW_OFFSETS = tuple(
 )
 _MULTIVIEW_CENTER_INDEX = _MULTIVIEW_OFFSETS.index((0, 0))
 _MULTIVIEW_METHOD = "multi-view-mean-v1"
+# Bound ONNX activation memory while keeping the crop ensemble in one batch.
+_MAX_BOARDS_PER_INFERENCE = len(_MULTIVIEW_OFFSETS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,7 +59,7 @@ class MultiViewPrediction:
 
 
 class DiagramClassifier:
-    """Classify all squares in one rectified board with a single ONNX call."""
+    """Classify the squares in one or more rectified boards with ONNX."""
 
     def __init__(self, model_path: Path, *, version: str) -> None:
         if not model_path.exists():
@@ -90,10 +92,11 @@ class DiagramClassifier:
             _shift_board(composite_board_bgr, offset_x, offset_y)
             for offset_x, offset_y in _MULTIVIEW_OFFSETS
         ]
-        inputs = np.concatenate(
-            [preprocess_board(board) for board in [*view_boards, *supporting_boards_bgr]]
-        )
-        predictions = self.predict_preprocessed(inputs)
+        preprocessed = [preprocess_board(board) for board in [*view_boards, *supporting_boards_bgr]]
+        predictions = []
+        for start in range(0, len(preprocessed), _MAX_BOARDS_PER_INFERENCE):
+            inputs = np.concatenate(preprocessed[start : start + _MAX_BOARDS_PER_INFERENCE])
+            predictions.extend(self.predict_preprocessed(inputs))
         view_predictions = predictions[: len(view_boards)]
         frame_predictions = predictions[len(view_boards) :]
         view_probabilities = np.asarray(

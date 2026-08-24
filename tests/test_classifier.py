@@ -7,8 +7,10 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from pytest import MonkeyPatch
 
 from chess_scan.classifier import (
+    BoardPrediction,
     DiagramClassifier,
     ModelManager,
     normalize_board_contrast,
@@ -34,7 +36,7 @@ def test_split_and_preprocess_board() -> None:
     assert np.isclose(batch[0, 2, 0, 0], 10 / 255)
 
 
-def test_classifier_builds_auditable_multiview_consensus() -> None:
+def test_classifier_builds_auditable_multiview_consensus(monkeypatch: MonkeyPatch) -> None:
     classifier = DiagramClassifier(
         PROJECT_ROOT / "models" / "chess-steps-v5.onnx",
         version="test",
@@ -45,17 +47,26 @@ def test_classifier_builds_auditable_multiview_consensus() -> None:
             value = 225 if (row + column) % 2 == 0 else 105
             board[row * 64 : (row + 1) * 64, column * 64 : (column + 1) * 64] = value
 
-    consensus = classifier.predict_multiview(board, [board, board])
-    raw = classifier.predict(board)
+    inference_batch_sizes = []
+    predict_preprocessed = classifier.predict_preprocessed
 
+    def record_batch_size(inputs: np.ndarray) -> list[BoardPrediction]:
+        inference_batch_sizes.append(len(inputs))
+        return predict_preprocessed(inputs)
+
+    monkeypatch.setattr(classifier, "predict_preprocessed", record_batch_size)
+    consensus = classifier.predict_multiview(board, [board] * 4)
+
+    assert inference_batch_sizes == [9 * 64, 4 * 64]
+    raw = classifier.predict(board)
     assert consensus.method == "multi-view-mean-v1"
-    assert consensus.inference_view_count == 11
+    assert consensus.inference_view_count == 13
     assert len(consensus.prediction.labels) == 64
     assert len(consensus.raw_prediction.labels) == 64
     assert consensus.raw_prediction.labels == raw.labels
     assert np.allclose(consensus.raw_prediction.probabilities, raw.probabilities)
     assert len(consensus.view_labels) == 9
-    assert len(consensus.frame_labels) == 2
+    assert len(consensus.frame_labels) == 4
     assert all(0 <= agreement <= 1 for agreement in consensus.view_agreements)
     assert all(0 <= agreement <= 1 for agreement in consensus.frame_agreements)
     assert np.allclose(np.asarray(consensus.prediction.probabilities).sum(axis=1), 1.0)

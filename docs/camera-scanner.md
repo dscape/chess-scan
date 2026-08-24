@@ -27,7 +27,7 @@ For each of the 64 squares, deterministic image quality weighs specular clipping
 
 This can recover a square when hand movement shifts glare, one frame is motion-blurred, or a piece sits close to a crop boundary. It cannot recover ink hidden or out of focus in every frame. Squares remain outlined when the camera frames or crop views disagree, even if one view reports high confidence. Residual glare is stored with the scan and outlined in gold; low sharpness produces an explicit whole-board warning for human review.
 
-On a 97-board replay of consented production feedback, the same `chess-steps-v5` weights improved from 60 to 71 exact boards and from 92.84% to 95.55% accuracy on occupied-or-mistaken squares. All 96 clean, faded, halftone, low-resolution, and perspective/blur stress variants remained exact. This is operational inference evidence, not a replacement for the held-out model-promotion gates. The 9–13 CPU views add roughly 100–150 ms locally after frame composition.
+On a 97-board replay of consented production feedback, the same `chess-steps-v5` weights improved from 60 to 71 exact boards and from 92.84% to 95.55% accuracy on occupied-or-mistaken squares. All 96 clean, faded, halftone, low-resolution, and perspective/blur stress variants remained exact. This is operational inference evidence, not a replacement for the held-out model-promotion gates. The 9–13 CPU views add roughly 100–150 ms locally after frame composition. ONNX calls are capped at nine boards so activation memory stays bounded as supplemental frames are added.
 
 ## Opt-in camera diagnostics
 
