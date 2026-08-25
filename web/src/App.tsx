@@ -582,8 +582,10 @@ export default function App() {
                     ? ` · ${scan.capture_frame_count} frames stabilized`
                     : ""}
                   {scan.prediction_method === "multi-view-mean-v1"
-                    ? ` · ${scan.inference_view_count} model views`
-                    : ""}
+                    ? ` · ${scan.inference_view_count} averaged model views`
+                    : scan.prediction_method === "raw-center-evidence-v1"
+                      ? ` · raw labels · ${scan.inference_view_count} stability views`
+                      : ""}
                 </small>
               </span>
               <span className="summary-action">Adjust corners</span>

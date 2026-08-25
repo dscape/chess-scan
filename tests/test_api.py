@@ -178,7 +178,9 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert len(scan["raw_probabilities"]) == 64
         assert len(scan["frame_agreements"]) == 64
         assert len(scan["view_agreements"]) == 64
-        assert scan["prediction_method"] == "multi-view-mean-v1"
+        assert scan["prediction_method"] == "raw-center-evidence-v1"
+        assert scan["labels"] == scan["raw_labels"]
+        assert scan["probabilities"] == scan["raw_probabilities"]
         assert scan["inference_view_count"] == 11
         assert scan["capture_frame_count"] == 2
         assert scan["glare_squares"] == []
@@ -283,7 +285,9 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert exported_diagnostic[0]["glare_squares_json"] == "[]"
         assert exported_diagnostic[0]["sharpness_score"] == scan["sharpness_score"]
         prediction_evidence = json.loads(exported_diagnostic[0]["prediction_evidence_json"])
-        assert prediction_evidence["method"] == "multi-view-mean-v1"
+        assert prediction_evidence["method"] == "raw-center-evidence-v1"
+        assert prediction_evidence["ensemble_method"] == "multi-view-mean-v1"
+        assert len(prediction_evidence["ensemble_labels"]) == 64
         assert prediction_evidence["inference_view_count"] == 11
         duplicate_diagnostic = client.post(
             f"/api/reviews/{confirmation['feedback_id']}/capture-diagnostic",
@@ -641,7 +645,7 @@ def test_scan_reuses_live_corners_and_preserves_manual_recovery(tmp_path: Path) 
         )
         assert reprocessed.status_code == 200, reprocessed.text
         assert reprocessed.json()["detection_method"] == "manual"
-        assert reprocessed.json()["prediction_method"] == "multi-view-mean-v1"
+        assert reprocessed.json()["prediction_method"] == "raw-center-evidence-v1"
         assert reprocessed.json()["inference_view_count"] == 10
 
         outside_reprocess = client.post(

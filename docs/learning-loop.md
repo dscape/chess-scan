@@ -19,8 +19,8 @@ Every confirmation stores:
 - immutable feedback id and timestamp
 - model version
 - rectified board crop
-- presented 64 multi-view labels and mean probabilities
-- raw center labels/probabilities plus per-frame and per-crop agreement evidence
+- presented 64 raw center labels and probabilities
+- per-frame/per-crop labels, mean probabilities, and agreement evidence
 - final 64 image-order labels
 - changed-square count
 - orientation and side to move
@@ -34,7 +34,7 @@ Only explicit confirmations are training labels. Intermediate taps are not. Unch
 For corrected boards:
 
 - `chosen`: final human-confirmed labels
-- `rejected`: the presented multi-view labels the learner corrected
+- `rejected`: the presented raw center labels the learner corrected
 - `context`: rectified board crop and model version
 
 A simple pairwise objective scores a board with the sum of its square log-probabilities:
@@ -109,6 +109,7 @@ The primary product metric is **whole-board exact match**. Square accuracy can c
 - no overall, occupied-square, or per-class regression on held-out `chess_positions`, and no synthetic replay regression
 - no clean or camera/display regression for Chess.com, Lichess, or Take Take Take
 - exact passage of every consented photographed-print regression board
+- no regression from the complete runtime inference policy on those same board gates
 - a verified immutable artifact hash
 
 Candidates retain the active classifier architecture and ONNX runtime. The active wide model remains only 2.6 MB, and immutable replay gates bound later feedback training independently of public labels.

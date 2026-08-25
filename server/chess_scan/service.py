@@ -847,6 +847,7 @@ def _stored_multiview_prediction(
         return MultiViewPrediction(
             prediction=prediction,
             raw_prediction=prediction,
+            ensemble_prediction=prediction,
             frame_agreements=[1.0] * SQUARE_COUNT,
             view_agreements=[1.0] * SQUARE_COUNT,
             frame_labels=[prediction.labels],
@@ -865,9 +866,25 @@ def _stored_multiview_prediction(
         confidences=[max(square) for square in raw_probabilities],
         board_fen=labels_to_board_fen(raw_labels),
     )
+    if "ensemble_probabilities" in evidence:
+        ensemble_probabilities = [
+            [float(value) for value in square] for square in evidence["ensemble_probabilities"]
+        ]
+        ensemble_labels = [int(value) for value in evidence["ensemble_labels"]]
+        ensemble_prediction = BoardPrediction(
+            labels=ensemble_labels,
+            probabilities=ensemble_probabilities,
+            confidences=[max(square) for square in ensemble_probabilities],
+            board_fen=labels_to_board_fen(ensemble_labels),
+        )
+    else:
+        ensemble_prediction = (
+            prediction if evidence["method"] == "multi-view-mean-v1" else raw_prediction
+        )
     return MultiViewPrediction(
         prediction=prediction,
         raw_prediction=raw_prediction,
+        ensemble_prediction=ensemble_prediction,
         frame_agreements=[float(value) for value in evidence["frame_agreements"]],
         view_agreements=[float(value) for value in evidence["view_agreements"]],
         frame_labels=[[int(value) for value in labels] for labels in evidence["frame_labels"]],

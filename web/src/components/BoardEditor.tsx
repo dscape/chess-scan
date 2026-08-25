@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { pieceOptionForLabel, predictionNeedsReview, squareName } from "../board";
-import type { Orientation } from "../types";
+import type { Orientation, PredictionMethod } from "../types";
 import ChessPiece from "./ChessPiece";
 import ChessPieceAttribution from "./ChessPieceAttribution";
 import PiecePicker from "./PiecePicker";
@@ -12,7 +12,7 @@ interface BoardEditorProps {
   probabilities: number[][];
   frameAgreements: number[];
   viewAgreements: number[];
-  predictionMethod: "single-view-v1" | "multi-view-mean-v1";
+  predictionMethod: PredictionMethod;
   glareSquares: number[];
   orientation: Orientation;
   onChange: (labels: number[]) => void;

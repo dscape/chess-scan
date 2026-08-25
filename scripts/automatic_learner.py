@@ -377,6 +377,7 @@ def run_fixed_qa(
         "--variant",
         "camera",
     ]
+    commands["platform-runtime"] = [*commands["platform"], "--runtime-policy"]
     commands["argus"] = [
         sys.executable,
         str(scripts / "evaluate_argus_replay.py"),
@@ -406,9 +407,9 @@ def run_fixed_qa(
             payload = json.loads(output_path.read_text())
         except FileNotFoundError as exc:
             raise BenchmarkUnavailableError(f"{name} command exited {result.returncode}") from exc
-        if name == "platform":
+        if name.startswith("platform"):
             for variant, evaluation in payload["variants"].items():
-                metrics[f"platform-{variant}"] = _qa_summary(
+                metrics[f"{name}-{variant}"] = _qa_summary(
                     f"platform-{variant}",
                     evaluation,
                 )

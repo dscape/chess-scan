@@ -41,6 +41,11 @@ def main() -> None:
         choices=_VARIANTS,
         help="Variant to evaluate; repeat to evaluate multiple variants in one corpus pass",
     )
+    parser.add_argument(
+        "--runtime-policy",
+        action="store_true",
+        help="Evaluate the complete runtime view policy instead of one raw model view",
+    )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
@@ -63,9 +68,11 @@ def main() -> None:
         variants=variants,
         split=args.split,
         dataset_version=manifest["version"],
+        runtime_policy=args.runtime_policy,
     )
     payload = {
         "passed": all(evaluation["passed"] for evaluation in evaluations.values()),
+        "inference_policy": "runtime" if args.runtime_policy else "raw",
         "split": args.split,
         "dataset_version": manifest["version"],
         "variants": evaluations,
@@ -85,6 +92,7 @@ def evaluate_variants(
     variants: tuple[str, ...],
     split: str,
     dataset_version: str,
+    runtime_policy: bool = False,
     board_batch_size: int = 4,
 ) -> dict[str, dict[str, Any]]:
     expected = [np.asarray(record["labels"], dtype=np.int64) for record in records]
@@ -99,12 +107,21 @@ def evaluate_variants(
                 raise ValueError(f"Cannot read platform board: {record['path']}")
             boards.append(board)
         for variant in variants:
-            inputs = np.concatenate(
-                [
-                    preprocess_board(transform_board(board, variant, offset + index))
-                    for index, board in enumerate(boards)
-                ]
-            )
+            transformed = [
+                transform_board(board, variant, offset + index)
+                for index, board in enumerate(boards)
+            ]
+            if runtime_policy:
+                candidate_predictions[variant].extend(
+                    _runtime_labels(candidate, board) for board in transformed
+                )
+                if baseline is not None:
+                    baseline_predictions[variant].extend(
+                        _runtime_labels(baseline, board) for board in transformed
+                    )
+                continue
+
+            inputs = np.concatenate([preprocess_board(board) for board in transformed])
             candidate_predictions[variant].extend(
                 np.asarray(prediction.labels, dtype=np.int64)
                 for prediction in candidate.predict_preprocessed(inputs)
@@ -129,6 +146,11 @@ def evaluate_variants(
         )
         for variant in variants
     }
+
+
+def _runtime_labels(classifier: DiagramClassifier, board: np.ndarray) -> np.ndarray:
+    inference = classifier.predict_multiview(board, [board])
+    return np.asarray(inference.prediction.labels, dtype=np.int64)
 
 
 def build_evaluation(

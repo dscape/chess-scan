@@ -21,7 +21,8 @@ _MULTIVIEW_OFFSETS = tuple(
     (offset_x, offset_y) for offset_y in (-2, 0, 2) for offset_x in (-2, 0, 2)
 )
 _MULTIVIEW_CENTER_INDEX = _MULTIVIEW_OFFSETS.index((0, 0))
-_MULTIVIEW_METHOD = "multi-view-mean-v1"
+_ENSEMBLE_METHOD = "multi-view-mean-v1"
+_RAW_CENTER_EVIDENCE_METHOD = "raw-center-evidence-v1"
 # Bound ONNX activation memory while keeping the crop ensemble in one batch.
 _MAX_BOARDS_PER_INFERENCE = len(_MULTIVIEW_OFFSETS)
 
@@ -38,18 +39,22 @@ class BoardPrediction:
 class MultiViewPrediction:
     prediction: BoardPrediction
     raw_prediction: BoardPrediction
+    ensemble_prediction: BoardPrediction
     frame_agreements: list[float]
     view_agreements: list[float]
     frame_labels: list[list[int]]
     view_labels: list[list[int]]
     inference_view_count: int
-    method: str = _MULTIVIEW_METHOD
+    method: str = _RAW_CENTER_EVIDENCE_METHOD
 
     def evidence(self) -> dict[str, Any]:
         return {
             "method": self.method,
             "raw_labels": self.raw_prediction.labels,
             "raw_probabilities": self.raw_prediction.probabilities,
+            "ensemble_method": _ENSEMBLE_METHOD,
+            "ensemble_labels": self.ensemble_prediction.labels,
+            "ensemble_probabilities": self.ensemble_prediction.probabilities,
             "frame_agreements": self.frame_agreements,
             "view_agreements": self.view_agreements,
             "frame_labels": self.frame_labels,
@@ -87,7 +92,7 @@ class DiagramClassifier:
         composite_board_bgr: np.ndarray,
         supporting_boards_bgr: list[np.ndarray],
     ) -> MultiViewPrediction:
-        """Average nearby visual views and measure agreement without chess-rule repair."""
+        """Return the raw center prediction with visual stability evidence."""
         view_boards = [
             _shift_board(composite_board_bgr, offset_x, offset_y)
             for offset_x, offset_y in _MULTIVIEW_OFFSETS
@@ -103,16 +108,17 @@ class DiagramClassifier:
             [prediction.probabilities for prediction in view_predictions],
             dtype=np.float32,
         )
-        prediction = _board_prediction(view_probabilities.mean(axis=0))
+        ensemble_prediction = _board_prediction(view_probabilities.mean(axis=0))
         raw_prediction = view_predictions[_MULTIVIEW_CENTER_INDEX]
-        consensus_labels = np.asarray(prediction.labels, dtype=np.int64)
+        presented_labels = np.asarray(raw_prediction.labels, dtype=np.int64)
         view_labels = [candidate.labels for candidate in view_predictions]
         frame_labels = [candidate.labels for candidate in frame_predictions]
         return MultiViewPrediction(
-            prediction=prediction,
+            prediction=raw_prediction,
             raw_prediction=raw_prediction,
-            frame_agreements=_label_agreements(frame_labels, consensus_labels),
-            view_agreements=_label_agreements(view_labels, consensus_labels),
+            ensemble_prediction=ensemble_prediction,
+            frame_agreements=_label_agreements(frame_labels, presented_labels),
+            view_agreements=_label_agreements(view_labels, presented_labels),
             frame_labels=frame_labels,
             view_labels=view_labels,
             inference_view_count=len(predictions),

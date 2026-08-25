@@ -124,7 +124,11 @@ class ScanResponse(BaseModel):
         min_length=SQUARE_COUNT,
         max_length=SQUARE_COUNT,
     )
-    prediction_method: Literal["single-view-v1", "multi-view-mean-v1"]
+    prediction_method: Literal[
+        "single-view-v1",
+        "multi-view-mean-v1",
+        "raw-center-evidence-v1",
+    ]
     inference_view_count: int = Field(ge=1, le=64)
     board_fen: str
     model_version: str

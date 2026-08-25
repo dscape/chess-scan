@@ -3,6 +3,10 @@ import type { EngineScore } from "./engine/uci";
 export type Point = [number, number];
 export type Orientation = "white" | "black";
 export type SideToMove = "w" | "b";
+export type PredictionMethod =
+  | "single-view-v1"
+  | "multi-view-mean-v1"
+  | "raw-center-evidence-v1";
 
 export interface AppCapabilities {
   capture_diagnostics: boolean;
@@ -83,7 +87,7 @@ export interface ScanResult {
   raw_confidences: number[];
   frame_agreements: number[];
   view_agreements: number[];
-  prediction_method: "single-view-v1" | "multi-view-mean-v1";
+  prediction_method: PredictionMethod;
   inference_view_count: number;
   board_fen: string;
   model_version: string;

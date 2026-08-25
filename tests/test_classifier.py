@@ -36,7 +36,9 @@ def test_split_and_preprocess_board() -> None:
     assert np.isclose(batch[0, 2, 0, 0], 10 / 255)
 
 
-def test_classifier_builds_auditable_multiview_consensus(monkeypatch: MonkeyPatch) -> None:
+def test_classifier_keeps_raw_labels_with_auditable_view_evidence(
+    monkeypatch: MonkeyPatch,
+) -> None:
     classifier = DiagramClassifier(
         PROJECT_ROOT / "models" / "chess-steps-v5.onnx",
         version="test",
@@ -55,22 +57,73 @@ def test_classifier_builds_auditable_multiview_consensus(monkeypatch: MonkeyPatc
         return predict_preprocessed(inputs)
 
     monkeypatch.setattr(classifier, "predict_preprocessed", record_batch_size)
-    consensus = classifier.predict_multiview(board, [board] * 4)
+    inference = classifier.predict_multiview(board, [board] * 4)
 
     assert inference_batch_sizes == [9 * 64, 4 * 64]
     raw = classifier.predict(board)
-    assert consensus.method == "multi-view-mean-v1"
-    assert consensus.inference_view_count == 13
-    assert len(consensus.prediction.labels) == 64
-    assert len(consensus.raw_prediction.labels) == 64
-    assert consensus.raw_prediction.labels == raw.labels
-    assert np.allclose(consensus.raw_prediction.probabilities, raw.probabilities)
-    assert len(consensus.view_labels) == 9
-    assert len(consensus.frame_labels) == 4
-    assert all(0 <= agreement <= 1 for agreement in consensus.view_agreements)
-    assert all(0 <= agreement <= 1 for agreement in consensus.frame_agreements)
-    assert np.allclose(np.asarray(consensus.prediction.probabilities).sum(axis=1), 1.0)
-    assert consensus.evidence()["raw_labels"] == consensus.raw_prediction.labels
+    assert inference.method == "raw-center-evidence-v1"
+    assert inference.inference_view_count == 13
+    assert inference.prediction == inference.raw_prediction
+    assert inference.raw_prediction.labels == raw.labels
+    assert np.allclose(inference.raw_prediction.probabilities, raw.probabilities)
+    assert len(inference.ensemble_prediction.labels) == 64
+    assert len(inference.view_labels) == 9
+    assert len(inference.frame_labels) == 4
+    assert all(0 <= agreement <= 1 for agreement in inference.view_agreements)
+    assert all(0 <= agreement <= 1 for agreement in inference.frame_agreements)
+    assert np.allclose(
+        np.asarray(inference.ensemble_prediction.probabilities).sum(axis=1),
+        1.0,
+    )
+    evidence = inference.evidence()
+    assert evidence["raw_labels"] == inference.prediction.labels
+    assert evidence["ensemble_labels"] == inference.ensemble_prediction.labels
+    assert evidence["ensemble_method"] == "multi-view-mean-v1"
+
+
+def test_view_consensus_cannot_replace_the_raw_center_labels(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    classifier = DiagramClassifier(
+        PROJECT_ROOT / "models" / "chess-steps-v5.onnx",
+        version="test",
+    )
+    calls = 0
+
+    def prediction(label: int) -> BoardPrediction:
+        probabilities = [[0.0] * 13 for _ in range(64)]
+        for square in probabilities:
+            square[label] = 1.0
+        return BoardPrediction(
+            labels=[label] * 64,
+            probabilities=probabilities,
+            confidences=[1.0] * 64,
+            board_fen="test",
+        )
+
+    def disagreeing_views(inputs: np.ndarray) -> list[BoardPrediction]:
+        nonlocal calls
+        board_count = len(inputs) // 64
+        if calls == 0:
+            assert board_count == 9
+            labels = [0, 0, 0, 0, 1, 0, 0, 0, 0]
+        else:
+            assert board_count == 1
+            labels = [0]
+        calls += 1
+        return [prediction(label) for label in labels]
+
+    monkeypatch.setattr(classifier, "predict_preprocessed", disagreeing_views)
+    inference = classifier.predict_multiview(
+        np.zeros((512, 512, 3), dtype=np.uint8),
+        [np.zeros((512, 512, 3), dtype=np.uint8)],
+    )
+
+    assert inference.prediction.labels == [1] * 64
+    assert inference.raw_prediction.labels == [1] * 64
+    assert inference.ensemble_prediction.labels == [0] * 64
+    assert inference.view_agreements == [1 / 9] * 64
+    assert inference.frame_agreements == [0.0] * 64
 
 
 def test_classifier_accepts_batched_preprocessed_boards() -> None:

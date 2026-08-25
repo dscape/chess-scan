@@ -64,6 +64,7 @@ qa-argus:
 
 qa-platform:
 	uv run python scripts/evaluate_platforms.py --baseline models/chess-steps-v4.onnx --variant clean --variant camera
+	uv run python scripts/evaluate_platforms.py --baseline models/chess-steps-v4.onnx --variant clean --variant camera --runtime-policy
 
 qa-print:
 	uv run python scripts/evaluate_print_regressions.py --baseline models/chess-steps-v4.onnx

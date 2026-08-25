@@ -63,6 +63,34 @@ def test_legacy_scan_preserves_raw_prediction_and_revision(tmp_path: Path) -> No
     assert scan.prediction_revision == expected_revision
 
 
+def test_stored_mean_view_scan_keeps_its_original_presented_labels(tmp_path: Path) -> None:
+    service, database, settings = _service(tmp_path)
+    _create_scan_files(database, settings, scan_id="mean-view-scan")
+    raw_probabilities = [[0.0, 1.0] + [0.0] * 11 for _ in range(64)]
+    evidence = {
+        "method": "multi-view-mean-v1",
+        "raw_labels": [1] * 64,
+        "raw_probabilities": raw_probabilities,
+        "frame_agreements": [0.0] * 64,
+        "view_agreements": [0.5] * 64,
+        "frame_labels": [[1] * 64],
+        "view_labels": [[0] * 64, [1] * 64],
+        "inference_view_count": 2,
+    }
+    with sqlite3.connect(database.path) as connection:
+        connection.execute(
+            "UPDATE scans SET prediction_evidence_json = ? WHERE id = ?",
+            (json.dumps(evidence), "mean-view-scan"),
+        )
+        connection.commit()
+
+    scan = service.get_scan("mean-view-scan")
+
+    assert scan.prediction_method == "multi-view-mean-v1"
+    assert scan.labels == [0] * 64
+    assert scan.raw_labels == [1] * 64
+
+
 def test_review_position_rejects_an_invalid_stored_fen(tmp_path: Path) -> None:
     service, database, settings = _service(tmp_path)
     _create_scan_files(database, settings, scan_id="invalid-review")
