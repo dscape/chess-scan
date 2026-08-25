@@ -14,10 +14,15 @@ from typing import Any
 import cv2
 import numpy as np
 
-from chess_scan.classifier import DiagramClassifier
+from chess_scan.classifier import (
+    DiagramClassifier,
+    RoutedDiagramClassifier,
+    load_runtime_classifier,
+    read_model_metadata,
+)
 from chess_scan.geometry import detect_board_corners, rectify_board
 from chess_scan.model_artifact import model_version
-from image_augmentation import resize_round_trip
+from image_augmentation import hatched_print, jpeg_round_trip, resize_round_trip
 from qa_common import download_verified, labels_from_fen, write_json
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -31,6 +36,11 @@ def main() -> None:
     parser.add_argument("--benchmark", type=Path, default=DEFAULT_BENCHMARK)
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
     parser.add_argument("--cache-dir", type=Path)
+    parser.add_argument(
+        "--runtime-policy",
+        action="store_true",
+        help="Evaluate visual model routing as well as the general classifier",
+    )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
@@ -47,10 +57,15 @@ def main() -> None:
         download_verified(benchmark["source_url"], benchmark["source_sha256"], pdf_path)
         boards = render_reference_boards(pdf_path, int(benchmark["pdf_page_index"]))
         items = pair_with_labels(boards, benchmark["positions"])
-        classifier = DiagramClassifier(args.model, version=model_version(args.model))
-        payload = evaluate(items, classifier)
+        classifier = _load_classifier(args.model, runtime_policy=args.runtime_policy)
+        payload = evaluate(
+            items,
+            classifier,
+            include_routed_print=args.runtime_policy,
+        )
 
     payload["runtime_version"] = model_version(args.model)
+    payload["inference_policy"] = "runtime" if args.runtime_policy else "raw"
     payload["benchmark"] = str(args.benchmark.relative_to(PROJECT_ROOT))
     write_json(args.output, payload)
     print(json.dumps(payload, indent=2))
@@ -120,7 +135,9 @@ def pair_with_labels(
 
 def evaluate(
     items: list[tuple[np.ndarray, list[int]]],
-    classifier: DiagramClassifier,
+    classifier: DiagramClassifier | RoutedDiagramClassifier,
+    *,
+    include_routed_print: bool = False,
 ) -> dict[str, Any]:
     halftone_screen = make_halftone_screen(1024)
     classifier_variants: dict[str, Callable[[np.ndarray], np.ndarray]] = {
@@ -130,6 +147,8 @@ def evaluate(
         "faded_256px": lambda board: resize_round_trip(board, 256, contrast=0.35),
         "printed_halftone": lambda board: rectify_printed_photo(board, halftone_screen),
     }
+    if include_routed_print:
+        classifier_variants["diagonal_hatched_print"] = make_diagonal_hatched_print
     classifier_results = {
         name: evaluate_classifier(items, classifier, transform)
         for name, transform in classifier_variants.items()
@@ -160,7 +179,7 @@ def evaluate(
 
 def evaluate_classifier(
     items: list[tuple[np.ndarray, list[int]]],
-    classifier: DiagramClassifier,
+    classifier: DiagramClassifier | RoutedDiagramClassifier,
     transform: Callable[[np.ndarray], np.ndarray],
 ) -> dict[str, Any]:
     exact_boards = 0
@@ -183,7 +202,7 @@ def evaluate_classifier(
 
 def evaluate_pipeline(
     items: list[tuple[np.ndarray, list[int]]],
-    classifier: DiagramClassifier,
+    classifier: DiagramClassifier | RoutedDiagramClassifier,
     transform: Callable[[np.ndarray, int], np.ndarray],
 ) -> dict[str, Any]:
     detected_boards = 0
@@ -215,6 +234,19 @@ def evaluate_pipeline(
     }
 
 
+def _load_classifier(
+    path: Path,
+    *,
+    runtime_policy: bool,
+) -> DiagramClassifier | RoutedDiagramClassifier:
+    version = model_version(path)
+    if not runtime_policy:
+        return DiagramClassifier(path, version=version)
+    metadata_path = path.with_suffix(".json")
+    metadata = read_model_metadata(metadata_path) if metadata_path.is_file() else {}
+    return load_runtime_classifier(path, version=version, metadata=metadata)
+
+
 def failure_details(index: int, expected: list[int], predicted: list[int]) -> dict[str, Any]:
     return {
         "board_index": index,
@@ -230,6 +262,19 @@ def failure_details(index: int, expected: list[int], predicted: list[int]) -> di
             if expected_label != predicted_label
         ],
     }
+
+
+def make_diagonal_hatched_print(board: np.ndarray) -> np.ndarray:
+    printed = hatched_print(
+        board,
+        period=6,
+        line_width=2,
+        paper_level=242,
+        hatch_level=150,
+        foreground_contrast=0.7,
+    )
+    compressed = jpeg_round_trip(printed, 65)
+    return cv2.GaussianBlur(compressed, (0, 0), 0.5)
 
 
 def make_halftone_screen(size: int) -> np.ndarray:
@@ -289,6 +334,10 @@ def enforce_gates(payload: dict[str, Any]) -> None:
         and classifier["clean_256px"]["exact_boards"] == 12
         and classifier["faded_256px"]["exact_boards"] == 12
         and classifier["printed_halftone"]["exact_boards"] == 12
+        and (
+            "diagonal_hatched_print" not in classifier
+            or classifier["diagonal_hatched_print"]["exact_boards"] == 12
+        )
         and pipeline["moderate_perspective"]["detected_boards"] == 12
         and pipeline["moderate_perspective"]["exact_boards"] == 12
         and pipeline["severe_perspective_blur"]["detected_boards"] == 12

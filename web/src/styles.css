@@ -950,11 +950,19 @@ button:disabled,
 }
 
 .control-label {
+  display: flex;
+  justify-content: space-between;
   color: var(--ink-soft);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+}
+
+.control-label small {
+  color: var(--teacher-red);
+  font: inherit;
+  letter-spacing: 0.08em;
 }
 
 .segmented-control {
@@ -1298,6 +1306,8 @@ button:disabled,
   transition-duration: 220ms;
 }
 
+.live-camera.is-ready .live-camera__shade,
+.live-camera.is-capturing .live-camera__shade,
 .live-camera.is-locked .live-camera__shade {
   background: rgba(20, 190, 99, 0.12);
 }
@@ -1380,7 +1390,9 @@ button:disabled,
 }
 
 .live-camera.is-framing .live-camera__corners,
-.live-camera.is-aligning .live-camera__corners,
+.live-camera.is-steadying .live-camera__corners,
+.live-camera.is-ready .live-camera__corners,
+.live-camera.is-capturing .live-camera__corners,
 .live-camera.is-locked .live-camera__corners {
   opacity: 0;
   transform: translate(-50%, -50%) scale(1.03);
@@ -1591,6 +1603,14 @@ button:disabled,
   cursor: default;
 }
 
+.live-camera.is-ready .camera-shutter > span {
+  background: rgba(16, 125, 73, 0.86);
+  box-shadow:
+    0 1px 1px rgba(255, 255, 255, 0.22) inset,
+    0 0 0 4px rgba(69, 230, 154, 0.22),
+    0 10px 28px rgba(0, 0, 0, 0.28);
+}
+
 .camera-shutter:not(:disabled):active,
 .camera-photo-button:active {
   scale: 0.96;
@@ -1619,6 +1639,8 @@ button:disabled,
   transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
 }
 
+.live-camera.is-ready .live-camera__feedback,
+.live-camera.is-capturing .live-camera__feedback,
 .live-camera.is-locked .live-camera__feedback {
   background: rgba(14, 111, 66, 0.9);
   transform: translateY(-3px);
@@ -1648,12 +1670,16 @@ button:disabled,
   filter: blur(4px);
 }
 
+.live-camera.is-ready .status-searching,
+.live-camera.is-capturing .status-searching,
 .live-camera.is-locked .status-searching {
   opacity: 0;
   scale: 0.25;
   filter: blur(4px);
 }
 
+.live-camera.is-ready .status-locked,
+.live-camera.is-capturing .status-locked,
 .live-camera.is-locked .status-locked {
   opacity: 1;
   scale: 1;
@@ -1663,6 +1689,8 @@ button:disabled,
 .live-camera__feedback strong {
   display: block;
   font: 600 20px/1.05 var(--display);
+  font-variant-numeric: tabular-nums;
+  text-wrap: balance;
 }
 
 .live-camera__feedback p {
@@ -1670,6 +1698,28 @@ button:disabled,
   color: rgba(255, 255, 255, 0.72);
   font-size: 11px;
   line-height: 1.35;
+}
+
+.camera-burst-progress {
+  margin-top: 10px;
+  display: flex;
+  gap: 6px;
+}
+
+.camera-burst-progress i {
+  width: 24px;
+  height: 3px;
+  display: block;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  transition-property: background-color, scale;
+  transition-duration: 160ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.camera-burst-progress i.is-complete {
+  background: #8fffc4;
+  scale: 1 1.35;
 }
 
 .live-camera__error {

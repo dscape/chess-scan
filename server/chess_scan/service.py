@@ -7,6 +7,7 @@ import json
 import logging
 import time
 import uuid
+from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -17,6 +18,7 @@ import numpy as np
 from chess_scan.board import (
     SQUARE_COUNT,
     build_full_fen,
+    fen_warnings,
     labels_to_board_fen,
     lichess_analysis_url,
     validate_full_fen,
@@ -63,6 +65,8 @@ from chess_scan.schemas import (
     PositionReviewFeedbackResponse,
     PositionReviewRequest,
     PositionReviewResponse,
+    PositionStateRequest,
+    PositionValidationResponse,
     PreviewPredictionResponse,
     ReviewAttemptResponse,
     ReviewPositionResponse,
@@ -94,6 +98,7 @@ class PreparedPositionCoaching:
 
 @dataclass(frozen=True, slots=True)
 class CapturedBoardFrame:
+    capture_index: int
     payload: bytes
     source: np.ndarray
     corners: np.ndarray
@@ -189,19 +194,23 @@ class ScannerService:
                 else "manual_adjustment_needed"
             )
 
-        primary = _captured_board_frame(file_bytes, source, selected, method)
+        submitted_frames = [file_bytes, *(supplemental_file_bytes or [])[:3]]
+        primary = _captured_board_frame(0, file_bytes, source, selected, method)
         captured_frames = [primary]
-        for supplemental_bytes in (supplemental_file_bytes or [])[:3]:
+        rejected_frames: list[dict[str, object]] = []
+        for capture_index, supplemental_bytes in enumerate(submitted_frames[1:], start=1):
             supplemental = decode_uploaded_image(
                 supplemental_bytes,
                 max_dimension=self.settings.max_image_dimension,
             )
-            geometry = _supplemental_frame_geometry(primary, supplemental)
+            geometry, rejection_reason = _supplemental_frame_geometry(primary, supplemental)
             if geometry is None:
+                rejected_frames.append({"capture_index": capture_index, "reason": rejection_reason})
                 continue
             supplemental_corners, supplemental_method = geometry
             captured_frames.append(
                 _captured_board_frame(
+                    capture_index,
                     supplemental_bytes,
                     supplemental,
                     supplemental_corners,
@@ -210,11 +219,13 @@ class ScannerService:
             )
 
         retained_frame = max(captured_frames, key=_capture_frame_utility)
-        rectified = (
-            retained_frame.rectified
-            if len(captured_frames) == 1
-            else compose_best_board([frame.rectified for frame in captured_frames])[0]
-        )
+        if len(captured_frames) == 1:
+            rectified = retained_frame.rectified
+            selected_frames = (0,) * SQUARE_COUNT
+        else:
+            rectified, selected_frames = compose_best_board(
+                [frame.rectified for frame in captured_frames]
+            )
         quality = board_capture_quality(rectified)
         source = retained_frame.source
         source_height, source_width = source.shape[:2]
@@ -227,6 +238,13 @@ class ScannerService:
             [frame.rectified for frame in captured_frames],
         )
         prediction = inference.prediction
+        prediction_evidence = inference.evidence()
+        prediction_evidence["capture"] = _capture_evidence(
+            submitted_frame_count=len(submitted_frames),
+            captured_frames=captured_frames,
+            rejected_frames=rejected_frames,
+            selected_frames=selected_frames,
+        )
 
         scan_id = uuid.uuid4().hex
         source_path = self.settings.data_dir / "source-temp" / f"{scan_id}.jpg"
@@ -247,7 +265,7 @@ class ScannerService:
                 labels=prediction.labels,
                 probabilities=prediction.probabilities,
                 board_fen=prediction.board_fen,
-                prediction_evidence=inference.evidence(),
+                prediction_evidence=prediction_evidence,
                 glare_score=quality.glare_score,
                 glare_squares=list(quality.glare_squares),
                 sharpness_score=quality.sharpness_score,
@@ -269,6 +287,7 @@ class ScannerService:
             glare_squares=list(quality.glare_squares),
             sharpness_score=quality.sharpness_score,
             capture_frame_count=len(captured_frames),
+            submitted_frame_count=len(submitted_frames),
         )
 
     def get_scan(self, scan_id: str) -> ScanResponse:
@@ -301,6 +320,10 @@ class ScannerService:
                 float(scan["sharpness_score"]) if scan["sharpness_score"] is not None else None
             ),
             capture_frame_count=int(scan["capture_frame_count"]),
+            submitted_frame_count=_stored_submitted_frame_count(
+                scan["prediction_evidence_json"],
+                fallback=int(scan["capture_frame_count"]),
+            ),
         )
 
     def reprocess(self, scan_id: str, corners: list[list[float]]) -> ScanResponse:
@@ -355,6 +378,22 @@ class ScannerService:
             glare_squares=list(quality.glare_squares),
             sharpness_score=quality.sharpness_score,
             capture_frame_count=1,
+            submitted_frame_count=1,
+        )
+
+    def validate_position(self, request: PositionStateRequest) -> PositionValidationResponse:
+        full_fen = build_full_fen(
+            request.labels,
+            orientation=request.orientation,
+            side_to_move=request.side_to_move,
+            castling=request.castling,
+            en_passant=request.en_passant,
+        )
+        problems = fen_warnings(full_fen)
+        return PositionValidationResponse(
+            valid=not problems,
+            full_fen=full_fen,
+            problems=problems,
         )
 
     def confirm(self, scan_id: str, request: ConfirmRequest) -> ConfirmResponse:
@@ -792,6 +831,7 @@ class ScannerService:
 
 
 def _captured_board_frame(
+    capture_index: int,
     payload: bytes,
     source: np.ndarray,
     corners: np.ndarray,
@@ -799,6 +839,7 @@ def _captured_board_frame(
 ) -> CapturedBoardFrame:
     rectified = rectify_board(source, corners)
     return CapturedBoardFrame(
+        capture_index=capture_index,
         payload=payload,
         source=source,
         corners=order_corners(corners),
@@ -811,28 +852,64 @@ def _captured_board_frame(
 def _supplemental_frame_geometry(
     primary: CapturedBoardFrame,
     supplemental: np.ndarray,
-) -> tuple[np.ndarray, str] | None:
+) -> tuple[tuple[np.ndarray, str] | None, str | None]:
     if supplemental.shape != primary.source.shape:
-        return None
-    if board_grid_fits(supplemental, primary.corners):
-        return primary.corners.copy(), primary.method
+        return None, "image_dimensions_changed"
 
     tracked = track_board_corners(primary.source, supplemental, primary.corners)
     if tracked is not None and board_corners_overlap(primary.corners, tracked) >= (
         _MIN_SUPPLEMENTAL_BOARD_OVERLAP
     ):
-        return tracked, "tracked"
+        return (tracked, "tracked"), None
 
     detection = detect_board_corners(supplemental, fast=True)
     if detection.method == "manual_adjustment_needed":
-        return None
+        return None, "board_not_found"
     detected = order_corners(np.asarray(detection.corners, dtype=np.float32))
     if (
         primary.method != "manual_adjustment_needed"
         and board_corners_overlap(primary.corners, detected) < _MIN_SUPPLEMENTAL_BOARD_OVERLAP
     ):
-        return None
-    return detected, detection.method
+        return None, "different_board"
+    return (detected, detection.method), None
+
+
+def _capture_evidence(
+    *,
+    submitted_frame_count: int,
+    captured_frames: list[CapturedBoardFrame],
+    rejected_frames: list[dict[str, object]],
+    selected_frames: tuple[int, ...],
+) -> dict[str, object]:
+    selected_counts = Counter(selected_frames)
+    return {
+        "schema_version": "capture-evidence-1",
+        "submitted_frame_count": submitted_frame_count,
+        "accepted_frame_count": len(captured_frames),
+        "accepted_frames": [
+            {
+                "capture_index": frame.capture_index,
+                "geometry_method": frame.method,
+                "sharpness_score": frame.quality.sharpness_score,
+                "glare_score": frame.quality.glare_score,
+                "glare_squares": list(frame.quality.glare_squares),
+                "selected_square_count": selected_counts[index],
+            }
+            for index, frame in enumerate(captured_frames)
+        ],
+        "rejected_frames": rejected_frames,
+    }
+
+
+def _stored_submitted_frame_count(evidence_json: str | None, *, fallback: int) -> int:
+    if evidence_json is None:
+        return fallback
+    evidence = json.loads(evidence_json)
+    capture = evidence.get("capture")
+    if not isinstance(capture, dict):
+        return fallback
+    submitted = capture.get("submitted_frame_count")
+    return int(submitted) if isinstance(submitted, int) and 1 <= submitted <= 4 else fallback
 
 
 def _capture_frame_utility(frame: CapturedBoardFrame) -> float:
@@ -851,6 +928,7 @@ def _stored_multiview_prediction(
             frame_agreements=[1.0] * SQUARE_COUNT,
             view_agreements=[1.0] * SQUARE_COUNT,
             frame_labels=[prediction.labels],
+            frame_probabilities=[prediction.probabilities],
             view_labels=[prediction.labels],
             inference_view_count=1,
             method="single-view-v1",
@@ -888,9 +966,14 @@ def _stored_multiview_prediction(
         frame_agreements=[float(value) for value in evidence["frame_agreements"]],
         view_agreements=[float(value) for value in evidence["view_agreements"]],
         frame_labels=[[int(value) for value in labels] for labels in evidence["frame_labels"]],
+        frame_probabilities=[
+            [[float(value) for value in square] for square in probabilities]
+            for probabilities in evidence.get("frame_probabilities", [])
+        ],
         view_labels=[[int(value) for value in labels] for labels in evidence["view_labels"]],
         inference_view_count=int(evidence["inference_view_count"]),
         method=str(evidence["method"]),
+        classifier_route=str(evidence.get("classifier_route", "general")),
     )
 
 
@@ -907,6 +990,7 @@ def _scan_response(
     glare_squares: list[int],
     sharpness_score: float | None,
     capture_frame_count: int,
+    submitted_frame_count: int,
 ) -> ScanResponse:
     cache_key = uuid.uuid4().hex[:8]
     prediction = inference.prediction
@@ -926,6 +1010,7 @@ def _scan_response(
         frame_agreements=inference.frame_agreements,
         view_agreements=inference.view_agreements,
         prediction_method=inference.method,
+        classifier_route=inference.classifier_route,
         inference_view_count=inference.inference_view_count,
         board_fen=prediction.board_fen,
         model_version=model_version,
@@ -933,6 +1018,7 @@ def _scan_response(
         glare_squares=glare_squares,
         sharpness_score=sharpness_score,
         capture_frame_count=capture_frame_count,
+        submitted_frame_count=submitted_frame_count,
         prediction_revision=_prediction_revision(
             corners=corners,
             detection_method=detection_method,

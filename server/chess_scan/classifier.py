@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -13,7 +13,7 @@ import numpy as np
 import onnxruntime as ort
 
 from chess_scan.board import CLASS_NAMES, SQUARE_COUNT, labels_to_board_fen
-from chess_scan.model_artifact import verify_model_artifact
+from chess_scan.model_artifact import is_sha256, sha256_file, verify_model_artifact
 
 INPUT_SIZE = 64
 NUM_CLASSES = len(CLASS_NAMES)
@@ -43,9 +43,11 @@ class MultiViewPrediction:
     frame_agreements: list[float]
     view_agreements: list[float]
     frame_labels: list[list[int]]
+    frame_probabilities: list[list[list[float]]]
     view_labels: list[list[int]]
     inference_view_count: int
     method: str = _RAW_CENTER_EVIDENCE_METHOD
+    classifier_route: str = "general"
 
     def evidence(self) -> dict[str, Any]:
         return {
@@ -58,8 +60,10 @@ class MultiViewPrediction:
             "frame_agreements": self.frame_agreements,
             "view_agreements": self.view_agreements,
             "frame_labels": self.frame_labels,
+            "frame_probabilities": self.frame_probabilities,
             "view_labels": self.view_labels,
             "inference_view_count": self.inference_view_count,
+            "classifier_route": self.classifier_route,
         }
 
 
@@ -120,6 +124,7 @@ class DiagramClassifier:
             frame_agreements=_label_agreements(frame_labels, presented_labels),
             view_agreements=_label_agreements(view_labels, presented_labels),
             frame_labels=frame_labels,
+            frame_probabilities=[candidate.probabilities for candidate in frame_predictions],
             view_labels=view_labels,
             inference_view_count=len(predictions),
         )
@@ -143,6 +148,105 @@ class DiagramClassifier:
 
         probabilities = _softmax(logits).reshape(-1, SQUARE_COUNT, NUM_CLASSES)
         return [_board_prediction(board_probabilities) for board_probabilities in probabilities]
+
+
+class RoutedDiagramClassifier:
+    """Route visually hatched print boards to a specialist without chess assumptions."""
+
+    def __init__(
+        self,
+        general: DiagramClassifier,
+        print_specialist: DiagramClassifier,
+        *,
+        texture_threshold: float,
+    ) -> None:
+        if texture_threshold <= 0:
+            raise ValueError("Print texture threshold must be positive")
+        self.general = general
+        self.print_specialist = print_specialist
+        self.texture_threshold = texture_threshold
+        self.version = general.version
+        self.model_path = general.model_path
+
+    def predict(self, rectified_board_bgr: np.ndarray) -> BoardPrediction:
+        classifier, _route = self._classifier(rectified_board_bgr)
+        return classifier.predict(rectified_board_bgr)
+
+    def predict_multiview(
+        self,
+        composite_board_bgr: np.ndarray,
+        supporting_boards_bgr: list[np.ndarray],
+    ) -> MultiViewPrediction:
+        classifier, route = self._classifier(composite_board_bgr)
+        inference = classifier.predict_multiview(composite_board_bgr, supporting_boards_bgr)
+        return replace(inference, classifier_route=route)
+
+    def predict_preprocessed(self, inputs: np.ndarray) -> list[BoardPrediction]:
+        """Use the general model when the original board texture is unavailable."""
+        return self.general.predict_preprocessed(inputs)
+
+    def _classifier(self, board_bgr: np.ndarray) -> tuple[DiagramClassifier, str]:
+        if directional_print_texture_score(board_bgr) > self.texture_threshold:
+            return self.print_specialist, "print-specialist"
+        return self.general, "general"
+
+
+def directional_print_texture_score(board_bgr: np.ndarray) -> float:
+    """Measure repeated diagonal hatching inside square interiors."""
+    if board_bgr.ndim != 3 or board_bgr.shape[2] != 3:
+        raise ValueError("Expected a BGR board image")
+    gray = cv2.cvtColor(board_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    height, width = gray.shape
+    row_boundaries = [int(round(index * height / 8)) for index in range(9)]
+    column_boundaries = [int(round(index * width / 8)) for index in range(9)]
+    differences: list[float] = []
+    for row in range(8):
+        for column in range(8):
+            top, bottom = row_boundaries[row], row_boundaries[row + 1]
+            left, right = column_boundaries[column], column_boundaries[column + 1]
+            margin = max(1, int(round(min(bottom - top, right - left) * 0.1)))
+            crop = gray[top + margin : bottom - margin, left + margin : right - margin]
+            if min(crop.shape) < 2:
+                raise ValueError("Board squares are too small to measure print texture")
+            descending = float(np.abs(crop[1:, 1:] - crop[:-1, :-1]).mean())
+            ascending = float(np.abs(crop[1:, :-1] - crop[:-1, 1:]).mean())
+            differences.append(abs(descending - ascending))
+    return float(np.mean(differences))
+
+
+def load_runtime_classifier(
+    model_path: Path,
+    *,
+    version: str,
+    metadata: dict[str, Any],
+) -> DiagramClassifier | RoutedDiagramClassifier:
+    general = DiagramClassifier(model_path, version=version)
+    policy = metadata.get("runtime_policy")
+    if policy is None:
+        return general
+    if not isinstance(policy, dict) or policy.get("kind") != "directional-print-router-v1":
+        raise ValueError("Model metadata contains an unsupported runtime policy")
+    specialist_name = policy.get("specialist_artifact")
+    specialist_sha256 = policy.get("specialist_sha256")
+    threshold = policy.get("texture_threshold")
+    if (
+        not isinstance(specialist_name, str)
+        or Path(specialist_name).name != specialist_name
+        or not is_sha256(specialist_sha256)
+        or isinstance(threshold, bool)
+        or not isinstance(threshold, int | float)
+    ):
+        raise ValueError("Model metadata contains an invalid print-specialist policy")
+    specialist_path = model_path.with_name(specialist_name)
+    if not specialist_path.is_file() or sha256_file(specialist_path) != specialist_sha256:
+        raise ValueError(f"Print specialist failed artifact verification: {specialist_path}")
+    specialist_version = str(policy.get("specialist_version") or specialist_path.stem)
+    specialist = DiagramClassifier(specialist_path, version=specialist_version)
+    return RoutedDiagramClassifier(
+        general,
+        specialist,
+        texture_threshold=float(threshold),
+    )
 
 
 def normalize_board_contrast(board_bgr: np.ndarray) -> np.ndarray:
@@ -251,11 +355,11 @@ class ModelManager:
 
     def __init__(self, database: Any) -> None:
         self._database = database
-        self._classifier: DiagramClassifier | None = None
+        self._classifier: DiagramClassifier | RoutedDiagramClassifier | None = None
         self._version: str | None = None
         self._lock = Lock()
 
-    def active(self) -> DiagramClassifier:
+    def active(self) -> DiagramClassifier | RoutedDiagramClassifier:
         model = self._database.get_active_model()
         version = str(model["version"])
         if self._classifier is not None and self._version == version:
@@ -264,10 +368,12 @@ class ModelManager:
         with self._lock:
             if self._classifier is None or self._version != version:
                 artifact_path = Path(model["artifact_path"])
-                verify_model_artifact(
+                metadata_json = str(model["metadata_json"])
+                verify_model_artifact(artifact_path, metadata_json)
+                self._classifier = load_runtime_classifier(
                     artifact_path,
-                    str(model["metadata_json"]),
+                    version=version,
+                    metadata=json.loads(metadata_json),
                 )
-                self._classifier = DiagramClassifier(artifact_path, version=version)
                 self._version = version
         return self._classifier

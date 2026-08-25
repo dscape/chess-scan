@@ -1,5 +1,5 @@
 const PREVIEW_MAX_DIMENSION = 720;
-const SUPPLEMENTAL_FRAME_INTERVAL_MS = 90;
+const SUPPLEMENTAL_FRAME_INTERVAL_MS = 180;
 
 export const SOURCE_MAX_DIMENSION = 1600;
 
@@ -18,12 +18,14 @@ export async function captureCameraFrame(video: HTMLVideoElement): Promise<Camer
 export async function captureSupplementalFrames(
   video: HTMLVideoElement,
   count: number,
+  onCaptured?: (capturedCount: number) => void,
 ): Promise<File[]> {
   const canvases: HTMLCanvasElement[] = [];
   for (let index = 0; index < count; index += 1) {
     await delay(SUPPLEMENTAL_FRAME_INTERVAL_MS);
     await nextVideoFrame(video);
     canvases.push(videoFrameCanvas(video, SOURCE_MAX_DIMENSION));
+    onCaptured?.(canvases.length);
   }
   const blobs = await Promise.all(canvases.map((canvas) => canvasBlob(canvas, 0.76)));
   return blobs.map((blob, index) => new File(

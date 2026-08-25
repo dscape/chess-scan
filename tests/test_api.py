@@ -159,6 +159,31 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
             motion_blur=True,
         )
         drifted_payload, drifted_corners = _framed_board_png(offset=(105, 65))
+        rejected_frame_response = client.post(
+            "/api/scans",
+            files=[
+                ("image", ("board.png", primary_payload, "image/png")),
+                ("frames", ("blank.png", _solid_png(), "image/png")),
+            ],
+            data={
+                "corners": json.dumps(primary_corners),
+                "detection_method": "checkerboard",
+            },
+        )
+        assert rejected_frame_response.status_code == 200, rejected_frame_response.text
+        rejected_frame_scan = rejected_frame_response.json()
+        assert rejected_frame_scan["capture_frame_count"] == 1
+        assert rejected_frame_scan["submitted_frame_count"] == 2
+        with sqlite3.connect(settings.data_dir / "chess-scan.sqlite3") as connection:
+            rejected_evidence_json = connection.execute(
+                "SELECT prediction_evidence_json FROM scans WHERE id = ?",
+                (rejected_frame_scan["scan_id"],),
+            ).fetchone()[0]
+        rejected_evidence = json.loads(rejected_evidence_json)
+        assert rejected_evidence["capture"]["rejected_frames"] == [
+            {"capture_index": 1, "reason": "image_dimensions_changed"}
+        ]
+
         scan_response = client.post(
             "/api/scans",
             files=[
@@ -179,10 +204,12 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert len(scan["frame_agreements"]) == 64
         assert len(scan["view_agreements"]) == 64
         assert scan["prediction_method"] == "raw-center-evidence-v1"
+        assert scan["classifier_route"] == "general"
         assert scan["labels"] == scan["raw_labels"]
         assert scan["probabilities"] == scan["raw_probabilities"]
         assert scan["inference_view_count"] == 11
         assert scan["capture_frame_count"] == 2
+        assert scan["submitted_frame_count"] == 2
         assert scan["glare_squares"] == []
         assert scan["sharpness_score"] > 0
         assert scan["detection_method"] == "tracked"
@@ -197,10 +224,12 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert restored["frame_agreements"] == scan["frame_agreements"]
         assert restored["view_agreements"] == scan["view_agreements"]
         assert restored["prediction_method"] == scan["prediction_method"]
+        assert restored["classifier_route"] == scan["classifier_route"]
         assert restored["inference_view_count"] == scan["inference_view_count"]
         assert restored["corners"] == scan["corners"]
         assert restored["prediction_revision"] == scan["prediction_revision"]
         assert restored["capture_frame_count"] == 2
+        assert restored["submitted_frame_count"] == 2
         assert restored["glare_squares"] == []
         assert restored["sharpness_score"] == scan["sharpness_score"]
         source_response = client.get(restored["source_image_url"])
@@ -225,6 +254,18 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         )
         assert invalid_confirm.status_code == 422
 
+        invalid_validation = client.post(
+            "/api/positions/validate",
+            json={
+                "labels": [0] * 64,
+                "orientation": "white",
+                "side_to_move": "w",
+            },
+        )
+        assert invalid_validation.status_code == 200
+        assert invalid_validation.json()["valid"] is False
+        assert "Expected exactly one white king" in invalid_validation.json()["problems"][0]
+
         invalid_position = client.post(
             f"/api/scans/{scan['scan_id']}/confirm",
             json={
@@ -241,6 +282,21 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         labels[18] = 10  # black rook c6
         labels[52] = 5  # white queen e2
         labels[60] = 6  # white king e1
+        valid_validation = client.post(
+            "/api/positions/validate",
+            json={
+                "labels": labels,
+                "orientation": "white",
+                "side_to_move": "w",
+            },
+        )
+        assert valid_validation.status_code == 200
+        assert valid_validation.json() == {
+            "valid": True,
+            "full_fen": "8/7k/2r5/8/8/8/4Q3/4K3 w - - 0 1",
+            "problems": [],
+        }
+
         confirm_response = client.post(
             f"/api/scans/{scan['scan_id']}/confirm",
             json={
@@ -288,6 +344,17 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert prediction_evidence["method"] == "raw-center-evidence-v1"
         assert prediction_evidence["ensemble_method"] == "multi-view-mean-v1"
         assert len(prediction_evidence["ensemble_labels"]) == 64
+        assert len(prediction_evidence["frame_probabilities"]) == 2
+        assert prediction_evidence["capture"]["submitted_frame_count"] == 2
+        assert prediction_evidence["capture"]["accepted_frame_count"] == 2
+        assert prediction_evidence["capture"]["rejected_frames"] == []
+        assert (
+            sum(
+                frame["selected_square_count"]
+                for frame in prediction_evidence["capture"]["accepted_frames"]
+            )
+            == 64
+        )
         assert prediction_evidence["inference_view_count"] == 11
         duplicate_diagnostic = client.post(
             f"/api/reviews/{confirmation['feedback_id']}/capture-diagnostic",

@@ -37,7 +37,7 @@ packages = ["server/chess_scan"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["server"]
+pythonpath = ["server", "scripts"]
 
 [tool.ruff]
 target-version = "py311"

@@ -45,6 +45,8 @@ from chess_scan.schemas import (
     PositionReviewFeedbackResponse,
     PositionReviewRequest,
     PositionReviewResponse,
+    PositionStateRequest,
+    PositionValidationResponse,
     ReprocessRequest,
     ReviewAttemptResponse,
     ReviewPositionResponse,
@@ -256,6 +258,13 @@ def _register_api_routes(application: FastAPI) -> None:
         except KeyError as exc:
             raise HTTPException(404, str(exc)) from exc
         return _scan_file(path, "Rectified image not found")
+
+    @application.post("/api/positions/validate", response_model=PositionValidationResponse)
+    def validate_position(
+        body: PositionStateRequest,
+        request: Request,
+    ) -> PositionValidationResponse:
+        return request.app.state.service.validate_position(body)
 
     @application.post("/api/scans/{scan_id}/confirm", response_model=ConfirmResponse)
     def confirm_scan(

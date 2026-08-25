@@ -1,0 +1,97 @@
+{
+  "version": "chess-steps-v6",
+  "trained_at": "2026-08-25T17:21:03.686575+00:00",
+  "runtime_format": "onnx",
+  "architecture": "fused_wide_square_cnn",
+  "base_model": "chess-steps-v5",
+  "input_size": 64,
+  "num_classes": 13,
+  "artifact_sha256": "fb5e5eac7d901f4a1d7b102eb1296853644f221eb02aed1ff5d3ced5df80607f",
+  "eligible_for_promotion": false,
+  "requires_fresh_shadow": true,
+  "runtime_policy": {
+    "kind": "directional-print-router-v1",
+    "texture_threshold": 5.0,
+    "specialist_version": "chess-steps-v6-print-specialist",
+    "specialist_artifact": "chess-steps-v6-print-specialist.onnx",
+    "specialist_sha256": "5eba0b3ce59f30f69e832266f762350e92168f5f0f390ecbc07e3adff3e7e6d1"
+  },
+  "adaptation": {
+    "purpose": "Classify visually detected diagonal-hatch photographed print",
+    "consented_training_boards": 20,
+    "training_installations": 7,
+    "max_boards_per_installation": 5,
+    "feedback_snapshot_sha256": "f68642ce4151164ad7a33fb461e1f796e38150bba5e75aab18faa7a2cd3e30cd",
+    "source_images_redistributed": false,
+    "script": "scripts/train_print_recovery.py",
+    "epochs_from_v5": 20,
+    "development_only": true
+  },
+  "promotion_gates": "General raw weights must retain every v5 gate; routed policy must pass the same fixed gates and improve grouped fresh shadow feedback before activation.",
+  "reproduction": {
+    "general_artifact": "byte-identical to chess-steps-v5",
+    "general_artifact_sha256": "fb5e5eac7d901f4a1d7b102eb1296853644f221eb02aed1ff5d3ced5df80607f",
+    "specialist_checkpoint_sha256": "a581df11a1c7fc4b97f6560ef1418b00df3e87d56b77ae5fcd6145b4327f2a2a"
+  },
+  "eligible_for_shadow": true,
+  "fixed_qa": {
+    "passed": true,
+    "raw": [
+      "official-online",
+      "photo-stress",
+      "platform-clean",
+      "platform-camera",
+      "argus-replay",
+      "photographed-print"
+    ],
+    "runtime": [
+      "official-online",
+      "photo-stress",
+      "diagonal-hatched-print",
+      "platform-clean",
+      "platform-camera",
+      "photographed-print"
+    ],
+    "additional_runtime_platform_variants": [
+      "faded",
+      "low-resolution"
+    ],
+    "baseline": "chess-steps-v5"
+  },
+  "development_replay": {
+    "warning": "Includes development/training records and is not promotion evidence.",
+    "all_confirmed": {
+      "boards": 107,
+      "v5_exact_boards": 62,
+      "candidate_exact_boards": 70,
+      "v5_square_errors": 174,
+      "candidate_square_errors": 100
+    },
+    "latest_camera_batch": {
+      "boards": 9,
+      "v5_exact_boards": 2,
+      "candidate_exact_boards": 5,
+      "v5_square_errors": 40,
+      "candidate_square_errors": 16
+    },
+    "grouped_selection": {
+      "boards": 7,
+      "v5_exact_boards": 5,
+      "candidate_exact_boards": 5,
+      "v5_square_errors": 16,
+      "candidate_square_errors": 16
+    },
+    "grouped_gate": {
+      "boards": 7,
+      "v5_exact_boards": 5,
+      "candidate_exact_boards": 5,
+      "v5_square_errors": 2,
+      "candidate_square_errors": 2
+    }
+  },
+  "shadow_gate": {
+    "required_boards": 40,
+    "required_installations": 8,
+    "status": "pending"
+  }
+}

@@ -11,6 +11,7 @@ import type {
   PositionCoaching,
   PositionReview,
   PositionReviewRequest,
+  PositionValidation,
   ReviewAttempt,
   ReviewedPosition,
   ScanResult,
@@ -116,6 +117,24 @@ export async function reprocessScan(scanId: string, corners: Point[]): Promise<S
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ corners }),
+  });
+}
+
+export async function validatePosition(
+  payload: {
+    labels: number[];
+    orientation: Orientation;
+    side_to_move: SideToMove;
+    castling: string;
+    en_passant: string;
+  },
+  signal?: AbortSignal,
+): Promise<PositionValidation> {
+  return request<PositionValidation>("/api/positions/validate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    signal,
   });
 }
 

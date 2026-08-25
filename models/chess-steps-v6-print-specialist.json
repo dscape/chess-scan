@@ -1,0 +1,23 @@
+{
+  "version": "chess-steps-v6-print-specialist",
+  "trained_at": "2026-08-25T17:21:03.684310+00:00",
+  "runtime_format": "onnx",
+  "architecture": "fused_wide_square_cnn",
+  "base_model": "chess-steps-v5",
+  "input_size": 64,
+  "num_classes": 13,
+  "artifact_sha256": "5eba0b3ce59f30f69e832266f762350e92168f5f0f390ecbc07e3adff3e7e6d1",
+  "checkpoint_sha256": "a581df11a1c7fc4b97f6560ef1418b00df3e87d56b77ae5fcd6145b4327f2a2a",
+  "eligible_for_promotion": false,
+  "adaptation": {
+    "purpose": "Classify visually detected diagonal-hatch photographed print",
+    "consented_training_boards": 20,
+    "training_installations": 7,
+    "max_boards_per_installation": 5,
+    "feedback_snapshot_sha256": "f68642ce4151164ad7a33fb461e1f796e38150bba5e75aab18faa7a2cd3e30cd",
+    "source_images_redistributed": false,
+    "script": "scripts/train_print_recovery.py",
+    "epochs_from_v5": 20,
+    "development_only": true
+  }
+}

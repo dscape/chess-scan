@@ -7,10 +7,10 @@ Chess Scan extracts the useful single-image classifier from [Argus](https://gith
 ## Product flow
 
 1. Open the in-app camera and frame one diagram.
-2. Let the first complete grid lock the exact frame; provisional pieces stay visible while three nearby frames stabilize camera drift and refine blurry or glare-affected squares, or use the manual shutter for a faint board.
+2. Wait for two stable detections, verify the green grid surrounds the intended diagram, then tap **Capture board** and hold still through the visible four-frame burst.
 3. Check the rectified crop immediately and adjust four corners when automatic framing was uncertain.
-4. Heed low-resolution or king-count warnings and correct any piece on the editable board.
-5. Select side to move and orientation.
+4. Heed low-resolution, frame-rejection, and legality warnings and correct any piece on the editable board.
+5. Explicitly select side to move and orientation; authoritative server validation must accept the position before review.
 6. Save the confirmed position and reveal the spoiler-free human-written hint only when wanted.
 7. Try a legal first move on the full board while the local evaluation bar updates.
 8. Inspect the grounded review, then enter study mode to play either side from the scanned position.
@@ -75,7 +75,7 @@ The board pieces adapt [Chess Simple Assets](https://www.figma.com/community/fil
 
 ## Production
 
-The live camera uses a bounded fast detector, provisional 64-square inference, and three transient refinement frames to select the clearest source for each square. Optical grid tracking keeps those frames aligned despite normal hand drift. The unmodified center view remains the presented prediction; nearby crop and frame predictions provide auditable stability evidence and keep disagreement visibly marked without altering labels. An unchecked diagnostic option can retain a short camera-only clip for 30 days after confirmation; it never records audio or the browser screen. See [`docs/camera-scanner.md`](docs/camera-scanner.md) for the pipeline, privacy contract, and replay export.
+The live camera uses a bounded fast detector, two-detection stability gate, explicit shutter, and three transient refinement frames to select the clearest source for each square. The UI stays live and reports four-frame progress; optical grid tracking or independent redetection gives every accepted frame its own geometry. The review reports how many submitted frames were usable. The unmodified center view remains the presented prediction; nearby crop and frame predictions provide auditable probabilities and stability evidence without changing labels. An unchecked diagnostic option can retain a short camera-only clip through the burst for 30 days after confirmation; it never records audio or the browser screen. See [`docs/camera-scanner.md`](docs/camera-scanner.md) for the pipeline, privacy contract, and replay export.
 
 The Docker image builds the React frontend and serves it from FastAPI:
 
@@ -126,6 +126,8 @@ V5 fixes the reference workbook from 62/64 to 64/64 squares and stays exact acro
 
 Official source files are downloaded during training or QA and are not redistributed. V5 remains exact on all 267 reproducible online boards and every enforced print/photo gate, improves the Argus held-out sample from 4,495/4,500 to 4,496/4,500 without regressing any class, and improves synthetic replay from 19,378/19,500 to 19,382/19,500. The diagnosis and full gate comparison are recorded in [`docs/print-regression-v5.md`](docs/print-regression-v5.md).
 
+The inactive `chess-steps-v6` candidate preserves v5 byte-for-byte for ordinary boards and uses a visual-only diagonal-texture router for a separately hashed print specialist. Both the unchanged raw path and complete routed policy pass the fixed gates, including a new 12/12 diagonal-hatched print slice. Development replay improves 107 confirmations from 62 to 70 exact boards and cuts 174 square errors to 100, but those data are not fresh promotion evidence. V6 remains in shadow until at least 40 later boards from eight installations satisfy every promotion rule.
+
 ## Learning loop
 
 Corrections are exact labels, so the production learner uses supervised fine-tuning initialized from the active ONNX artifact. The normal lifecycle is fully automatic:
@@ -149,6 +151,9 @@ uv run python scripts/adjudicate_review_feedback.py REVIEW_FEEDBACK_ID \
   --regression-fixture tests/test_review.py::TEST_NAME
 uv run python scripts/train_candidate.py --min-boards 100
 uv run python scripts/train_candidate.py --min-boards 100 --preference-weight 0.1
+uv run python scripts/start_shadow_candidate.py chess-steps-v6 \
+  --training-feedback-ids-file /secure/train-ids.json \
+  --split-assignments-file /secure/split-assignments.json --confirm
 uv run python scripts/promote_model.py steps-YYYYMMDDHHMMSS --confirm
 ```
 
@@ -165,7 +170,7 @@ See [`docs/learning-loop.md`](docs/learning-loop.md) for the distinction between
 
 ## Model provenance
 
-`models/argus-v2r5.onnx` is the MIT-licensed Argus overlay square classifier. `models/chess-steps-v1.onnx` is the original print adaptation, `chess-steps-v2.onnx` is the queen-color revision, `chess-steps-v3.onnx` restores Argus coverage, `chess-steps-v4.onnx` adds multi-platform coverage, and `chess-steps-v5.onnx` restores real photographed-workbook coverage without regressing those domains. Trainable checkpoints and metadata are stored alongside the immutable weight artifacts.
+`models/argus-v2r5.onnx` is the MIT-licensed Argus overlay square classifier. `models/chess-steps-v1.onnx` is the original print adaptation, `chess-steps-v2.onnx` is the queen-color revision, `chess-steps-v3.onnx` restores Argus coverage, `chess-steps-v4.onnx` adds multi-platform coverage, and `chess-steps-v5.onnx` restores real photographed-workbook coverage without regressing those domains. `chess-steps-v6.onnx` and its print-specialist artifact are an inactive, fresh-shadow-gated candidate for diagonal-hatched photographed diagrams. Trainable checkpoints and metadata are stored alongside the immutable weight artifacts.
 
 Recorded king-location results:
 

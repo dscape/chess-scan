@@ -10,6 +10,7 @@ import {
   reprocessScan,
   scanImage,
   uploadCaptureDiagnostic,
+  validatePosition,
 } from "./api";
 import { countKings, fenError, fullFen, predictionNeedsReview } from "./board";
 import { minimumBoardEdge } from "./camera";
@@ -23,6 +24,7 @@ import type {
   CaptureDiagnostic,
   Orientation,
   Point,
+  PositionValidation,
   ReviewedPosition,
   ScanResult,
   SideToMove,
@@ -40,8 +42,8 @@ interface ScanDraft {
   predictionRevision: string;
   labels: number[];
   corners: Point[];
-  orientation: Orientation;
-  sideToMove: SideToMove;
+  orientation: Orientation | null;
+  sideToMove: SideToMove | null;
   castlingRights: string[];
   consentTraining: boolean;
   geometryOpen: boolean;
@@ -57,14 +59,19 @@ interface PendingCaptureDiagnostic {
   result: Promise<CaptureDiagnostic | null>;
 }
 
+interface ValidatedPosition {
+  key: string;
+  result: PositionValidation;
+}
+
 export default function App() {
   const [route, navigate] = useAppRoute();
   const [scan, setScan] = useState<ScanResult | null>(null);
   const [corners, setCorners] = useState<Point[]>([]);
   const [labels, setLabels] = useState<number[]>([]);
   const [rectifiedImageUrl, setRectifiedImageUrl] = useState<string | null>(null);
-  const [orientation, setOrientation] = useState<Orientation>("white");
-  const [sideToMove, setSideToMove] = useState<SideToMove>("w");
+  const [orientation, setOrientation] = useState<Orientation | null>(null);
+  const [sideToMove, setSideToMove] = useState<SideToMove | null>(null);
   const [castlingRights, setCastlingRights] = useState<string[]>([]);
   const [consentTraining, setConsentTraining] = useState(true);
   const [busy, setBusy] = useState<BusyAction>(null);
@@ -75,6 +82,8 @@ export default function App() {
   const [geometryOpen, setGeometryOpen] = useState(false);
   const [geometryMounted, setGeometryMounted] = useState(false);
   const [routeLoadError, setRouteLoadError] = useState<string | null>(null);
+  const [validatedPosition, setValidatedPosition] = useState<ValidatedPosition | null>(null);
+  const [positionValidationError, setPositionValidationError] = useState<string | null>(null);
   const [routeLoadAttempt, setRouteLoadAttempt] = useState(0);
   const [clientSessionId] = useState(getClientSessionId);
   const [capabilities, setCapabilities] = useState<AppCapabilities>({
@@ -230,8 +239,11 @@ export default function App() {
 
   const sourceImageUrl = scan?.source_image_url ?? null;
   const castling = castlingRights.length > 0 ? "KQkq".split("").filter((right) => castlingRights.includes(right)).join("") : "-";
-  const fen = scan ? fullFen(labels, orientation, sideToMove, castling) : "";
-  const fenValidationError = scan ? fenError(fen) : null;
+  const displayOrientation = orientation ?? "white";
+  const fen = scan && orientation && sideToMove
+    ? fullFen(labels, orientation, sideToMove, castling)
+    : "";
+  const fenValidationError = fen ? fenError(fen) : null;
   const changedSquares = labels.filter((label, index) => label !== scan?.labels[index]).length;
   const kings = countKings(labels);
   const confidence = scan
@@ -307,8 +319,8 @@ export default function App() {
     setScan(result);
     setCorners(predictionDraft?.corners ?? result.corners);
     setLabels(predictionDraft?.labels ?? result.labels);
-    setOrientation(draft?.orientation ?? "white");
-    setSideToMove(draft?.sideToMove ?? "w");
+    setOrientation(draft?.orientation ?? null);
+    setSideToMove(draft?.sideToMove ?? null);
     setCastlingRights(draft?.castlingRights ?? []);
     setConsentTraining(draft?.consentTraining ?? true);
     setGeometryOpen(draft?.geometryOpen ?? false);
@@ -334,8 +346,8 @@ export default function App() {
   }
 
   async function handleConfirm() {
-    if (!scan) return;
-    if (positionErrors.length > 0) {
+    if (!scan || !orientation || !sideToMove) return;
+    if (!positionCanBeConfirmed) {
       setError("Correct the invalid position before opening the review.");
       return;
     }
@@ -409,8 +421,8 @@ export default function App() {
     setCorners([]);
     setLabels([]);
     setRectifiedImageUrl(null);
-    setOrientation("white");
-    setSideToMove("w");
+    setOrientation(null);
+    setSideToMove(null);
     setCastlingRights([]);
     setConsentTraining(true);
     setReviewPosition(null);
@@ -418,6 +430,8 @@ export default function App() {
     setDiagnosticError(null);
     setGeometryOpen(false);
     setGeometryMounted(false);
+    setValidatedPosition(null);
+    setPositionValidationError(null);
     setBusy(null);
   }
 
@@ -428,13 +442,62 @@ export default function App() {
     if (pendingDraftRef.current === pending) pendingDraftRef.current = null;
   }
 
-  const positionErrors = useMemo(() => {
+  const clientPositionErrors = useMemo(() => {
     const errors: string[] = [];
     if (kings.white !== 1) errors.push(`Expected one white king; found ${kings.white}.`);
     if (kings.black !== 1) errors.push(`Expected one black king; found ${kings.black}.`);
     if (errors.length === 0 && fenValidationError) errors.push(fenValidationError);
     return errors;
   }, [fenValidationError, kings.black, kings.white]);
+  const positionValidationKey = useMemo(() => {
+    if (!scan || !orientation || !sideToMove || clientPositionErrors.length > 0) return null;
+    return JSON.stringify([labels, orientation, sideToMove, castling]);
+  }, [castling, clientPositionErrors.length, labels, orientation, scan, sideToMove]);
+
+  useEffect(() => {
+    setPositionValidationError(null);
+    if (!positionValidationKey || !orientation || !sideToMove) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void validatePosition(
+        {
+          labels,
+          orientation,
+          side_to_move: sideToMove,
+          castling,
+          en_passant: "-",
+        },
+        controller.signal,
+      ).then((result) => {
+        setValidatedPosition({ key: positionValidationKey, result });
+      }).catch((cause: unknown) => {
+        if (!(cause instanceof DOMException && cause.name === "AbortError")) {
+          setPositionValidationError("Chess legality could not be checked.");
+        }
+      });
+    }, 180);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [castling, labels, orientation, positionValidationKey, sideToMove]);
+
+  const currentValidation = validatedPosition?.key === positionValidationKey
+    ? validatedPosition.result
+    : null;
+  const positionValidationPending = positionValidationKey !== null
+    && currentValidation === null
+    && positionValidationError === null;
+  const positionErrors = [
+    ...(!orientation ? ["Choose which color is below the board."] : []),
+    ...(!sideToMove ? ["Choose the side to move."] : []),
+    ...clientPositionErrors,
+    ...(currentValidation?.problems ?? []),
+    ...(positionValidationError ? [positionValidationError] : []),
+  ];
+  const positionCanBeConfirmed = positionErrors.length === 0
+    && currentValidation?.valid === true
+    && !positionValidationPending;
 
   const captureWarnings = useMemo(() => {
     if (!scan) return [];
@@ -461,6 +524,11 @@ export default function App() {
       );
     } else if (confidence < 80) {
       warnings.push("Model confidence is low. Review every square.");
+    }
+    if (scan.capture_frame_count < scan.submitted_frame_count) {
+      warnings.push(
+        `${scan.capture_frame_count} of ${scan.submitted_frame_count} burst frames matched this board. The others were discarded.`,
+      );
     }
     if (scan.detection_method === "manual_adjustment_needed") {
       warnings.push("Automatic framing failed. Place all four corner handles before checking pieces.");
@@ -578,14 +646,13 @@ export default function App() {
                 <b>Board frame</b>
                 <small>
                   {geometryMessage(scan.detection_method)}
-                  {scan.capture_frame_count > 1
-                    ? ` · ${scan.capture_frame_count} frames stabilized`
-                    : ""}
+                  {` · ${scan.capture_frame_count} of ${scan.submitted_frame_count} frames usable`}
                   {scan.prediction_method === "multi-view-mean-v1"
                     ? ` · ${scan.inference_view_count} averaged model views`
                     : scan.prediction_method === "raw-center-evidence-v1"
                       ? ` · raw labels · ${scan.inference_view_count} stability views`
                       : ""}
+                  {scan.classifier_route === "print-specialist" ? " · hatched-print model" : ""}
                 </small>
               </span>
               <span className="summary-action">Adjust corners</span>
@@ -643,7 +710,7 @@ export default function App() {
                 viewAgreements={scan.view_agreements}
                 predictionMethod={scan.prediction_method}
                 glareSquares={scan.glare_squares}
-                orientation={orientation}
+                orientation={displayOrientation}
                 onChange={setLabels}
               />
             </article>
@@ -651,17 +718,17 @@ export default function App() {
 
           <section className="position-controls">
             <div className="control-group">
-              <span className="control-label">Side to move</span>
+              <span className="control-label">Side to move <small>Required</small></span>
               <div className="segmented-control">
-                <button type="button" className={sideToMove === "w" ? "is-active" : ""} onClick={() => setSideToMove("w")}>White</button>
-                <button type="button" className={sideToMove === "b" ? "is-active" : ""} onClick={() => setSideToMove("b")}>Black <small>• in book</small></button>
+                <button type="button" aria-pressed={sideToMove === "w"} className={sideToMove === "w" ? "is-active" : ""} onClick={() => setSideToMove("w")}>White</button>
+                <button type="button" aria-pressed={sideToMove === "b"} className={sideToMove === "b" ? "is-active" : ""} onClick={() => setSideToMove("b")}>Black</button>
               </div>
             </div>
             <div className="control-group">
-              <span className="control-label">Board orientation</span>
+              <span className="control-label">Board orientation <small>Required</small></span>
               <div className="segmented-control">
-                <button type="button" className={orientation === "white" ? "is-active" : ""} onClick={() => setOrientation("white")}>White below</button>
-                <button type="button" className={orientation === "black" ? "is-active" : ""} onClick={() => setOrientation("black")}>Black below</button>
+                <button type="button" aria-pressed={orientation === "white"} className={orientation === "white" ? "is-active" : ""} onClick={() => setOrientation("white")}>White below</button>
+                <button type="button" aria-pressed={orientation === "black"} className={orientation === "black" ? "is-active" : ""} onClick={() => setOrientation("black")}>Black below</button>
               </div>
             </div>
           </section>
@@ -686,7 +753,7 @@ export default function App() {
           <section className="fen-slip">
             <div>
               <span>Final FEN</span>
-              <code>{fen}</code>
+              <code>{fen || "Choose orientation and side to move"}</code>
             </div>
             <div className="fen-slip__status">
               {changedSquares > 0 && <span className="correction-count">{changedSquares} corrected</span>}
@@ -704,13 +771,15 @@ export default function App() {
 
           <footer className="review-actions">
             <button type="button" className="text-button" disabled={busy !== null} onClick={reset}>Start over</button>
-            <button type="button" className="primary-button analyse-button" disabled={busy !== null || positionErrors.length > 0} onClick={handleConfirm}>
+            <button type="button" className="primary-button analyse-button" disabled={busy !== null || !positionCanBeConfirmed} onClick={handleConfirm}>
               <span>
                 {busy === "confirm"
                   ? "Saving…"
-                  : positionErrors.length > 0
-                    ? "Correct position to continue"
-                    : "Save & review position"}
+                  : positionValidationPending
+                    ? "Checking chess legality…"
+                    : !positionCanBeConfirmed
+                      ? "Complete legal position"
+                      : "Save & review position"}
               </span>
               <span aria-hidden="true">→</span>
             </button>
@@ -796,8 +865,8 @@ function isScanDraft(value: unknown): value is ScanDraft {
     && /^[0-9a-f]{64}$/.test(draft.predictionRevision)
     && isLabels(draft.labels)
     && isCorners(draft.corners)
-    && (draft.orientation === "white" || draft.orientation === "black")
-    && (draft.sideToMove === "w" || draft.sideToMove === "b")
+    && (draft.orientation === null || draft.orientation === "white" || draft.orientation === "black")
+    && (draft.sideToMove === null || draft.sideToMove === "w" || draft.sideToMove === "b")
     && Array.isArray(draft.castlingRights)
     && draft.castlingRights.every((right) =>
       typeof right === "string" && "KQkq".includes(right)

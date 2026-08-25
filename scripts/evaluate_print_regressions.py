@@ -12,7 +12,12 @@ import cv2
 import numpy as np
 
 from chess_scan.board import CLASS_NAMES
-from chess_scan.classifier import DiagramClassifier
+from chess_scan.classifier import (
+    DiagramClassifier,
+    RoutedDiagramClassifier,
+    load_runtime_classifier,
+    read_model_metadata,
+)
 from chess_scan.model_artifact import model_version
 from chess_scan.print_data import (
     default_data_dir,
@@ -32,19 +37,39 @@ def main() -> None:
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--data-dir", type=Path, default=default_data_dir())
+    parser.add_argument(
+        "--runtime-policy",
+        action="store_true",
+        help="Evaluate visual model routing as well as the general classifier",
+    )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
     data_dir = args.data_dir.expanduser().resolve()
     manifest = verify_data_manifest(data_dir)
     records = load_records(data_dir)
-    candidate = evaluate_model(args.model, data_dir, records)
-    active = evaluate_model(args.baseline, data_dir, records) if args.baseline else None
+    candidate = evaluate_model(
+        args.model,
+        data_dir,
+        records,
+        runtime_policy=args.runtime_policy,
+    )
+    active = (
+        evaluate_model(
+            args.baseline,
+            data_dir,
+            records,
+            runtime_policy=args.runtime_policy,
+        )
+        if args.baseline
+        else None
+    )
     passed, reasons = print_pair_decision(active, candidate)
     payload = {
         "passed": passed,
         "reasons": reasons,
         "dataset_version": manifest["version"],
+        "inference_policy": "runtime" if args.runtime_policy else "raw",
         "active": active,
         "candidate": candidate,
     }
@@ -58,8 +83,10 @@ def evaluate_model(
     model_path: Path,
     data_dir: Path,
     records: list[dict[str, Any]],
+    *,
+    runtime_policy: bool = False,
 ) -> dict[str, Any]:
-    classifier = DiagramClassifier(model_path, version=model_version(model_path))
+    classifier = _load_classifier(model_path, runtime_policy=runtime_policy)
     exact_boards = 0
     correct_squares = 0
     non_empty_correct = 0
@@ -114,6 +141,19 @@ def evaluate_model(
         "failures": failures,
         "robustness_failures": variant_failures,
     }
+
+
+def _load_classifier(
+    path: Path,
+    *,
+    runtime_policy: bool,
+) -> DiagramClassifier | RoutedDiagramClassifier:
+    version = model_version(path)
+    if not runtime_policy:
+        return DiagramClassifier(path, version=version)
+    metadata_path = path.with_suffix(".json")
+    metadata = read_model_metadata(metadata_path) if metadata_path.is_file() else {}
+    return load_runtime_classifier(path, version=version, metadata=metadata)
 
 
 def _robustness_variants(board: np.ndarray) -> dict[str, np.ndarray]:

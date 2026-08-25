@@ -11,7 +11,13 @@ from typing import Any
 import cv2
 import numpy as np
 
-from chess_scan.classifier import DiagramClassifier, preprocess_board
+from chess_scan.classifier import (
+    DiagramClassifier,
+    RoutedDiagramClassifier,
+    load_runtime_classifier,
+    preprocess_board,
+    read_model_metadata,
+)
 from chess_scan.model_artifact import model_version
 from chess_scan.platform_data import (
     default_data_dir,
@@ -53,9 +59,9 @@ def main() -> None:
     manifest = verify_data_manifest(data_dir)
     records = load_records(data_dir, split=args.split)
     variants = tuple(dict.fromkeys(args.variants or ["clean"]))
-    candidate = DiagramClassifier(args.model, version=model_version(args.model))
+    candidate = _load_classifier(args.model, runtime_policy=args.runtime_policy)
     baseline = (
-        DiagramClassifier(args.baseline, version=model_version(args.baseline))
+        _load_classifier(args.baseline, runtime_policy=args.runtime_policy)
         if args.baseline
         else None
     )
@@ -84,8 +90,8 @@ def main() -> None:
 
 
 def evaluate_variants(
-    candidate: DiagramClassifier,
-    baseline: DiagramClassifier | None,
+    candidate: DiagramClassifier | RoutedDiagramClassifier,
+    baseline: DiagramClassifier | RoutedDiagramClassifier | None,
     data_dir: Path,
     records: list[dict[str, Any]],
     *,
@@ -148,14 +154,30 @@ def evaluate_variants(
     }
 
 
-def _runtime_labels(classifier: DiagramClassifier, board: np.ndarray) -> np.ndarray:
+def _load_classifier(
+    path: Path,
+    *,
+    runtime_policy: bool,
+) -> DiagramClassifier | RoutedDiagramClassifier:
+    version = model_version(path)
+    if not runtime_policy:
+        return DiagramClassifier(path, version=version)
+    metadata_path = path.with_suffix(".json")
+    metadata = read_model_metadata(metadata_path) if metadata_path.is_file() else {}
+    return load_runtime_classifier(path, version=version, metadata=metadata)
+
+
+def _runtime_labels(
+    classifier: DiagramClassifier | RoutedDiagramClassifier,
+    board: np.ndarray,
+) -> np.ndarray:
     inference = classifier.predict_multiview(board, [board])
     return np.asarray(inference.prediction.labels, dtype=np.int64)
 
 
 def build_evaluation(
-    candidate: DiagramClassifier,
-    baseline: DiagramClassifier | None,
+    candidate: DiagramClassifier | RoutedDiagramClassifier,
+    baseline: DiagramClassifier | RoutedDiagramClassifier | None,
     records: list[dict[str, Any]],
     expected: list[np.ndarray],
     candidate_predictions: list[np.ndarray],

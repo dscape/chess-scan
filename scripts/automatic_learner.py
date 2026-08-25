@@ -20,7 +20,7 @@ from typing import Any
 import cv2
 
 from chess_scan.bootstrap import initialize_database
-from chess_scan.classifier import DiagramClassifier
+from chess_scan.classifier import load_runtime_classifier
 from chess_scan.config import Settings
 from chess_scan.database import Database
 from chess_scan.learning import (
@@ -277,9 +277,10 @@ def evaluate_shadow(
         )
         return
     candidate = database.get_model(str(cycle["candidate_model_version"]))
-    classifier = DiagramClassifier(
+    classifier = load_runtime_classifier(
         Path(candidate["artifact_path"]),
         version=str(candidate["version"]),
+        metadata=json.loads(str(candidate["metadata_json"])),
     )
     for row in database.shadow_examples(cycle_id):
         board = cv2.imread(str(row["rectified_image_path"]), cv2.IMREAD_COLOR)
@@ -355,6 +356,8 @@ def run_fixed_qa(
             str(cache_dir),
         ],
     }
+    commands["online-runtime"] = [*commands["online"], "--runtime-policy"]
+    commands["photo-runtime"] = [*commands["photo"], "--runtime-policy"]
     platform_data_dir = os.getenv("CHESS_SCAN_PLATFORM_DATA_DIR")
     argus_data_dir = os.getenv("CHESS_SCAN_ARGUS_DATA_DIR")
     print_data_dir = os.getenv("CHESS_SCAN_PRINT_DATA_DIR")
@@ -376,6 +379,10 @@ def run_fixed_qa(
         "clean",
         "--variant",
         "camera",
+        "--variant",
+        "faded",
+        "--variant",
+        "low-resolution",
     ]
     commands["platform-runtime"] = [*commands["platform"], "--runtime-policy"]
     commands["argus"] = [
@@ -398,6 +405,7 @@ def run_fixed_qa(
         "--data-dir",
         print_data_dir,
     ]
+    commands["print-runtime"] = [*commands["print"], "--runtime-policy"]
     metrics: dict[str, Any] = {"passed": True}
     for name, command in commands.items():
         output_path = output_dir / f"{name}-qa.json"
@@ -421,9 +429,9 @@ def run_fixed_qa(
 
 
 def _qa_summary(name: str, payload: dict[str, Any]) -> dict[str, Any]:
-    if name == "online":
+    if name.startswith("online"):
         return dict(payload["combined"])
-    if name in {"argus", "print"} or name.startswith("platform-"):
+    if name in {"argus", "print", "print-runtime"} or name.startswith("platform-"):
         return payload
     return {
         "classifier": payload.get("classifier"),

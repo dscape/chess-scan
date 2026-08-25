@@ -29,7 +29,12 @@ from chess_scan.print_data import load_records as load_print_records
 from chess_scan.print_data import verify_data_manifest as verify_print_data_manifest
 from evaluate_photo_stress import make_halftone_screen, rectify_printed_photo
 from evaluate_platforms import transform_board
-from image_augmentation import contrast_brightness, jpeg_round_trip, resize_round_trip
+from image_augmentation import (
+    contrast_brightness,
+    hatched_print,
+    jpeg_round_trip,
+    resize_round_trip,
+)
 from square_model import export_onnx, load_fused_wide_onnx, verify_model_matches_onnx
 from train_argus_recovery import prepare_official_retention_data
 from training_utils import (
@@ -277,6 +282,11 @@ class PrintRecoveryTrainer:
                 "platform_dataset_version": self.platform_manifest["version"],
                 "platform_training_boards": len(self.platform_records),
                 "official_retention_boards": len(self.official_rows),
+                "empty_retention_weight": self.args.empty_retention_weight,
+                "target_loss_weight": self.args.target_loss_weight,
+                "platform_loss_weight": self.args.platform_loss_weight,
+                "platform_distillation_weight": self.args.platform_distillation_weight,
+                "official_loss_weight": self.args.official_loss_weight,
                 "source_images_redistributed": False,
             },
             "reproduction": {
@@ -309,10 +319,18 @@ class PrintRecoveryTrainer:
                 * target_weights
             ).sum() / target_weights.sum()
 
-            platform_loss = self._retention_loss(*platform, distillation_weight=5.0)
+            platform_loss = self._retention_loss(
+                *platform,
+                distillation_weight=self.args.platform_distillation_weight,
+            )
             official_loss = self._retention_loss(*official, distillation_weight=2.0)
             argus_loss = self._retention_loss(*argus, distillation_weight=3.0)
-            loss = 2.0 * target_loss + 4.0 * platform_loss + 0.5 * official_loss + 0.25 * argus_loss
+            loss = (
+                self.args.target_loss_weight * target_loss
+                + self.args.platform_loss_weight * platform_loss
+                + self.args.official_loss_weight * official_loss
+                + 0.25 * argus_loss
+            )
             self.optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), 2.0)
@@ -335,7 +353,16 @@ class PrintRecoveryTrainer:
         logits = self.model(images)
         with torch.no_grad():
             teacher_logits = self.teacher(images)
-        return functional.cross_entropy(logits, targets) + distillation_weight * distillation_loss(
+        supervised_losses = functional.cross_entropy(logits, targets, reduction="none")
+        supervised_weights = torch.where(
+            targets == 0,
+            self.args.empty_retention_weight,
+            1.0,
+        )
+        supervised_loss = (supervised_losses * supervised_weights).sum() / (
+            supervised_weights.sum()
+        )
+        return supervised_loss + distillation_weight * distillation_loss(
             logits,
             teacher_logits,
         )
@@ -378,13 +405,35 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--version", default="chess-steps-v5-candidate")
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--platform-batch-size", type=int, default=8)
+    parser.add_argument("--target-loss-weight", type=float, default=2.0)
+    parser.add_argument("--platform-loss-weight", type=float, default=4.0)
+    parser.add_argument("--platform-distillation-weight", type=float, default=5.0)
+    parser.add_argument("--official-loss-weight", type=float, default=0.5)
     parser.add_argument("--classifier-lr", type=float, default=1e-5)
     parser.add_argument("--feature-lr", type=float, default=2e-6)
+    parser.add_argument(
+        "--empty-retention-weight",
+        type=float,
+        default=0.25,
+        help="Relative supervised retention weight for empty squares",
+    )
     parser.add_argument("--seed", type=int, default=73)
     parser.add_argument("--device", choices=("auto", "cpu", "mps", "cuda"), default="auto")
     args = parser.parse_args()
     if args.epochs <= 0 or args.platform_batch_size <= 0:
         parser.error("epochs and platform batch size must be positive")
+    if not 0 < args.empty_retention_weight <= 1:
+        parser.error("empty retention weight must be in (0, 1]")
+    if (
+        min(
+            args.target_loss_weight,
+            args.platform_loss_weight,
+            args.platform_distillation_weight,
+            args.official_loss_weight,
+        )
+        <= 0
+    ):
+        parser.error("training and distillation weights must be positive")
     return args
 
 
@@ -425,7 +474,7 @@ def _augment_official(
     rng: random.Random,
     halftone_screen: np.ndarray,
 ) -> np.ndarray:
-    variant = rng.randrange(5)
+    variant = rng.randrange(8)
     if variant == 1:
         return resize_round_trip(board, 256, contrast=rng.uniform(0.3, 0.7))
     if variant == 2:
@@ -434,6 +483,39 @@ def _augment_official(
         return cv2.GaussianBlur(board, (0, 0), rng.uniform(0.2, 0.8))
     if variant == 4:
         return resize_round_trip(board, rng.randrange(160, 420))
+    if variant == 5:
+        return hatched_print(
+            board,
+            period=rng.randrange(5, 9),
+            line_width=rng.randrange(1, 3),
+            paper_level=rng.randrange(232, 251),
+            hatch_level=rng.randrange(120, 181),
+            foreground_contrast=rng.uniform(0.55, 1.0),
+            phase=rng.randrange(12),
+        )
+    if variant == 6:
+        printed = hatched_print(
+            board,
+            period=rng.randrange(5, 8),
+            line_width=2,
+            paper_level=rng.randrange(235, 251),
+            hatch_level=rng.randrange(125, 171),
+            foreground_contrast=rng.uniform(0.5, 0.85),
+            phase=rng.randrange(12),
+        )
+        return cv2.GaussianBlur(
+            jpeg_round_trip(printed, rng.randrange(55, 86)),
+            (0, 0),
+            rng.uniform(0.25, 0.8),
+        )
+    if variant == 7:
+        gray = cv2.cvtColor(board, cv2.COLOR_BGR2GRAY)
+        faded = contrast_brightness(
+            gray,
+            contrast=rng.uniform(0.4, 0.75),
+            brightness=rng.uniform(45, 115),
+        )
+        return cv2.cvtColor(faded, cv2.COLOR_GRAY2BGR)
     return board
 
 

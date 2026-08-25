@@ -53,14 +53,12 @@ class ReprocessRequest(BaseModel):
         return corners
 
 
-class ConfirmRequest(BaseModel):
+class PositionStateRequest(BaseModel):
     labels: list[int] = Field(min_length=SQUARE_COUNT, max_length=SQUARE_COUNT)
-    orientation: Literal["white", "black"] = "white"
-    side_to_move: Literal["w", "b"] = "w"
+    orientation: Literal["white", "black"]
+    side_to_move: Literal["w", "b"]
     castling: str = Field(default="-", min_length=1, max_length=4)
     en_passant: str = Field(default="-", max_length=2, pattern=r"^(?:-|[a-h][36])$")
-    consent_training: bool = True
-    client_session_id: str | None = Field(default=None, max_length=120)
 
     @field_validator("labels")
     @classmethod
@@ -77,6 +75,19 @@ class ConfirmRequest(BaseModel):
         if castling != canonical or len(set(castling)) != len(castling):
             raise ValueError("Castling rights must be '-' or an ordered subset of KQkq")
         return castling
+
+
+class ConfirmRequest(PositionStateRequest):
+    orientation: Literal["white", "black"] = "white"
+    side_to_move: Literal["w", "b"] = "w"
+    consent_training: bool = True
+    client_session_id: str | None = Field(default=None, max_length=120)
+
+
+class PositionValidationResponse(BaseModel):
+    valid: bool
+    full_fen: str
+    problems: list[str]
 
 
 class PreviewPredictionResponse(BaseModel):
@@ -129,6 +140,7 @@ class ScanResponse(BaseModel):
         "multi-view-mean-v1",
         "raw-center-evidence-v1",
     ]
+    classifier_route: Literal["general", "print-specialist"]
     inference_view_count: int = Field(ge=1, le=64)
     board_fen: str
     model_version: str
@@ -136,6 +148,7 @@ class ScanResponse(BaseModel):
     glare_squares: list[SquareIndex] = Field(max_length=SQUARE_COUNT)
     sharpness_score: float | None = Field(default=None, ge=0)
     capture_frame_count: int = Field(ge=1, le=4)
+    submitted_frame_count: int = Field(ge=1, le=4)
     prediction_revision: str
     source_image_url: str
     rectified_image_url: str

@@ -13,8 +13,12 @@ from chess_scan.classifier import (
     BoardPrediction,
     DiagramClassifier,
     ModelManager,
+    RoutedDiagramClassifier,
+    directional_print_texture_score,
+    load_runtime_classifier,
     normalize_board_contrast,
     preprocess_square_crops,
+    read_model_metadata,
     split_board_squares,
 )
 from chess_scan.config import PROJECT_ROOT
@@ -69,6 +73,8 @@ def test_classifier_keeps_raw_labels_with_auditable_view_evidence(
     assert len(inference.ensemble_prediction.labels) == 64
     assert len(inference.view_labels) == 9
     assert len(inference.frame_labels) == 4
+    assert len(inference.frame_probabilities) == 4
+    assert all(len(probabilities) == 64 for probabilities in inference.frame_probabilities)
     assert all(0 <= agreement <= 1 for agreement in inference.view_agreements)
     assert all(0 <= agreement <= 1 for agreement in inference.frame_agreements)
     assert np.allclose(
@@ -79,6 +85,52 @@ def test_classifier_keeps_raw_labels_with_auditable_view_evidence(
     assert evidence["raw_labels"] == inference.prediction.labels
     assert evidence["ensemble_labels"] == inference.ensemble_prediction.labels
     assert evidence["ensemble_method"] == "multi-view-mean-v1"
+    assert evidence["frame_probabilities"] == inference.frame_probabilities
+
+
+def test_v6_runtime_policy_loads_verified_specialist() -> None:
+    model_path = PROJECT_ROOT / "models" / "chess-steps-v6.onnx"
+    metadata = read_model_metadata(model_path.with_suffix(".json"))
+
+    classifier = load_runtime_classifier(
+        model_path,
+        version="chess-steps-v6",
+        metadata=metadata,
+    )
+
+    assert isinstance(classifier, RoutedDiagramClassifier)
+    assert classifier.general.version == "chess-steps-v6"
+    assert classifier.print_specialist.version == "chess-steps-v6-print-specialist"
+
+
+def test_runtime_router_uses_only_visual_hatching() -> None:
+    general = DiagramClassifier(
+        PROJECT_ROOT / "models" / "chess-steps-v5.onnx",
+        version="test-router",
+    )
+    specialist = DiagramClassifier(
+        PROJECT_ROOT / "models" / "chess-steps-v5.onnx",
+        version="test-specialist",
+    )
+    router = RoutedDiagramClassifier(general, specialist, texture_threshold=5.0)
+    plain = np.full((512, 512, 3), 235, dtype=np.uint8)
+    hatched = plain.copy()
+    y_coordinates, x_coordinates = np.indices((512, 512))
+    diagonal_lines = (x_coordinates + y_coordinates) % 6 < 2
+    for row in range(8):
+        for column in range(8):
+            if (row + column) % 2:
+                square = hatched[row * 64 : (row + 1) * 64, column * 64 : (column + 1) * 64]
+                mask = diagonal_lines[
+                    row * 64 : (row + 1) * 64,
+                    column * 64 : (column + 1) * 64,
+                ]
+                square[mask] = 145
+
+    assert directional_print_texture_score(plain) < 1
+    assert directional_print_texture_score(hatched) > 5
+    assert router.predict_multiview(plain, [plain]).classifier_route == "general"
+    assert router.predict_multiview(hatched, [hatched]).classifier_route == "print-specialist"
 
 
 def test_view_consensus_cannot_replace_the_raw_center_labels(

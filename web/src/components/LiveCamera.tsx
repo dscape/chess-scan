@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { detectBoard } from "../api";
 import {
+  cornersAreStable,
   minimumBoardEdge,
   requiredCaptureBoardEdge,
   polygonCenter,
@@ -11,8 +12,7 @@ import {
   canvasBlob,
   captureCameraFrame,
   captureSupplementalFrames,
-  SOURCE_MAX_DIMENSION,
-  videoFrameCanvas,
+  type CameraFrame,
 } from "../cameraCapture";
 import {
   finiteMediaSetting,
@@ -30,11 +30,21 @@ import type {
 import PhotoPicker from "./PhotoPicker";
 
 const SUPPLEMENTAL_FRAME_COUNT = 3;
+const REQUIRED_STABLE_DETECTIONS = 2;
+
+interface ReadyCapture {
+  frame: CameraFrame;
+  geometry: CaptureGeometry;
+  detection: BoardDetection;
+  roundTripMs: number;
+}
 
 type CameraPhase =
   | "requesting"
   | "searching"
   | "framing"
+  | "steadying"
+  | "ready"
   | "capturing"
   | "locked"
   | "error";
@@ -61,10 +71,14 @@ export default function LiveCamera({
   const detectionAttemptsRef = useRef(0);
   const missedDetectionsRef = useRef(0);
   const previewRoundTripRef = useRef<number | null>(null);
+  const previousCornersRef = useRef<Point[] | null>(null);
+  const stableDetectionCountRef = useRef(0);
+  const readyCaptureRef = useRef<ReadyCapture | null>(null);
   const [phase, setPhase] = useState<CameraPhase>("requesting");
   const [detection, setDetection] = useState<BoardDetection | null>(null);
   const [lockedFrameUrl, setLockedFrameUrl] = useState<string | null>(null);
   const [diagnosticActive, setDiagnosticActive] = useState(false);
+  const [burstProgress, setBurstProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -159,6 +173,8 @@ export default function LiveCamera({
       if (stoppedRef.current || lockedRef.current) return;
       if (!result.found) {
         missedDetectionsRef.current += 1;
+        resetCaptureReadiness();
+        setDetection(null);
         setPhase("searching");
         scheduleDetection(100);
         return;
@@ -176,25 +192,33 @@ export default function LiveCamera({
         minimumBoardEdge(capturedCorners)
         < requiredCaptureBoardEdge(frame.source.width, frame.source.height)
       ) {
+        resetCaptureReadiness();
         setPhase("framing");
-        scheduleDetection(40);
+        scheduleDetection(80);
         return;
       }
 
+      const stable = cornersAreStable(previousCornersRef.current, result.corners);
+      stableDetectionCountRef.current = stable
+        ? stableDetectionCountRef.current + 1
+        : 1;
+      previousCornersRef.current = result.corners;
       previewRoundTripRef.current = roundTripMs;
-      lockedRef.current = true;
-      setPhase("locked");
-      navigator.vibrate?.(45);
-      await captureFinalFrame(
-        frame.source,
-        video,
-        {
+      readyCaptureRef.current = {
+        frame,
+        geometry: {
           corners: capturedCorners,
           method: result.method,
         },
-        "automatic",
-        result,
+        detection: result,
+        roundTripMs,
+      };
+      setPhase(
+        stableDetectionCountRef.current >= REQUIRED_STABLE_DETECTIONS
+          ? "ready"
+          : "steadying",
       );
+      scheduleDetection(120);
     } catch {
       if (stoppedRef.current) return;
       if (lockedRef.current) {
@@ -203,6 +227,8 @@ export default function LiveCamera({
         return;
       }
       missedDetectionsRef.current += 1;
+      resetCaptureReadiness();
+      setDetection(null);
       setPhase("searching");
       scheduleDetection(220);
     }
@@ -210,20 +236,27 @@ export default function LiveCamera({
 
   async function captureManually() {
     const video = videoRef.current;
-    if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+    const ready = readyCaptureRef.current;
+    if (!video || !ready || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
     lockedRef.current = true;
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    previewRoundTripRef.current = ready.roundTripMs;
+    setBurstProgress(1);
     setPhase("capturing");
+    navigator.vibrate?.(45);
     try {
       await captureFinalFrame(
-        videoFrameCanvas(video, SOURCE_MAX_DIMENSION),
+        ready.frame.source,
         video,
-        undefined,
+        ready.geometry,
         "manual",
-        detection,
+        ready.detection,
       );
     } catch {
       lockedRef.current = false;
+      recordingRef.current?.discard();
+      recordingRef.current = null;
+      stopStream();
       setCameraError("The frame could not be captured. Close and try again, or choose a photo.");
     }
   }
@@ -236,18 +269,17 @@ export default function LiveCamera({
     currentDetection: BoardDetection | null,
   ) {
     const primaryBlobPromise = canvasBlob(source, 0.88);
-    const supplementalPromise = captureSupplementalFrames(
+    const supplementalImages = await captureSupplementalFrames(
       video,
       SUPPLEMENTAL_FRAME_COUNT,
+      (capturedCount) => setBurstProgress(capturedCount + 1),
     );
     const recordedPromise = recordingRef.current?.stop() ?? Promise.resolve(null);
+    recordingRef.current = null;
     const primaryBlob = await primaryBlobPromise;
     if (stoppedRef.current) return;
     setLockedFrameUrl(URL.createObjectURL(primaryBlob));
     setPhase("locked");
-
-    const supplementalImages = await supplementalPromise;
-    if (stoppedRef.current) return;
     stopStream();
     const image = new File([primaryBlob], `chess-board-${Date.now()}.jpg`, {
       type: "image/jpeg",
@@ -308,8 +340,15 @@ export default function LiveCamera({
     streamRef.current = null;
   }
 
+  function resetCaptureReadiness() {
+    previousCornersRef.current = null;
+    stableDetectionCountRef.current = 0;
+    readyCaptureRef.current = null;
+  }
+
   function stopCamera() {
     stoppedRef.current = true;
+    resetCaptureReadiness();
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
     recordingRef.current?.discard();
     recordingRef.current = null;
@@ -343,8 +382,9 @@ export default function LiveCamera({
     onCancel();
   }
 
-  const status = cameraStatus(phase, detection);
+  const status = cameraStatus(phase, burstProgress);
   const locked = phase === "locked";
+  const boardSelected = phase === "ready" || phase === "capturing" || locked;
 
   return (
     <section className={`live-camera is-${phase}`} aria-label="Live chess board camera">
@@ -354,7 +394,7 @@ export default function LiveCamera({
       )}
       <div className="live-camera__shade" aria-hidden="true" />
       {detection?.found && (
-        <BoardGridOverlay detection={detection} locked={locked} />
+        <BoardGridOverlay detection={detection} locked={boardSelected} />
       )}
       <div className="live-camera__corners" aria-hidden="true">
         <i />
@@ -375,16 +415,16 @@ export default function LiveCamera({
               : "Live"}
         </span>
       </header>
-      {phase !== "error" && !locked && (
+      {phase !== "error" && phase !== "capturing" && !locked && (
         <div className="live-camera__manual-controls">
           <button
             type="button"
             className="camera-shutter"
-            disabled={phase === "requesting" || phase === "capturing"}
+            disabled={phase !== "ready"}
             onClick={() => void captureManually()}
           >
             <span aria-hidden="true"><i /></span>
-            <strong>Capture now</strong>
+            <strong>{phase === "ready" ? "Capture board" : "Hold steady"}</strong>
           </button>
           <PhotoPicker
             className="camera-photo-button"
@@ -404,6 +444,16 @@ export default function LiveCamera({
         <div>
           <strong>{status.title}</strong>
           <p>{status.detail}</p>
+          {phase === "capturing" && (
+            <span
+              className="camera-burst-progress"
+              aria-label={`${burstProgress} of ${SUPPLEMENTAL_FRAME_COUNT + 1} frames captured`}
+            >
+              {Array.from({ length: SUPPLEMENTAL_FRAME_COUNT + 1 }, (_, index) => (
+                <i key={index} className={index < burstProgress ? "is-complete" : ""} />
+              ))}
+            </span>
+          )}
         </div>
       </div>
       {phase === "error" && (
@@ -476,23 +526,35 @@ function BoardGridOverlay({ detection, locked }: { detection: BoardDetection; lo
   );
 }
 
-function cameraStatus(phase: CameraPhase, detection: BoardDetection | null) {
+function cameraStatus(phase: CameraPhase, burstProgress: number) {
   if (phase === "requesting") {
     return { title: "Opening camera", detail: "Camera permission is required once." };
   }
   if (phase === "framing") {
     return { title: "Move closer", detail: "Keep all four edges visible and fill the guide." };
   }
+  if (phase === "steadying") {
+    return {
+      title: "Hold steady",
+      detail: "Keep the board inside the outline while the camera settles.",
+    };
+  }
+  if (phase === "ready") {
+    return {
+      title: "Ready to capture",
+      detail: "Check that the green outline surrounds the board you want, then tap Capture board.",
+    };
+  }
   if (phase === "capturing") {
-    return { title: "Photo captured", detail: "Identifying the pieces now." };
+    return {
+      title: `Capturing ${burstProgress} of ${SUPPLEMENTAL_FRAME_COUNT + 1}`,
+      detail: "Hold still—the camera is still taking the short burst.",
+    };
   }
   if (phase === "locked") {
-    const glareSquares = detection?.prediction?.glare_squares.length ?? 0;
     return {
-      title: "Board locked",
-      detail: glareSquares > 0
-        ? `Stabilizing nearby frames and reducing glare on ${glareSquares} square${glareSquares === 1 ? "" : "s"}.`
-        : "Stabilizing nearby frames and choosing the clearest pieces.",
+      title: "Frames captured",
+      detail: "The camera is off. Identifying the pieces now.",
     };
   }
   if (phase === "error") {

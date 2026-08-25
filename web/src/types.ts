@@ -88,6 +88,7 @@ export interface ScanResult {
   frame_agreements: number[];
   view_agreements: number[];
   prediction_method: PredictionMethod;
+  classifier_route: "general" | "print-specialist";
   inference_view_count: number;
   board_fen: string;
   model_version: string;
@@ -95,9 +96,16 @@ export interface ScanResult {
   glare_squares: number[];
   sharpness_score: number | null;
   capture_frame_count: number;
+  submitted_frame_count: number;
   prediction_revision: string;
   source_image_url: string;
   rectified_image_url: string;
+}
+
+export interface PositionValidation {
+  valid: boolean;
+  full_fen: string;
+  problems: string[];
 }
 
 export interface ConfirmResult {

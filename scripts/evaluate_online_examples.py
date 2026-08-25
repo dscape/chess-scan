@@ -15,7 +15,12 @@ import cv2
 import numpy as np
 
 from chess_scan.board import CLASS_NAMES
-from chess_scan.classifier import DiagramClassifier
+from chess_scan.classifier import (
+    DiagramClassifier,
+    RoutedDiagramClassifier,
+    load_runtime_classifier,
+    read_model_metadata,
+)
 from chess_scan.model_artifact import model_version
 from evaluate_photo_stress import find_board_boxes
 from qa_common import download_verified, labels_from_fen, write_json
@@ -47,6 +52,11 @@ def main() -> None:
     parser.add_argument("--manual-benchmark", type=Path, default=DEFAULT_MANUAL_BENCHMARK)
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
     parser.add_argument("--cache-dir", type=Path)
+    parser.add_argument(
+        "--runtime-policy",
+        action="store_true",
+        help="Evaluate visual model routing as well as the general classifier",
+    )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
@@ -69,7 +79,7 @@ def main() -> None:
     with work_context as temporary:
         work_dir = Path(temporary)
         work_dir.mkdir(parents=True, exist_ok=True)
-        classifier = DiagramClassifier(args.model, version=model_version(args.model))
+        classifier = _load_classifier(args.model, runtime_policy=args.runtime_policy)
         assets = download_assets(asset_sources, work_dir / "assets")
         interactive_results = [
             evaluate_interactive_source(source, work_dir, assets, classifier)
@@ -87,6 +97,7 @@ def main() -> None:
     combined = summarize_results(interactive_results + manual_results)
     payload: dict[str, Any] = {
         "runtime_version": model_version(args.model),
+        "inference_policy": "runtime" if args.runtime_policy else "raw",
         "interactive": interactive,
         "german_manuals": manuals,
         "combined": combined,
@@ -126,7 +137,7 @@ def evaluate_interactive_source(
     source: dict[str, Any],
     work_dir: Path,
     assets: dict[str, np.ndarray],
-    classifier: DiagramClassifier,
+    classifier: DiagramClassifier | RoutedDiagramClassifier,
 ) -> dict[str, Any]:
     path = work_dir / f"{source['id']}.js"
     download_verified(source["url"], source["sha256"], path)
@@ -170,6 +181,19 @@ def evaluate_interactive_source(
     }
 
 
+def _load_classifier(
+    path: Path,
+    *,
+    runtime_policy: bool,
+) -> DiagramClassifier | RoutedDiagramClassifier:
+    version = model_version(path)
+    if not runtime_policy:
+        return DiagramClassifier(path, version=version)
+    metadata_path = path.with_suffix(".json")
+    metadata = read_model_metadata(metadata_path) if metadata_path.is_file() else {}
+    return load_runtime_classifier(path, version=version, metadata=metadata)
+
+
 def verify_manual_inventory(
     benchmark: dict[str, Any],
     inventory: dict[str, dict[str, Any]],
@@ -191,7 +215,7 @@ def evaluate_manual_sources(
     benchmark: dict[str, Any],
     inventory: dict[str, dict[str, Any]],
     work_dir: Path,
-    classifier: DiagramClassifier,
+    classifier: DiagramClassifier | RoutedDiagramClassifier,
 ) -> list[dict[str, Any]]:
     diagrams_by_source: dict[str, list[dict[str, Any]]] = {}
     for diagram in benchmark["diagrams"]:
