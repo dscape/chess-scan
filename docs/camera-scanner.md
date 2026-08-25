@@ -72,3 +72,12 @@ Measure from the first usable camera frame, not from page load:
 - correction rate inside glare-marked squares.
 
 Performance changes must preserve the photographed-print, platform-camera, Argus, and confirmed-feedback gates. Actual p50 and p95 targets should be promoted only after replay and real-device measurements, especially on iOS Safari and constrained mobile networks.
+
+Report the active shadow cohort without exporting images, labels, installation identifiers, or diagnostic video:
+
+```bash
+make report-capture
+# or: uv run python scripts/report_capture_quality.py --since 2026-08-25T00:00:00+00:00
+```
+
+The aggregate report includes exact-board and square accuracy, accepted/submitted burst frames, boards with fewer than three usable frames, rejection reasons, route-score range, glare, and sharpness. It scores only confirmed boards and resolves later append-only adjudications before calculating accuracy.

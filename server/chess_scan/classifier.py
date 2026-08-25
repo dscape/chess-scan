@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass, replace
 from pathlib import Path
 from threading import Lock
-from typing import Any
+from typing import Any, Literal
 
 import cv2
 import numpy as np
@@ -27,12 +27,22 @@ _RAW_CENTER_EVIDENCE_METHOD = "raw-center-evidence-v1"
 _MAX_BOARDS_PER_INFERENCE = len(_MULTIVIEW_OFFSETS)
 
 
+ClassifierRoute = Literal["general", "print-specialist"]
+
+
 @dataclass(frozen=True, slots=True)
 class BoardPrediction:
     labels: list[int]
     probabilities: list[list[float]]
     confidences: list[float]
     board_fen: str
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeBoardPrediction:
+    prediction: BoardPrediction
+    classifier_route: ClassifierRoute
+    classifier_route_score: float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +57,8 @@ class MultiViewPrediction:
     view_labels: list[list[int]]
     inference_view_count: int
     method: str = _RAW_CENTER_EVIDENCE_METHOD
-    classifier_route: str = "general"
+    classifier_route: ClassifierRoute = "general"
+    classifier_route_score: float | None = None
 
     def evidence(self) -> dict[str, Any]:
         return {
@@ -64,6 +75,7 @@ class MultiViewPrediction:
             "view_labels": self.view_labels,
             "inference_view_count": self.inference_view_count,
             "classifier_route": self.classifier_route,
+            "classifier_route_score": self.classifier_route_score,
         }
 
 
@@ -90,6 +102,13 @@ class DiagramClassifier:
     def predict(self, rectified_board_bgr: np.ndarray) -> BoardPrediction:
         predictions = self.predict_preprocessed(preprocess_board(rectified_board_bgr))
         return predictions[0]
+
+    def predict_with_routing(self, rectified_board_bgr: np.ndarray) -> RuntimeBoardPrediction:
+        return RuntimeBoardPrediction(
+            prediction=self.predict(rectified_board_bgr),
+            classifier_route="general",
+            classifier_route_score=None,
+        )
 
     def predict_multiview(
         self,
@@ -169,26 +188,41 @@ class RoutedDiagramClassifier:
         self.model_path = general.model_path
 
     def predict(self, rectified_board_bgr: np.ndarray) -> BoardPrediction:
-        classifier, _route = self._classifier(rectified_board_bgr)
-        return classifier.predict(rectified_board_bgr)
+        return self.predict_with_routing(rectified_board_bgr).prediction
+
+    def predict_with_routing(self, rectified_board_bgr: np.ndarray) -> RuntimeBoardPrediction:
+        classifier, route, score = self._classifier(rectified_board_bgr)
+        return RuntimeBoardPrediction(
+            prediction=classifier.predict(rectified_board_bgr),
+            classifier_route=route,
+            classifier_route_score=score,
+        )
 
     def predict_multiview(
         self,
         composite_board_bgr: np.ndarray,
         supporting_boards_bgr: list[np.ndarray],
     ) -> MultiViewPrediction:
-        classifier, route = self._classifier(composite_board_bgr)
+        classifier, route, score = self._classifier(composite_board_bgr)
         inference = classifier.predict_multiview(composite_board_bgr, supporting_boards_bgr)
-        return replace(inference, classifier_route=route)
+        return replace(
+            inference,
+            classifier_route=route,
+            classifier_route_score=score,
+        )
 
     def predict_preprocessed(self, inputs: np.ndarray) -> list[BoardPrediction]:
         """Use the general model when the original board texture is unavailable."""
         return self.general.predict_preprocessed(inputs)
 
-    def _classifier(self, board_bgr: np.ndarray) -> tuple[DiagramClassifier, str]:
-        if directional_print_texture_score(board_bgr) > self.texture_threshold:
-            return self.print_specialist, "print-specialist"
-        return self.general, "general"
+    def _classifier(
+        self,
+        board_bgr: np.ndarray,
+    ) -> tuple[DiagramClassifier, ClassifierRoute, float]:
+        score = directional_print_texture_score(board_bgr)
+        if score > self.texture_threshold:
+            return self.print_specialist, "print-specialist", score
+        return self.general, "general", score
 
 
 def directional_print_texture_score(board_bgr: np.ndarray) -> float:

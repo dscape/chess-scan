@@ -78,7 +78,7 @@ A real workbook photograph later exposed a v4 gap that the synthetic photo gate 
 
 The external corpora are hash-described by the Argus, platform, and photographed-print manifests under `benchmarks/`, mounted read-only in production, and never stored in Git. Every future feedback candidate interleaves labeled Argus and platform replay with user-feedback training and must also remain exact on the photographed-print regression. Bootstrap upgrades obsolete base registrations through `chess-steps-v4`; feedback-promoted candidates remain active.
 
-`chess-steps-v6` is a shadow candidate for the diagonal-hatched workbook style exposed by later camera submissions. Its general raw artifact is byte-identical to v5. A deterministic visual-only texture score routes boards with strong repeated diagonal hatching to a separately hashed print specialist; it never inspects labels, king counts, or chess legality. Raw v5 behavior and the complete routed policy both pass official online, photo, platform, Argus, and photographed-print gates. The runtime gate also stays non-regressing on faded and low-resolution platform variants, and the diagonal-hatch photo slice is 12/12 exact. Development replay improves 107 confirmed boards from 62 to 70 exact and from 174 to 100 square errors; the latest nine-board camera batch improves from 2 to 5 exact and from 40 to 16 errors. Those records include development data and are not promotion evidence. V6 remains inactive until at least 40 later, deduplicated shadow boards from eight installations beat v5 without an exact-board, occupied-square, class, or robustness regression.
+`chess-steps-v6` is a shadow candidate for the diagonal-hatched workbook style exposed by later camera submissions. Its general raw artifact is byte-identical to v5. A deterministic visual-only texture score routes boards with strong repeated diagonal hatching to a separately hashed print specialist; it never inspects labels, king counts, or chess legality. Raw v5 behavior and the complete routed policy both pass official online, photo, platform, Argus, and photographed-print gates. The runtime gate also stays non-regressing on faded and low-resolution platform variants, and the diagonal-hatch photo slice is 12/12 exact. Development replay improves 107 confirmed boards from 62 to 70 exact and from 174 to 100 square errors; the latest nine-board camera batch improves from 2 to 5 exact and from 40 to 16 errors. Those records include development data and are not promotion evidence, while the disjoint grouped development slices tie v5. V6 remains inactive until at least 40 later, deduplicated shadow boards from eight installations beat v5 without an exact-board, occupied-square, class, installation-grouped, route, or robustness regression. Because it is routed, that cohort must include at least ten specialist-routed boards from three installations.
 
 ## Continuous improvement, not per-request online learning
 
@@ -106,7 +106,11 @@ The primary product metric is **whole-board exact match**. Square accuracy can c
 - a meaningful reduction in total square errors on fresh shadow feedback
 - no regression in whole-board exact matches
 - no regression in non-empty square errors
-- no regression in grouped square accuracy or macro-F1 across all 13 classes
+- no regression in installation-grouped square accuracy
+- no regression in correct squares or F1 for any individual class, nor in macro-F1 across all 13 classes
+- no exact-board, occupied-square, or total-error regression inside any visual runtime route
+- exact label parity on the general route when its artifact is byte-identical to the active model
+- for a routed specialist, at least ten routed boards from three independent installations
 - exact passage of the fixed online examples, king slices, and photo/geometry stress gates
 - no overall, occupied-square, or per-class regression on held-out `chess_positions`, and no synthetic replay regression
 - no clean or camera/display regression for Chess.com, Lichess, or Take Take Take
@@ -114,7 +118,7 @@ The primary product metric is **whole-board exact match**. Square accuracy can c
 - no regression from the complete runtime inference policy on those same board gates
 - a verified immutable artifact hash
 
-Candidates retain the active classifier architecture and ONNX runtime. The active wide model remains only 2.6 MB, and immutable replay gates bound later feedback training independently of public labels.
+Candidates retain the active classifier architecture and ONNX runtime. Each shadow evaluation stores the candidate labels and probabilities, visual route, raw route score, and paired active/candidate errors. Promotion metrics are recomputed from the immutable active and candidate labels against the latest append-only adjudication, so a later expert correction cannot leave stale aggregate counts. The active wide model remains only 2.6 MB, and immutable replay gates bound later feedback training independently of public labels.
 
 At 99% independent square accuracy, expected board exact match is only about `0.99^64 = 52.6%`. “QR-like” reliability requires extremely high per-square accuracy and a strong correction interface.
 
@@ -131,4 +135,4 @@ At 99% independent square accuracy, expected board exact match is only about `0.
 
 ## Privacy
 
-Low-resolution live camera frames and the adjacent frames used for glare reduction are processed transiently and are never written to disk. The final full photograph may contain people, handwriting, and location metadata; it is temporary and deleted after confirmation. A separate unchecked camera-diagnostic consent may retain up to ten seconds of camera-only video for scanner replay, never audio or screen capture; it is not training input and expires after 30 days. The training corpus stores only the perspective-rectified diagram crop, prediction, and labels when training consent is enabled. See [`camera-scanner.md`](camera-scanner.md).
+Low-resolution live camera frames and the adjacent frames used for glare reduction are processed transiently and are never written to disk. The final full photograph may contain people, handwriting, and location metadata; it is temporary and deleted after confirmation. A separate unchecked camera-diagnostic consent may retain up to ten seconds of camera-only video for scanner replay, never audio or screen capture; it is not training input and expires after 30 days. The training corpus stores only the perspective-rectified diagram crop, prediction, and labels when training consent is enabled. See [`camera-scanner.md`](camera-scanner.md) and the staged [`shadow-validation.md`](shadow-validation.md) collection protocol.

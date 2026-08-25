@@ -639,6 +639,10 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert status["learning_progress"] == 1
         assert status["learning_target"] == 100
         assert status["candidate_model"] is None
+        assert status["shadow_installations"] is None
+        assert status["shadow_installation_target"] is None
+        assert status["specialist_progress"] is None
+        assert status["specialist_target"] is None
 
 
 def test_scan_reuses_live_corners_and_preserves_manual_recovery(tmp_path: Path) -> None:

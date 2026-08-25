@@ -28,7 +28,12 @@ from chess_scan.capture_quality import (
     board_capture_quality,
     compose_best_board,
 )
-from chess_scan.classifier import BoardPrediction, ModelManager, MultiViewPrediction
+from chess_scan.classifier import (
+    BoardPrediction,
+    ClassifierRoute,
+    ModelManager,
+    MultiViewPrediction,
+)
 from chess_scan.commentary_planner import (
     CommentaryCoach,
     CommentaryPlannerRun,
@@ -973,8 +978,22 @@ def _stored_multiview_prediction(
         view_labels=[[int(value) for value in labels] for labels in evidence["view_labels"]],
         inference_view_count=int(evidence["inference_view_count"]),
         method=str(evidence["method"]),
-        classifier_route=str(evidence.get("classifier_route", "general")),
+        classifier_route=_stored_classifier_route(evidence),
+        classifier_route_score=_stored_classifier_route_score(evidence),
     )
+
+
+def _stored_classifier_route(evidence: dict[str, object]) -> ClassifierRoute:
+    return (
+        "print-specialist" if evidence.get("classifier_route") == "print-specialist" else "general"
+    )
+
+
+def _stored_classifier_route_score(evidence: dict[str, object]) -> float | None:
+    score = evidence.get("classifier_route_score")
+    if isinstance(score, bool) or not isinstance(score, int | float):
+        return None
+    return float(score)
 
 
 def _scan_response(

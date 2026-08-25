@@ -30,8 +30,12 @@ from chess_scan.errors import (
 from chess_scan.learning import (
     INITIAL_TRAINING_BOARDS,
     MAX_BOARDS_PER_CLIENT,
+    MIN_SHADOW_CLIENTS,
+    MIN_SPECIALIST_SHADOW_BOARDS,
+    MIN_SPECIALIST_SHADOW_CLIENTS,
     NEW_TRAINING_BOARDS,
     diverse_shadow_rows,
+    has_routed_runtime_policy,
 )
 from chess_scan.model_artifact import verify_model_artifact
 from chess_scan.schemas import (
@@ -82,6 +86,7 @@ class Database:
             _enable_wal(connection)
             connection.executescript(_SCHEMA)
             _migrate_scans_table(connection)
+            _migrate_shadow_evaluations_table(connection)
             _migrate_commentary_tables(connection)
             connection.execute("BEGIN IMMEDIATE")
             try:
@@ -1345,6 +1350,9 @@ class Database:
         feedback_id: str,
         perceptual_hash: str,
         candidate_labels: list[int],
+        candidate_probabilities: list[list[float]],
+        classifier_route: str,
+        classifier_route_score: float | None,
         active_square_errors: int,
         candidate_square_errors: int,
         active_non_empty_errors: int,
@@ -1357,10 +1365,12 @@ class Database:
                 """
                 INSERT OR IGNORE INTO shadow_evaluations (
                     cycle_id, feedback_id, evaluated_at, perceptual_hash,
-                    candidate_labels_json, active_square_errors, candidate_square_errors,
+                    candidate_labels_json, candidate_probabilities_json,
+                    classifier_route, classifier_route_score,
+                    active_square_errors, candidate_square_errors,
                     active_non_empty_errors, candidate_non_empty_errors,
                     active_board_exact, candidate_board_exact
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     cycle_id,
@@ -1368,6 +1378,9 @@ class Database:
                     _now(),
                     perceptual_hash,
                     json.dumps(candidate_labels),
+                    json.dumps(candidate_probabilities),
+                    classifier_route,
+                    classifier_route_score,
                     active_square_errors,
                     candidate_square_errors,
                     active_non_empty_errors,
@@ -1383,10 +1396,21 @@ class Database:
             rows = connection.execute(
                 """
                 SELECT
-                    e.*, f.client_session_id, s.image_sha256
+                    e.*, f.client_session_id, s.image_sha256,
+                    s.predicted_labels_json AS active_labels_json,
+                    s.predicted_probabilities_json AS active_probabilities_json,
+                    COALESCE(a.corrected_labels_json, f.final_labels_json)
+                        AS final_labels_json
                 FROM shadow_evaluations e
                 JOIN feedback_events f ON f.id = e.feedback_id
                 JOIN scans s ON s.id = f.scan_id
+                LEFT JOIN feedback_adjudications a ON a.id = (
+                    SELECT latest.id
+                    FROM feedback_adjudications latest
+                    WHERE latest.feedback_id = f.id
+                    ORDER BY latest.created_at DESC, latest.id DESC
+                    LIMIT 1
+                )
                 WHERE e.cycle_id = ?
                 ORDER BY e.evaluated_at, e.feedback_id
                 """,
@@ -1464,10 +1488,17 @@ class Database:
                 """
             ).fetchall()
             shadow_count = 0
+            shadow_installations: int | None = None
+            specialist_progress: int | None = None
+            specialist_installations: int | None = None
+            specialist_target: int | None = None
+            specialist_installation_target: int | None = None
             if cycle is not None and cycle["state"] == "shadowing":
                 shadow_rows = connection.execute(
                     """
-                    SELECT e.*, f.client_session_id, s.image_sha256
+                    SELECT
+                        e.feedback_id, e.perceptual_hash, e.classifier_route,
+                        f.client_session_id, s.image_sha256
                     FROM shadow_evaluations e
                     JOIN feedback_events f ON f.id = e.feedback_id
                     JOIN scans s ON s.id = f.scan_id
@@ -1476,7 +1507,33 @@ class Database:
                     """,
                     (cycle["id"],),
                 ).fetchall()
-                shadow_count = len(diverse_shadow_rows([dict(row) for row in shadow_rows]))
+                diverse = diverse_shadow_rows([dict(row) for row in shadow_rows])
+                shadow_count = len(diverse)
+                shadow_installations = len(
+                    {str(row.get("client_session_id") or "anonymous") for row in diverse}
+                )
+                candidate_metadata = connection.execute(
+                    "SELECT metadata_json FROM model_versions WHERE version = ?",
+                    (cycle["candidate_model_version"],),
+                ).fetchone()
+                metadata = (
+                    json.loads(str(candidate_metadata["metadata_json"]))
+                    if candidate_metadata is not None
+                    else {}
+                )
+                if has_routed_runtime_policy(metadata):
+                    specialist_rows = [
+                        row for row in diverse if row.get("classifier_route") == "print-specialist"
+                    ]
+                    specialist_progress = len(specialist_rows)
+                    specialist_installations = len(
+                        {
+                            str(row.get("client_session_id") or "anonymous")
+                            for row in specialist_rows
+                        }
+                    )
+                    specialist_target = MIN_SPECIALIST_SHADOW_BOARDS
+                    specialist_installation_target = MIN_SPECIALIST_SHADOW_CLIENTS
         accepted_count = int(accepted["count"])
         learning_state = "collecting" if cycle is None else str(cycle["state"])
         learning_progress = len(
@@ -1498,6 +1555,14 @@ class Database:
             "learning_progress": learning_progress,
             "learning_target": learning_target,
             "candidate_model": None if candidate is None else str(candidate),
+            "shadow_installations": shadow_installations,
+            "shadow_installation_target": (
+                MIN_SHADOW_CLIENTS if learning_state == "shadowing" else None
+            ),
+            "specialist_progress": specialist_progress,
+            "specialist_target": specialist_target,
+            "specialist_installations": specialist_installations,
+            "specialist_installation_target": specialist_installation_target,
         }
 
     def feedback_for_adjudication(self, feedback_id: str) -> dict[str, Any]:
@@ -1604,6 +1669,38 @@ class Database:
             ORDER BY f.created_at
             """
         )
+
+    def confirmed_capture_rows(
+        self,
+        *,
+        created_after: str | None = None,
+    ) -> list[dict[str, Any]]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    f.id AS feedback_id, f.created_at,
+                    COALESCE(a.corrected_labels_json, f.final_labels_json)
+                        AS final_labels_json,
+                    f.orientation, f.client_session_id,
+                    s.id AS scan_id, s.model_version, s.detection_method,
+                    s.predicted_labels_json, s.prediction_evidence_json,
+                    s.glare_score, s.sharpness_score, s.capture_frame_count
+                FROM feedback_events f
+                JOIN scans s ON s.id = f.scan_id
+                LEFT JOIN feedback_adjudications a ON a.id = (
+                    SELECT latest.id
+                    FROM feedback_adjudications latest
+                    WHERE latest.feedback_id = f.id
+                    ORDER BY latest.created_at DESC, latest.id DESC
+                    LIMIT 1
+                )
+                WHERE (? IS NULL OR f.created_at > ?)
+                ORDER BY f.created_at
+                """,
+                (created_after, created_after),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def iter_preference_examples(self) -> Iterator[dict[str, Any]]:
         yield from self._iter_rows(
@@ -2294,6 +2391,40 @@ def _enable_wal(connection: sqlite3.Connection) -> None:
         time.sleep(0.05)
 
 
+def _migrate_shadow_evaluations_table(connection: sqlite3.Connection) -> None:
+    required = {
+        "candidate_probabilities_json",
+        "classifier_route",
+        "classifier_route_score",
+    }
+    if required <= _table_columns(connection, "shadow_evaluations"):
+        return
+    connection.commit()
+    connection.execute("BEGIN EXCLUSIVE")
+    try:
+        columns = _table_columns(connection, "shadow_evaluations")
+        if "candidate_probabilities_json" not in columns:
+            connection.execute(
+                "ALTER TABLE shadow_evaluations ADD COLUMN candidate_probabilities_json TEXT"
+            )
+        if "classifier_route" not in columns:
+            connection.execute(
+                """
+                ALTER TABLE shadow_evaluations
+                ADD COLUMN classifier_route TEXT NOT NULL DEFAULT 'general'
+                    CHECK (classifier_route IN ('general', 'print-specialist'))
+                """
+            )
+        if "classifier_route_score" not in columns:
+            connection.execute(
+                "ALTER TABLE shadow_evaluations ADD COLUMN classifier_route_score REAL"
+            )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+
+
 def _migrate_commentary_tables(connection: sqlite3.Connection) -> None:
     if int(connection.execute("PRAGMA user_version").fetchone()[0]) >= _DATABASE_SCHEMA_VERSION:
         return
@@ -2732,6 +2863,10 @@ CREATE TABLE IF NOT EXISTS shadow_evaluations (
     evaluated_at TEXT NOT NULL,
     perceptual_hash TEXT NOT NULL,
     candidate_labels_json TEXT NOT NULL,
+    candidate_probabilities_json TEXT NOT NULL,
+    classifier_route TEXT NOT NULL DEFAULT 'general'
+        CHECK (classifier_route IN ('general', 'print-specialist')),
+    classifier_route_score REAL,
     active_square_errors INTEGER NOT NULL,
     candidate_square_errors INTEGER NOT NULL,
     active_non_empty_errors INTEGER NOT NULL,

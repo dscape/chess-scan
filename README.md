@@ -92,7 +92,7 @@ Production runs an automatic learner against the same persistent volume:
 docker compose --profile learning up -d learner
 ```
 
-The learner waits for 100 initial consented boards, trains a supervised candidate, and runs the immutable official online, print-photo, Argus, and platform gates. A passing candidate remains hidden while it is compared with the active model on at least 40 later confirmations from diverse installations and diagrams. It is promoted only when it makes strictly fewer square errors without regressing exact boards or occupied squares. Rejected training batches are quarantined automatically; successful batches enter the accepted replay pool. Later cycles begin after 40 new boards.
+The learner waits for 100 initial consented boards, trains a supervised candidate, and runs the immutable official online, print-photo, Argus, and platform gates. A passing candidate remains hidden while it is compared with the active model on at least 40 later confirmations from eight diverse installations. Promotion requires fewer square errors with no exact-board, occupied-square, installation-grouped accuracy, per-class correct-square, macro-F1, per-class F1, or runtime-route regression. A routed specialist also needs at least ten routed boards from three installations. Candidate probabilities, visual route, and raw route score are retained for audit. Rejected training batches are quarantined automatically; successful batches enter the accepted replay pool. Later cycles begin after 40 new boards.
 
 The app checks the SQLite model registry on each scan and atomically reloads a newly promoted ONNX artifact without a redeploy. Model artifacts and lifecycle state remain in the persistent data volume across application deployments. Successful `main` CI dispatches the exact source SHA to `s46-infra`; the repository requires the `S46_INFRA_DISPATCH_TOKEN` Actions secret for that one-time deployment setup.
 
@@ -126,7 +126,7 @@ V5 fixes the reference workbook from 62/64 to 64/64 squares and stays exact acro
 
 Official source files are downloaded during training or QA and are not redistributed. V5 remains exact on all 267 reproducible online boards and every enforced print/photo gate, improves the Argus held-out sample from 4,495/4,500 to 4,496/4,500 without regressing any class, and improves synthetic replay from 19,378/19,500 to 19,382/19,500. The diagnosis and full gate comparison are recorded in [`docs/print-regression-v5.md`](docs/print-regression-v5.md).
 
-The inactive `chess-steps-v6` candidate preserves v5 byte-for-byte for ordinary boards and uses a visual-only diagonal-texture router for a separately hashed print specialist. Both the unchanged raw path and complete routed policy pass the fixed gates, including a new 12/12 diagonal-hatched print slice. Development replay improves 107 confirmations from 62 to 70 exact boards and cuts 174 square errors to 100, but those data are not fresh promotion evidence. V6 remains in shadow until at least 40 later boards from eight installations satisfy every promotion rule.
+The inactive `chess-steps-v6` candidate preserves v5 byte-for-byte for ordinary boards and uses a visual-only diagonal-texture router for a separately hashed print specialist. Both the unchanged raw path and complete routed policy pass the fixed gates, including a new 12/12 diagonal-hatched print slice. Development replay improves 107 confirmations from 62 to 70 exact boards and cuts 174 square errors to 100, but those data are not fresh promotion evidence; the disjoint grouped development slices tie v5. V6 remains in shadow until at least 40 later boards from eight installations, including ten specialist-routed boards from three installations, satisfy every promotion rule.
 
 ## Learning loop
 
@@ -146,6 +146,8 @@ uv run python scripts/export_feedback.py
 uv run python scripts/export_preferences.py
 uv run python scripts/export_review_feedback.py --rating unhelpful
 uv run python scripts/export_capture_diagnostics.py
+uv run python scripts/report_capture_quality.py # defaults to the active shadow cohort
+uv run python scripts/report_shadow_candidate.py
 uv run python scripts/adjudicate_review_feedback.py REVIEW_FEEDBACK_ID \
   --reviewer NAME --disposition approved_fix --notes REASON \
   --regression-fixture tests/test_review.py::TEST_NAME
@@ -157,7 +159,7 @@ uv run python scripts/start_shadow_candidate.py chess-steps-v6 \
 uv run python scripts/promote_model.py steps-YYYYMMDDHHMMSS --confirm
 ```
 
-See [`docs/learning-loop.md`](docs/learning-loop.md) for the distinction between supervised feedback, preference learning, RLHF, evaluation gates, and continuous deployment. The broader localized-corpus, photo-stress, and mobile-usability results are recorded in [`docs/qa-report.md`](docs/qa-report.md).
+See [`docs/learning-loop.md`](docs/learning-loop.md) for the distinction between supervised feedback, preference learning, RLHF, evaluation gates, and continuous deployment. [`docs/shadow-validation.md`](docs/shadow-validation.md) defines the staged real-device collection protocol for V6. The broader localized-corpus, photo-stress, and mobile-usability results are recorded in [`docs/qa-report.md`](docs/qa-report.md).
 
 ## Data handling
 

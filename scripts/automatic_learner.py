@@ -29,11 +29,15 @@ from chess_scan.learning import (
     MAX_SHADOW_BOARDS,
     MIN_SHADOW_BOARDS,
     MIN_SHADOW_CLIENTS,
+    MIN_SPECIALIST_SHADOW_BOARDS,
+    MIN_SPECIALIST_SHADOW_CLIENTS,
     NEW_TRAINING_BOARDS,
     compare_labels,
     diverse_shadow_rows,
+    has_routed_runtime_policy,
     perceptual_hash,
     promotion_decision,
+    requires_general_label_parity,
     summarize_shadow,
 )
 
@@ -100,6 +104,22 @@ def parse_args() -> argparse.Namespace:
         default=_env_int("CHESS_SCAN_LEARNER_MAX_BOARDS_PER_CLIENT", MAX_BOARDS_PER_CLIENT),
     )
     parser.add_argument(
+        "--min-specialist-shadow-boards",
+        type=int,
+        default=_env_int(
+            "CHESS_SCAN_LEARNER_MIN_SPECIALIST_SHADOW_BOARDS",
+            MIN_SPECIALIST_SHADOW_BOARDS,
+        ),
+    )
+    parser.add_argument(
+        "--min-specialist-shadow-clients",
+        type=int,
+        default=_env_int(
+            "CHESS_SCAN_LEARNER_MIN_SPECIALIST_SHADOW_CLIENTS",
+            MIN_SPECIALIST_SHADOW_CLIENTS,
+        ),
+    )
+    parser.add_argument(
         "--skip-fixed-qa",
         action="store_true",
         help="Development-only: skip all immutable model gates",
@@ -116,6 +136,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("training thresholds must be positive")
     if not 0 < args.min_shadow_boards <= args.max_shadow_boards:
         parser.error("shadow thresholds must be positive and ordered")
+    if args.min_specialist_shadow_boards <= 0 or args.min_specialist_shadow_clients <= 0:
+        parser.error("specialist shadow thresholds must be positive")
     return args
 
 
@@ -277,10 +299,13 @@ def evaluate_shadow(
         )
         return
     candidate = database.get_model(str(cycle["candidate_model_version"]))
+    baseline = database.get_model(str(cycle["base_model_version"]))
+    metadata = json.loads(str(candidate["metadata_json"]))
+    baseline_metadata = json.loads(str(baseline["metadata_json"]))
     classifier = load_runtime_classifier(
         Path(candidate["artifact_path"]),
         version=str(candidate["version"]),
-        metadata=json.loads(str(candidate["metadata_json"])),
+        metadata=metadata,
     )
     for row in database.shadow_examples(cycle_id):
         board = cv2.imread(str(row["rectified_image_path"]), cv2.IMREAD_COLOR)
@@ -288,13 +313,17 @@ def evaluate_shadow(
             continue
         expected = [int(value) for value in json.loads(row["final_labels_json"])]
         active = [int(value) for value in json.loads(row["predicted_labels_json"])]
-        prediction = classifier.predict(board)
+        runtime_prediction = classifier.predict_with_routing(board)
+        prediction = runtime_prediction.prediction
         comparison = compare_labels(active, prediction.labels, expected)
         database.record_shadow_evaluation(
             cycle_id=cycle_id,
             feedback_id=str(row["feedback_id"]),
             perceptual_hash=perceptual_hash(board),
             candidate_labels=prediction.labels,
+            candidate_probabilities=prediction.probabilities,
+            classifier_route=runtime_prediction.classifier_route,
+            classifier_route_score=runtime_prediction.classifier_route_score,
             active_square_errors=comparison.active_square_errors,
             candidate_square_errors=comparison.candidate_square_errors,
             active_non_empty_errors=comparison.active_non_empty_errors,
@@ -308,17 +337,41 @@ def evaluate_shadow(
         max_per_client=args.max_boards_per_client,
     )
     summary = summarize_shadow(diverse)
+    routed_policy = has_routed_runtime_policy(metadata)
+    require_general_parity = requires_general_label_parity(metadata, baseline_metadata)
     passed, reason = promotion_decision(
         summary,
         minimum_boards=args.min_shadow_boards,
         minimum_clients=args.min_shadow_clients,
+        minimum_specialist_boards=(args.min_specialist_shadow_boards if routed_policy else 0),
+        minimum_specialist_clients=(args.min_specialist_shadow_clients if routed_policy else 0),
+        require_general_label_parity=require_general_parity,
     )
     metrics = json.loads(str(cycle["metrics_json"]))
     metrics["shadow"] = summary.as_dict()
     metrics["shadow_decision"] = reason
+    metrics["shadow_requirements"] = {
+        "minimum_boards": args.min_shadow_boards,
+        "minimum_clients": args.min_shadow_clients,
+        "minimum_specialist_boards": (args.min_specialist_shadow_boards if routed_policy else 0),
+        "minimum_specialist_clients": (args.min_specialist_shadow_clients if routed_policy else 0),
+        "require_general_label_parity": require_general_parity,
+        "max_boards": args.max_shadow_boards,
+        "max_boards_per_client": args.max_boards_per_client,
+    }
+    specialist = summary.routes.get("print-specialist")
+    specialist_progress = ""
+    if routed_policy:
+        specialist_progress = (
+            f", {0 if specialist is None else specialist.boards}/"
+            f"{args.min_specialist_shadow_boards} specialist boards from "
+            f"{0 if specialist is None else specialist.clients}/"
+            f"{args.min_specialist_shadow_clients} clients"
+        )
     print(
         f"Shadow {cycle['candidate_model_version']}: {summary.boards}/"
-        f"{args.min_shadow_boards} diverse boards, {summary.clients} clients; {reason}"
+        f"{args.min_shadow_boards} diverse boards, {summary.clients} clients"
+        f"{specialist_progress}; {reason}"
     )
     if passed:
         version = database.promote_learning_cycle(cycle_id, reason=reason, metrics=metrics)

@@ -129,8 +129,23 @@ def test_runtime_router_uses_only_visual_hatching() -> None:
 
     assert directional_print_texture_score(plain) < 1
     assert directional_print_texture_score(hatched) > 5
-    assert router.predict_multiview(plain, [plain]).classifier_route == "general"
-    assert router.predict_multiview(hatched, [hatched]).classifier_route == "print-specialist"
+    plain_prediction = router.predict_with_routing(plain)
+    hatched_prediction = router.predict_with_routing(hatched)
+    assert plain_prediction.classifier_route == "general"
+    assert plain_prediction.classifier_route_score is not None
+    assert plain_prediction.classifier_route_score < 1
+    assert hatched_prediction.classifier_route == "print-specialist"
+    assert hatched_prediction.classifier_route_score is not None
+    assert hatched_prediction.classifier_route_score > 5
+    plain_multiview = router.predict_multiview(plain, [plain])
+    hatched_multiview = router.predict_multiview(hatched, [hatched])
+    assert plain_multiview.classifier_route == "general"
+    assert plain_multiview.classifier_route_score == plain_prediction.classifier_route_score
+    assert hatched_multiview.classifier_route == "print-specialist"
+    assert hatched_multiview.classifier_route_score == hatched_prediction.classifier_route_score
+    assert hatched_multiview.evidence()["classifier_route_score"] == (
+        hatched_prediction.classifier_route_score
+    )
 
 
 def test_view_consensus_cannot_replace_the_raw_center_labels(

@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: install dev dev-api dev-web test web-test lint format-check typecheck build check prepare-argus-data prepare-platform-data prepare-lichess-puzzles prepare-commentary prepare-commentary-shadow train-argus-recovery train-platform-model train-print-recovery qa-argus qa-platform qa-print qa-review qa-commentary qa-coaching qa-online qa-stress docker-build
+.PHONY: install dev dev-api dev-web test web-test lint format-check typecheck build check report-capture report-shadow prepare-argus-data prepare-platform-data prepare-lichess-puzzles prepare-commentary prepare-commentary-shadow train-argus-recovery train-platform-model train-print-recovery qa-argus qa-platform qa-print qa-review qa-commentary qa-coaching qa-online qa-stress docker-build
 
 install:
 	uv sync --extra dev
@@ -34,6 +34,12 @@ build:
 	cd web && npm run build
 
 check: lint format-check test web-test typecheck build
+
+report-capture:
+	uv run python scripts/report_capture_quality.py
+
+report-shadow:
+	uv run python scripts/report_shadow_candidate.py
 
 prepare-argus-data:
 	uv run python scripts/prepare_argus_training_data.py

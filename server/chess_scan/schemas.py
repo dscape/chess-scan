@@ -894,6 +894,12 @@ class LearningStatusResponse(BaseModel):
     learning_progress: int
     learning_target: int
     candidate_model: str | None
+    shadow_installations: int | None
+    shadow_installation_target: int | None
+    specialist_progress: int | None
+    specialist_target: int | None
+    specialist_installations: int | None
+    specialist_installation_target: int | None
 
 
 def _validate_annotation_evidence(
