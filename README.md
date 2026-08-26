@@ -75,7 +75,7 @@ The board pieces adapt [Chess Simple Assets](https://www.figma.com/community/fil
 
 ## Production
 
-The live camera uses a bounded fast detector and a continuous scan-readiness score built from board size, temporal and geometric stability, focus, glare, and visual prediction agreement. A large percentage and amber-to-green grid replace live piece guesses; automatic capture begins at a persisted Quick, Balanced, or Precise threshold, then takes three transient refinement frames. The UI stays live and reports four-frame progress; optical grid tracking or independent redetection gives every accepted frame its own geometry. The review reports how many submitted frames were usable. Readiness is a capture-quality estimate, never a claim that unconfirmed labels are correct. The unmodified center view remains the presented prediction; nearby crop and frame predictions provide auditable probabilities and stability evidence without changing labels. An unchecked diagnostic option can retain a short camera-only clip through the burst for 30 days after confirmation; it never records audio or the browser screen. See [`docs/camera-scanner.md`](docs/camera-scanner.md) for the pipeline, privacy contract, and replay export.
+The live camera uses a bounded fast detector and a continuous scan-readiness score built from board size, temporal and geometric stability, focus, glare, and visual prediction agreement. A large percentage and amber-to-green grid replace live piece guesses; automatic capture begins at a persisted Quick, Balanced, or Precise threshold, then takes three transient refinement frames. The UI stays live and reports four-frame progress; optical grid tracking or independent redetection gives every accepted frame its own geometry. The review reports how many submitted frames were usable. Readiness is a capture-quality estimate, never a claim that unconfirmed labels are correct. The unmodified center view remains the presented prediction; nearby crop and frame predictions provide auditable probabilities and stability evidence without changing labels. A single off-by-default **Share clip** control beside the capture threshold and **Photos** options governs both training-crop retention and an optional camera-only diagnostic; an explicit yes persists in that browser and can be turned off there. The clip never records audio or the browser screen and expires after 30 days. See the in-app [`data policy`](https://chess.s46.dev/data-policy) and [`docs/camera-scanner.md`](docs/camera-scanner.md) for the complete data contract.
 
 The Docker image builds the React frontend and serves it from FastAPI:
 
@@ -164,9 +164,11 @@ See [`docs/learning-loop.md`](docs/learning-loop.md) for the distinction between
 ## Data handling
 
 - Low-resolution live detection frames and supplemental glare-reduction frames are processed transiently and never written to storage.
-- Optional camera diagnostics are separately consented, contain no audio or screen capture, upload only after confirmation, and expire after 30 days.
+- Data sharing is off by default and becomes a persisted browser preference only after an explicit press of **Share clip**.
+- The one sharing choice allows a confirmed rectified crop to enter training and, from a supported live camera, allows a camera-only diagnostic to upload after confirmation.
+- Camera diagnostics contain no audio or screen capture and expire after 30 days.
 - Final full photographs are deleted after confirmation or after 24 hours.
-- Confirmed rectified board crops are retained only when training consent is enabled.
+- Confirmed rectified board crops are retained only when the sharing choice was enabled for that scan.
 - Every feedback event records the model version that made the prediction.
 - Models are immutable and can be rolled back by changing the active registry entry.
 

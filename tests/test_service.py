@@ -17,10 +17,17 @@ from chess_scan.database import Database
 from chess_scan.errors import ScanExpiredError, StoredDataIntegrityError
 from chess_scan.schemas import (
     CaptureDiagnosticMetadata,
+    ConfirmRequest,
     PositionAttemptRequest,
     PositionReviewRequest,
 )
 from chess_scan.service import ScannerService
+
+
+def test_training_consent_defaults_off() -> None:
+    request = ConfirmRequest(labels=[0] * 64)
+
+    assert request.consent_training is False
 
 
 def test_detect_requests_manual_adjustment_for_an_image_without_a_grid(tmp_path: Path) -> None:

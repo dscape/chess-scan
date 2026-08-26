@@ -28,13 +28,13 @@ Before recruiting the complete cohort, one operator should submit three distinct
 For each position:
 
 1. Open `https://chess.s46.dev` on the phone; do not select an existing photo.
-2. Optionally enable **Share a short camera diagnostic** before opening the camera. It records only the camera, never audio or the browser screen, and expires automatically.
+2. In the camera controls, optionally press **Share clip** beside the threshold and **Photos** options. The single opt-in also permits the corrected board crop to enter training, persists for later scans in that browser, and links to the full data policy. The clip records only the camera, never audio or the browser screen, and expires automatically.
 3. Keep the intended diagram dominant in the frame and watch **scan readiness** rise. Verify that the tracked grid surrounds the intended diagram; the percentage estimates capture quality, not label accuracy.
 4. Let automatic capture start at the selected Quick, Balanced, or Precise threshold, then hold still through all four progress marks.
 5. Record the selected threshold and displayed usable-frame count. Retake if the target is wrong or the image is visibly blurred.
 6. Correct every wrong square rather than accepting a plausible-looking position.
 7. Choose the actual board orientation and side to move.
-8. Enable training consent and confirm the position.
+8. Confirm the position. There is no second training-consent control; the **Share clip** choice from step 2 governs both retained training crops and camera diagnostics.
 9. Do not submit the same page or diagram twice.
 
 After these three confirmations, stop collection. Run the learner once and inspect:

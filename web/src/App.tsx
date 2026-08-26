@@ -17,7 +17,9 @@ import { minimumBoardEdge } from "./camera";
 import BoardEditor from "./components/BoardEditor";
 import CapturePanel from "./components/CapturePanel";
 import CornerEditor from "./components/CornerEditor";
+import DataPolicy from "./components/DataPolicy";
 import PositionReview from "./components/PositionReview";
+import { loadDataSharingConsent } from "./dataSharing";
 import type {
   AppCapabilities,
   CameraCapture,
@@ -35,6 +37,7 @@ const BLUR_WARNING_SHARPNESS_SCORE = 20;
 type BusyAction = "scan" | "reprocess" | "confirm" | null;
 type AppRoute =
   | { page: "home"; error?: string }
+  | { page: "data-policy" }
   | { page: "scan"; scanId: string }
   | { page: "review"; feedbackId: string };
 
@@ -73,7 +76,7 @@ export default function App() {
   const [orientation, setOrientation] = useState<Orientation | null>(null);
   const [sideToMove, setSideToMove] = useState<SideToMove | null>(null);
   const [castlingRights, setCastlingRights] = useState<string[]>([]);
-  const [consentTraining, setConsentTraining] = useState(true);
+  const [consentTraining, setConsentTraining] = useState(false);
   const [busy, setBusy] = useState<BusyAction>(null);
   const [error, setError] = useState<string | null>(null);
   const [reviewPosition, setReviewPosition] = useState<ReviewedPosition | null>(null);
@@ -100,9 +103,9 @@ export default function App() {
 
   useEffect(() => {
     const generation = ++requestGeneration.current;
-    if (route.page === "home") {
+    if (route.page === "home" || route.page === "data-policy") {
       clearBoard();
-      setError(route.error ?? null);
+      setError(route.page === "home" ? route.error ?? null : null);
       setRouteLoadError(null);
       return;
     }
@@ -278,6 +281,7 @@ export default function App() {
       );
       if (generation !== requestGeneration.current) return false;
       applyScan(result);
+      setConsentTraining(capture.consentTraining);
       const scanRoundTripMs = Math.max(0, Math.round(performance.now() - started));
       setPendingDiagnostic({
         requested: capture.diagnosticRequested,
@@ -323,7 +327,9 @@ export default function App() {
     setOrientation(draft?.orientation ?? null);
     setSideToMove(draft?.sideToMove ?? null);
     setCastlingRights(draft?.castlingRights ?? []);
-    setConsentTraining(draft?.consentTraining ?? true);
+    setConsentTraining(
+      draft?.consentTraining ?? loadDataSharingConsent(browserStorage()),
+    );
     setGeometryOpen(draft?.geometryOpen ?? false);
     setGeometryMounted(draft?.geometryOpen ?? false);
   }
@@ -425,7 +431,7 @@ export default function App() {
     setOrientation(null);
     setSideToMove(null);
     setCastlingRights([]);
-    setConsentTraining(true);
+    setConsentTraining(false);
     setReviewPosition(null);
     setPendingDiagnostic(null);
     setDiagnosticError(null);
@@ -561,7 +567,12 @@ export default function App() {
         </div>
       )}
 
-      {routeLoading ? (
+      {route.page === "data-policy" ? (
+        <DataPolicy
+          diagnosticRetentionDays={capabilities.capture_diagnostic_retention_days}
+          onBack={() => navigate({ page: "home" })}
+        />
+      ) : routeLoading ? (
         <main
           className="route-loading"
           aria-live={routeLoadError ? "assertive" : "polite"}
@@ -762,14 +773,6 @@ export default function App() {
             </div>
           </section>
 
-          <label className="consent-row">
-            <input type="checkbox" checked={consentTraining} onChange={(event) => setConsentTraining(event.target.checked)} />
-            <span>
-              <strong>Help the scanner learn from this board</strong>
-              Only the rectified diagram, prediction, and final labels are retained for training—not the full photograph.
-            </span>
-          </label>
-
           <footer className="review-actions">
             <button type="button" className="text-button" disabled={busy !== null} onClick={reset}>Start over</button>
             <button type="button" className="primary-button analyse-button" disabled={busy !== null || !positionCanBeConfirmed} onClick={handleConfirm}>
@@ -803,9 +806,11 @@ function useAppRoute(): [AppRoute, (route: AppRoute, replace?: boolean) => void]
   function navigate(nextRoute: AppRoute, replace = false) {
     const path = nextRoute.page === "home"
       ? "/"
-      : nextRoute.page === "scan"
-        ? `/scans/${encodeURIComponent(nextRoute.scanId)}`
-        : `/reviews/${encodeURIComponent(nextRoute.feedbackId)}`;
+      : nextRoute.page === "data-policy"
+        ? "/data-policy"
+        : nextRoute.page === "scan"
+          ? `/scans/${encodeURIComponent(nextRoute.scanId)}`
+          : `/reviews/${encodeURIComponent(nextRoute.feedbackId)}`;
     window.history[replace ? "replaceState" : "pushState"](null, "", path);
     setRoute(nextRoute);
   }
@@ -814,6 +819,7 @@ function useAppRoute(): [AppRoute, (route: AppRoute, replace?: boolean) => void]
 }
 
 function routeFromPath(pathname: string): AppRoute {
+  if (/^\/data-policy\/?$/.test(pathname)) return { page: "data-policy" };
   const reviewMatch = pathname.match(/^\/reviews\/([^/]+)\/?$/);
   const scanMatch = pathname.match(/^\/scans\/([^/]+)\/?$/);
   try {
@@ -890,6 +896,14 @@ function isCorners(value: unknown): value is Point[] {
       && point.length === 2
       && point.every((coordinate) => typeof coordinate === "number" && Number.isFinite(coordinate))
     );
+}
+
+function browserStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 }
 
 function getClientSessionId(): string {

@@ -60,16 +60,23 @@ type CameraPhase =
   | "error";
 
 interface LiveCameraProps {
-  diagnosticsEnabled: boolean;
+  dataSharingEnabled: boolean;
+  diagnosticsAvailable: boolean;
+  diagnosticRetentionDays: number;
+  onDataSharingChange: (enabled: boolean) => void;
   onCapture: (capture: CameraCapture) => Promise<boolean>;
   onCancel: () => void;
 }
 
 export default function LiveCamera({
-  diagnosticsEnabled,
+  dataSharingEnabled,
+  diagnosticsAvailable,
+  diagnosticRetentionDays,
+  onDataSharingChange,
   onCapture,
   onCancel,
 }: LiveCameraProps) {
+  const diagnosticsEnabled = dataSharingEnabled && diagnosticsAvailable;
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recordingRef = useRef<DiagnosticRecording | null>(null);
@@ -78,6 +85,8 @@ export default function LiveCamera({
   const stoppedRef = useRef(false);
   const lockedRef = useRef(false);
   const onCaptureRef = useRef(onCapture);
+  const dataSharingEnabledRef = useRef(dataSharingEnabled);
+  const diagnosticsEnabledRef = useRef(diagnosticsEnabled);
   const detectionAttemptsRef = useRef(0);
   const missedDetectionsRef = useRef(0);
   const previewRoundTripRef = useRef<number | null>(null);
@@ -99,9 +108,22 @@ export default function LiveCamera({
   const [readiness, setReadiness] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
+  dataSharingEnabledRef.current = dataSharingEnabled;
+  diagnosticsEnabledRef.current = diagnosticsEnabled;
+
   useEffect(() => {
     onCaptureRef.current = onCapture;
   }, [onCapture]);
+
+  useEffect(() => {
+    if (diagnosticsEnabled) {
+      startDiagnosticIfPossible();
+      return;
+    }
+    recordingRef.current?.discard();
+    recordingRef.current = null;
+    setDiagnosticActive(false);
+  }, [diagnosticsEnabled]);
 
   useEffect(() => {
     autoCaptureModeRef.current = autoCaptureMode;
@@ -153,10 +175,7 @@ export default function LiveCamera({
         if (streamRef.current === stream) streamRef.current = null;
         return;
       }
-      if (diagnosticsEnabled) {
-        recordingRef.current = startDiagnosticRecording(stream);
-        setDiagnosticActive(recordingRef.current !== null);
-      }
+      startDiagnosticIfPossible();
       setPhase("searching");
       scheduleDetection(60);
     } catch (cause) {
@@ -300,6 +319,7 @@ export default function LiveCamera({
       lockedRef.current = false;
       recordingRef.current?.discard();
       recordingRef.current = null;
+      setDiagnosticActive(false);
       stopStream();
       setCameraError("The frame could not be captured. Close and try again, or choose a photo.");
     }
@@ -320,6 +340,7 @@ export default function LiveCamera({
     );
     const recordedPromise = recordingRef.current?.stop() ?? Promise.resolve(null);
     recordingRef.current = null;
+    setDiagnosticActive(false);
     const primaryBlob = await primaryBlobPromise;
     if (stoppedRef.current) return;
     setLockedFrameUrl(URL.createObjectURL(primaryBlob));
@@ -350,8 +371,9 @@ export default function LiveCamera({
         detection_attempts: detectionAttemptsRef.current,
         missed_detections: missedDetectionsRef.current,
       },
+      consentTraining: dataSharingEnabledRef.current,
       diagnostic,
-      diagnosticRequested: diagnosticsEnabled,
+      diagnosticRequested: diagnosticsEnabledRef.current,
     });
     if (!accepted && !stoppedRef.current) {
       setCameraError("This frame could not be read. Close the camera and try again.");
@@ -389,6 +411,14 @@ export default function LiveCamera({
     };
   }
 
+  function startDiagnosticIfPossible() {
+    if (!diagnosticsEnabledRef.current || recordingRef.current || lockedRef.current) return;
+    const stream = streamRef.current;
+    if (!stream) return;
+    recordingRef.current = startDiagnosticRecording(stream);
+    setDiagnosticActive(recordingRef.current !== null);
+  }
+
   function stopStream() {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
@@ -423,6 +453,19 @@ export default function LiveCamera({
     saveAutoCaptureMode(browserStorage(), mode);
   }
 
+  function chooseDataSharing(enabled: boolean) {
+    dataSharingEnabledRef.current = enabled;
+    diagnosticsEnabledRef.current = enabled && diagnosticsAvailable;
+    if (diagnosticsEnabledRef.current) {
+      startDiagnosticIfPossible();
+    } else {
+      recordingRef.current?.discard();
+      recordingRef.current = null;
+      setDiagnosticActive(false);
+    }
+    onDataSharingChange(enabled);
+  }
+
   function resetCaptureReadiness() {
     previousCornersRef.current = null;
     previousLabelsRef.current = null;
@@ -438,6 +481,7 @@ export default function LiveCamera({
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
     recordingRef.current?.discard();
     recordingRef.current = null;
+    setDiagnosticActive(false);
     stopStream();
   }
 
@@ -451,6 +495,7 @@ export default function LiveCamera({
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
     const recorded = recordingRef.current?.stop() ?? Promise.resolve(null);
     recordingRef.current = null;
+    setDiagnosticActive(false);
     photoDiagnosticRef.current = recorded.then((result) => result
       ? buildCaptureDiagnostic(result, detection, "photo_fallback", 0)
       : null);
@@ -462,8 +507,9 @@ export default function LiveCamera({
     void onCaptureRef.current({
       image: file,
       supplementalImages: [],
+      consentTraining: dataSharingEnabledRef.current,
       diagnostic: photoDiagnosticRef.current ?? Promise.resolve(null),
-      diagnosticRequested: diagnosticsEnabled,
+      diagnosticRequested: diagnosticsEnabledRef.current,
     });
     onCancel();
   }
@@ -527,14 +573,22 @@ export default function LiveCamera({
               ))}
             </div>
           </div>
-          <PhotoPicker
-            className="camera-photo-button"
-            onOpen={openPhotoPicker}
-            onCancel={cancel}
-            onPhoto={choosePhoto}
-          >
-            Photos
-          </PhotoPicker>
+          <div className="camera-secondary-controls">
+            <DataSharingOption
+              enabled={dataSharingEnabled}
+              available={diagnosticsAvailable}
+              retentionDays={diagnosticRetentionDays}
+              onChange={chooseDataSharing}
+            />
+            <PhotoPicker
+              className="camera-photo-button"
+              onOpen={openPhotoPicker}
+              onCancel={cancel}
+              onPhoto={choosePhoto}
+            >
+              Photos
+            </PhotoPicker>
+          </div>
         </div>
       )}
       <div className="live-camera__feedback" aria-live="polite">
@@ -560,17 +614,69 @@ export default function LiveCamera({
       {phase === "error" && (
         <div className="live-camera__error">
           <p>{error}</p>
-          <PhotoPicker
-            className="camera-fallback-button"
-            onOpen={openPhotoPicker}
-            onCancel={cancel}
-            onPhoto={choosePhoto}
-          >
-            Choose a photo
-          </PhotoPicker>
+          <div className="camera-error-actions">
+            <DataSharingOption
+              enabled={dataSharingEnabled}
+              available={false}
+              retentionDays={diagnosticRetentionDays}
+              onChange={chooseDataSharing}
+            />
+            <PhotoPicker
+              className="camera-fallback-button"
+              onOpen={openPhotoPicker}
+              onCancel={cancel}
+              onPhoto={choosePhoto}
+            >
+              Choose a photo
+            </PhotoPicker>
+          </div>
         </div>
       )}
     </section>
+  );
+}
+
+function DataSharingOption({
+  enabled,
+  available,
+  retentionDays,
+  onChange,
+}: {
+  enabled: boolean;
+  available: boolean;
+  retentionDays: number;
+  onChange: (enabled: boolean) => void;
+}) {
+  return (
+    <div className="camera-data-option">
+      <button
+        type="button"
+        className={enabled ? "is-active" : ""}
+        aria-pressed={enabled}
+        aria-label={`Share a short camera diagnostic and corrected board: ${enabled ? "on" : "off"}`}
+        disabled={!available && !enabled}
+        title={enabled
+          ? "Turn off sharing for future boards"
+          : available
+            ? `After you save, share a camera-only clip for up to 10 seconds. It is deleted after ${retentionDays} days.`
+            : "Short camera diagnostics are not available."}
+        onClick={() => onChange(!enabled)}
+      >
+        <i aria-hidden="true" />
+        <span>
+          <strong>Share clip</strong>
+          <small>{enabled ? "On" : available ? "Off" : "N/A"}</small>
+        </span>
+      </button>
+      <a
+        href="/data-policy"
+        target="_blank"
+        rel="noreferrer"
+        aria-label="Read the data-use policy in a new tab"
+      >
+        Policy
+      </a>
+    </div>
   );
 }
 

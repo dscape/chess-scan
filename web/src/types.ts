@@ -80,6 +80,7 @@ export interface CameraCapture {
   geometry?: CaptureGeometry;
   supplementalImages: File[];
   readiness?: CaptureReadinessContext;
+  consentTraining: boolean;
   diagnostic: Promise<CaptureDiagnostic | null>;
   diagnosticRequested: boolean;
 }

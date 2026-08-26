@@ -33,9 +33,11 @@ Frame composition can recover a square when hand movement shifts glare or one fr
 
 A retrospective 98-board production replay found that averaging ±2-pixel whole-board shifts improved photographed-workbook exact matches from 62 to 73, but reduced held-out platform exact matches from 987 to 610 clean boards and from 980 to 657 camera variants out of 996. The average therefore remains evidence only and never replaces the raw center result. Runtime-policy evaluation must pass the same full platform gates as model weights before any future postprocessing can change labels. The 9–13 CPU evidence views add roughly 100–150 ms locally after frame composition. ONNX calls are capped at nine boards so activation memory stays bounded as supplemental frames are added.
 
-## Opt-in camera diagnostics
+## Opt-in data sharing and camera diagnostics
 
-The capture screen offers a separate, unchecked **Share a short camera diagnostic** option. It records only the camera stream:
+The live camera places one compact **Share clip** control beside the Quick/Balanced/Precise threshold and **Photos** options. Sharing is off by default; pressing the control is the explicit opt-in, and the choice persists in local browser storage until it is turned off from the same control. The adjacent **Policy** link opens `/data-policy` without closing the camera.
+
+That one choice replaces the former separate camera and training checkboxes. After confirmation it permits the perspective-rectified board crop, prediction, and corrected labels to be retained for supervised training and held-out evaluation. From a supported live camera it also permits a short recording of only the camera stream:
 
 - no microphone track;
 - no browser screen or other applications;
@@ -44,7 +46,9 @@ The capture screen offers a separate, unchecked **Share a short camera diagnosti
 - uploaded only after the learner confirms the position; and
 - deleted automatically after 30 days by default.
 
-Abandoned scans never upload their in-memory recording. A recording starts with the camera and automatic capture normally leaves room for the complete visible four-frame burst within the ten-second privacy cap. If live detection fails and the learner switches to **Photos**, the opted-in camera clip follows that photo through confirmation so the failure still has corrected labels. Each confirmed position can store at most one diagnostic, bounded to 8 MB. The app checks an exact supported video MIME type before enabling consent, includes Safari H.264 MP4 support, waits for the post-confirmation upload, and reports recording or upload failure instead of silently dropping it. Recordings are not publicly served and are not consumed automatically by model training. The immutable diagnostic record includes a content hash, bounded browser user-agent, capture timings, glare count, sharpness, and camera dimensions; its confirmed-feedback link supplies the model version, raw prediction, and final corrected labels during export. This makes the clip useful for replaying geometry and latency failures without conflating it with supervised training consent.
+Abandoned scans never upload their in-memory recording. Enabling sharing while the camera is already open starts recording from that point; turning it off discards the in-memory clip. Automatic capture normally leaves room for the complete visible four-frame burst within the ten-second privacy cap. If live detection fails and the learner switches to **Photos**, a started clip follows that photo through confirmation so the failure still has corrected labels. Choosing an existing photo without a live camera cannot produce a clip, but a previously enabled preference still governs training-crop retention.
+
+Each confirmed position can store at most one diagnostic, bounded to 8 MB. The app checks an exact supported video MIME type, including Safari H.264 MP4 support, waits for the post-confirmation upload, and reports recording or upload failure instead of silently dropping it. Recordings are not publicly served and are not consumed automatically by model training. The immutable diagnostic record includes a content hash, bounded browser user-agent, capture timings, glare count, sharpness, and camera dimensions; its confirmed-feedback link supplies the model version, raw prediction, and final corrected labels during export. This makes the clip useful for replaying geometry and latency failures while the rectified crop supplies the separately bounded training input.
 
 Operators can disable collection or shorten retention:
 

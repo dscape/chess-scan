@@ -18,7 +18,7 @@ Every confirmation stores:
 
 - immutable feedback id and timestamp
 - model version
-- rectified board crop
+- rectified board crop when data sharing was enabled
 - presented 64 raw center labels and probabilities
 - per-frame/per-crop labels, mean probabilities, and agreement evidence
 - final 64 image-order labels
@@ -137,4 +137,4 @@ At 99% independent square accuracy, expected board exact match is only about `0.
 
 ## Privacy
 
-Low-resolution live camera frames and the adjacent frames used for glare reduction are processed transiently and are never written to disk. The final full photograph may contain people, handwriting, and location metadata; it is temporary and deleted after confirmation. A separate unchecked camera-diagnostic consent may retain up to ten seconds of camera-only video for scanner replay, never audio or screen capture; it is not training input and expires after 30 days. The training corpus stores only the perspective-rectified diagram crop, prediction, and labels when training consent is enabled. See [`camera-scanner.md`](camera-scanner.md) and the staged [`shadow-validation.md`](shadow-validation.md) collection protocol.
+Low-resolution live camera frames and the adjacent frames used for glare reduction are processed transiently and are never written to disk. The final full photograph may contain people, handwriting, and location metadata; it is temporary and deleted after confirmation. Data sharing is off by default and becomes a persisted browser preference only after the learner presses **Share clip** in the live-camera controls. That one choice allows the perspective-rectified diagram crop, prediction, and labels to enter training and, on a supported live camera, may retain up to ten seconds of camera-only video for scanner replay. The clip never includes audio or screen capture, is not automatic training input, and expires after 30 days. The full in-app policy is served at `/data-policy`; see [`camera-scanner.md`](camera-scanner.md) and the staged [`shadow-validation.md`](shadow-validation.md) collection protocol.

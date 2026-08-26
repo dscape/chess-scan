@@ -80,7 +80,7 @@ class PositionStateRequest(BaseModel):
 class ConfirmRequest(PositionStateRequest):
     orientation: Literal["white", "black"] = "white"
     side_to_move: Literal["w", "b"] = "w"
-    consent_training: bool = True
+    consent_training: bool = False
     client_session_id: str | None = Field(default=None, max_length=120)
 
 

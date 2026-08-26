@@ -1,5 +1,9 @@
 import { useState } from "react";
 import { diagnosticRecordingSupported } from "../cameraDiagnostic";
+import {
+  loadDataSharingConsent,
+  saveDataSharingConsent,
+} from "../dataSharing";
 import type { CameraCapture } from "../types";
 import LiveCamera from "./LiveCamera";
 import PhotoPicker from "./PhotoPicker";
@@ -18,14 +22,24 @@ export default function CapturePanel({
   onCapture,
 }: CapturePanelProps) {
   const [cameraOpen, setCameraOpen] = useState(false);
-  const [shareDiagnostic, setShareDiagnostic] = useState(false);
+  const [dataSharingEnabled, setDataSharingEnabled] = useState(() =>
+    loadDataSharingConsent(browserStorage()),
+  );
   const diagnosticAvailable = captureDiagnosticsEnabled && diagnosticRecordingSupported();
+
+  function updateDataSharing(enabled: boolean) {
+    setDataSharingEnabled(enabled);
+    saveDataSharingConsent(browserStorage(), enabled);
+  }
 
   if (cameraOpen) {
     return (
       <main className="camera-shell">
         <LiveCamera
-          diagnosticsEnabled={shareDiagnostic && diagnosticAvailable}
+          dataSharingEnabled={dataSharingEnabled}
+          diagnosticsAvailable={diagnosticAvailable}
+          diagnosticRetentionDays={diagnosticRetentionDays}
+          onDataSharingChange={updateDataSharing}
           onCapture={async (capture) => {
             const accepted = await onCapture(capture);
             if (accepted) setCameraOpen(false);
@@ -66,22 +80,6 @@ export default function CapturePanel({
               Fill the frame, keep the page flat, and include the black turn dot
               if present.
             </p>
-            <label className={`capture-diagnostic-option${shareDiagnostic ? " is-selected" : ""}`}>
-              <input
-                type="checkbox"
-                checked={shareDiagnostic}
-                disabled={busy || !diagnosticAvailable}
-                onChange={(event) => setShareDiagnostic(event.target.checked)}
-              />
-              <span>
-                <strong>Share a short camera diagnostic</strong>
-                {diagnosticAvailable
-                  ? `Camera only—no audio or screen. The clip and browser/timing details upload after you save; deleted after ${diagnosticRetentionDays} days.`
-                  : captureDiagnosticsEnabled
-                    ? "Diagnostic recording is not supported by this browser."
-                    : "Diagnostic recording is not available on this deployment."}
-              </span>
-            </label>
           </div>
         </div>
         <button
@@ -98,6 +96,7 @@ export default function CapturePanel({
           onPhoto={(file) => void onCapture({
             image: file,
             supplementalImages: [],
+            consentTraining: dataSharingEnabled,
             diagnostic: Promise.resolve(null),
             diagnosticRequested: false,
           })}
@@ -107,4 +106,12 @@ export default function CapturePanel({
       </section>
     </main>
   );
+}
+
+function browserStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 }
