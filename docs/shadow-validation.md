@@ -47,10 +47,20 @@ make report-shadow
 
 The pilot is acceptable when all three automatic captures target the intended board, readiness progresses without amber/green flashing, the diagnostic (when enabled) covers the complete burst, most bursts retain at least three frames, and no new systematic geometry or focus failure appears. Exact model accuracy is reported but is not a pilot pass/fail criterion at only three boards.
 
+### First-installation audit · 26 August 2026
+
+Nine post-shadow confirmations from one installation have now been evaluated. Every burst retained all four frames, the five captures made after readiness auto-capture deployed crossed their selected threshold, and the diagnostics showed the intended target through the complete burst. No geometry, glare, or frame-acceptance fix is indicated by this batch.
+
+Only five boards are promotion-eligible because one installation is capped at five. On that official subset, V5 has 25 square errors and two exact boards while V6 has 21 errors and three exact boards; V6's general route has exact label parity and the current paired metric checks pass. Promotion is still blocked on 35 more diverse boards, seven more installations, nine more specialist-routed boards, and two more specialist installations.
+
+All nine rows are also reported as a non-promotional diagnostic. They show V5 at 54 errors and three exact boards versus V6 at 47 errors and four exact boards, but expose fewer correct white bishops, black knights, and black bishops under V6. Those over-cap rows cannot qualify or disqualify the candidate by themselves, but the class regressions are a reason not to promote early.
+
+A development-only specialist fine-tune used a capped 11-board route-positive selection and passed the fixed online, photo, platform, and photographed-print checks. It reduced errors on that selected set from 24 to 6, but regressed a separate five-board route-positive holdout from five exact boards to four and from zero errors to two. The experiment and its artifacts were rejected and deleted. V6 remains unchanged.
+
 ## Full cohort
 
 Only after the pilot passes should collection expand. Recruit at least seven additional installations. Each installation should contribute up to five distinct diagrams, with at least three installations contributing genuine diagonal-hatched print. Include ordinary print, screens, varied phones, lighting, modest perspective, and realistic glare so the router is tested on both positives and hard negatives.
 
 Do not coach contributors to accept V5's suggestion, manufacture corrections, repeat one page, or optimize toward a desired V6 result. The final labels must reflect only the photographed diagram.
 
-At 10, 20, and 40 diverse boards, inspect the aggregate reports for capture regressions and data-quality problems without changing V6. Promotion remains automatic only after the full gate passes; otherwise the candidate continues to 120 boards or is rejected.
+At 10, 20, and 40 diverse boards, inspect the aggregate reports for capture regressions and data-quality problems without changing V6. The shadow report separates the capped, deduplicated promotion summary from an explicitly non-promotional summary of every evaluated board. Over-cap boards cannot help a candidate qualify, but their aggregate diagnostic can still expose a class or route regression that warrants caution. Promotion remains automatic only after the full gate passes; otherwise the candidate continues to 120 boards or is rejected.

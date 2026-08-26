@@ -39,17 +39,27 @@ def main() -> None:
     baseline_metadata = json.loads(str(baseline["metadata_json"]))
     routed_policy = has_routed_runtime_policy(metadata)
     require_general_parity = requires_general_label_parity(metadata, baseline_metadata)
+    evaluated_rows = database.shadow_evaluations(str(cycle["id"]))
     rows = diverse_shadow_rows(
-        database.shadow_evaluations(str(cycle["id"])),
+        evaluated_rows,
         max_per_client=MAX_BOARDS_PER_CLIENT,
     )
     summary = summarize_shadow(rows)
+    evaluated_summary = summarize_shadow(evaluated_rows)
     passed, reason = promotion_decision(
         summary,
         minimum_boards=MIN_SHADOW_BOARDS,
         minimum_clients=MIN_SHADOW_CLIENTS,
         minimum_specialist_boards=(MIN_SPECIALIST_SHADOW_BOARDS if routed_policy else 0),
         minimum_specialist_clients=(MIN_SPECIALIST_SHADOW_CLIENTS if routed_policy else 0),
+        require_general_label_parity=require_general_parity,
+    )
+    diagnostic_passed, diagnostic_reason = promotion_decision(
+        evaluated_summary,
+        minimum_boards=0,
+        minimum_clients=0,
+        minimum_specialist_boards=0,
+        minimum_specialist_clients=0,
         require_general_label_parity=require_general_parity,
     )
     scores = [
@@ -64,6 +74,8 @@ def main() -> None:
         "shadow_started_at": str(cycle["shadow_started_at"]),
         "eligible_now": passed,
         "decision": reason,
+        "evaluated_boards": len(evaluated_rows),
+        "excluded_from_promotion": len(evaluated_rows) - len(rows),
         "route_score": (
             {
                 "count": len(scores),
@@ -75,6 +87,12 @@ def main() -> None:
             else None
         ),
         "summary": summary.as_dict(),
+        "all_evaluated_diagnostic": {
+            "promotion_evidence": False,
+            "passed_current_metric_checks": diagnostic_passed,
+            "decision": diagnostic_reason,
+            "summary": evaluated_summary.as_dict(),
+        },
     }
     rendered = json.dumps(payload, indent=2, sort_keys=True)
     if args.output is not None:
