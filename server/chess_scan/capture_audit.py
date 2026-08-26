@@ -21,6 +21,10 @@ def summarize_confirmed_captures(rows: list[dict[str, Any]]) -> dict[str, Any]:
     under_three_usable_boards = 0
     accepted_histogram: Counter[int] = Counter()
     rejection_reasons: Counter[str] = Counter()
+    auto_capture_modes: Counter[str] = Counter()
+    readiness_scores: list[float] = []
+    readiness_attempts: list[float] = []
+    readiness_misses = 0
     routes: Counter[str] = Counter()
     route_scores: list[float] = []
     sharpness_scores: list[float] = []
@@ -57,6 +61,20 @@ def summarize_confirmed_captures(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 for frame in rejected:
                     if isinstance(frame, dict) and isinstance(frame.get("reason"), str):
                         rejection_reasons[str(frame["reason"])] += 1
+            readiness = capture.get("readiness")
+            if isinstance(readiness, dict):
+                mode = readiness.get("auto_capture_mode")
+                if mode in {"quick", "balanced", "precise"}:
+                    auto_capture_modes[str(mode)] += 1
+                score = readiness.get("readiness_score")
+                if isinstance(score, int | float) and not isinstance(score, bool):
+                    readiness_scores.append(float(score))
+                attempts = readiness.get("detection_attempts")
+                if isinstance(attempts, int) and not isinstance(attempts, bool):
+                    readiness_attempts.append(float(attempts))
+                misses = readiness.get("missed_detections")
+                if isinstance(misses, int) and not isinstance(misses, bool):
+                    readiness_misses += misses
         if submitted > 1:
             burst_boards += 1
             submitted_frames += submitted
@@ -93,6 +111,11 @@ def summarize_confirmed_captures(rows: list[dict[str, Any]]) -> dict[str, Any]:
             str(count): boards for count, boards in sorted(accepted_histogram.items())
         },
         "rejection_reasons": dict(sorted(rejection_reasons.items())),
+        "auto_capture_boards": sum(auto_capture_modes.values()),
+        "auto_capture_modes": dict(sorted(auto_capture_modes.items())),
+        "capture_readiness": _distribution(readiness_scores),
+        "readiness_detection_attempts": _distribution(readiness_attempts),
+        "readiness_missed_detections": readiness_misses,
         "classifier_routes": dict(sorted(routes.items())),
         "route_score": _distribution(route_scores),
         "sharpness_score": _distribution(sharpness_scores),

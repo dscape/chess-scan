@@ -36,6 +36,7 @@ from chess_scan.schemas import (
     BoardDetectionResponse,
     CaptureDiagnosticMetadata,
     CaptureDiagnosticResponse,
+    CaptureReadinessContext,
     ConfirmRequest,
     ConfirmResponse,
     LearningStatusResponse,
@@ -181,6 +182,7 @@ def _register_api_routes(application: FastAPI) -> None:
         ] = None,
         corners: Annotated[str | None, Form()] = None,
         detection_method: Annotated[str | None, Form()] = None,
+        capture_readiness: Annotated[str | None, Form()] = None,
     ) -> ScanResponse:
         settings: Settings = request.app.state.settings
         payload = await image.read(settings.max_upload_bytes + 1)
@@ -206,6 +208,7 @@ def _register_api_routes(application: FastAPI) -> None:
                 corners,
                 detection_method,
             )
+            readiness = _parse_capture_readiness(capture_readiness)
             return await _run_processing(
                 request,
                 lambda: request.app.state.service.scan(
@@ -213,6 +216,7 @@ def _register_api_routes(application: FastAPI) -> None:
                     corners=captured_corners,
                     detection_method=captured_method,
                     supplemental_file_bytes=supplemental_payloads,
+                    capture_readiness=readiness,
                 ),
             )
         except ValueError as exc:
@@ -466,6 +470,15 @@ def _parse_capture_geometry(
     except (json.JSONDecodeError, ValueError, TypeError) as exc:
         raise ValueError("Captured board corners are invalid") from exc
     return corners, detection_method
+
+
+def _parse_capture_readiness(value: str | None) -> CaptureReadinessContext | None:
+    if value is None:
+        return None
+    try:
+        return CaptureReadinessContext.model_validate_json(value)
+    except ValueError as exc:
+        raise ValueError("Capture readiness metadata is invalid") from exc
 
 
 def _processing_slots(capacity: int) -> asyncio.Queue[None]:

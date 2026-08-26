@@ -55,6 +55,15 @@ def test_capture_audit_reports_accuracy_burst_quality_and_routes() -> None:
         "grid_not_found": 1,
         "insufficient_overlap": 1,
     }
+    assert summary["auto_capture_boards"] == 2
+    assert summary["auto_capture_modes"] == {"balanced": 2}
+    assert summary["capture_readiness"] == {
+        "count": 2,
+        "min": 82.0,
+        "median": 82.0,
+        "max": 82.0,
+    }
+    assert summary["readiness_missed_detections"] == 2
     assert summary["classifier_routes"] == {"general": 2, "print-specialist": 1}
     assert summary["route_score"] == {
         "count": 2,
@@ -84,16 +93,27 @@ def _row(
     client: str,
     rejection_reasons: list[str] | None = None,
 ) -> dict[str, object]:
+    capture = {
+        "submitted_frame_count": submitted,
+        "rejected_frames": [
+            {"capture_index": index + accepted, "reason": reason}
+            for index, reason in enumerate(rejection_reasons or [])
+        ],
+    }
+    if submitted > 1:
+        capture["readiness"] = {
+            "schema_version": "scan-readiness-1",
+            "capture_kind": "automatic",
+            "auto_capture_mode": "balanced",
+            "readiness_score": 82,
+            "readiness_threshold": 80,
+            "detection_attempts": 4,
+            "missed_detections": 1,
+        }
     evidence = {
         "classifier_route": route,
         "classifier_route_score": route_score,
-        "capture": {
-            "submitted_frame_count": submitted,
-            "rejected_frames": [
-                {"capture_index": index + accepted, "reason": reason}
-                for index, reason in enumerate(rejection_reasons or [])
-            ],
-        },
+        "capture": capture,
     }
     return {
         "predicted_labels_json": json.dumps(predicted),

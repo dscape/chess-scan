@@ -184,6 +184,19 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
             {"capture_index": 1, "reason": "image_dimensions_changed"}
         ]
 
+        invalid_readiness = _capture_readiness_context()
+        invalid_readiness["readiness_score"] = 79
+        invalid_readiness_response = client.post(
+            "/api/scans",
+            files={"image": ("board.png", primary_payload, "image/png")},
+            data={
+                "corners": json.dumps(primary_corners),
+                "detection_method": "checkerboard",
+                "capture_readiness": json.dumps(invalid_readiness),
+            },
+        )
+        assert invalid_readiness_response.status_code == 422
+
         scan_response = client.post(
             "/api/scans",
             files=[
@@ -193,6 +206,7 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
             data={
                 "corners": json.dumps(primary_corners),
                 "detection_method": "checkerboard",
+                "capture_readiness": json.dumps(_capture_readiness_context()),
             },
         )
         assert scan_response.status_code == 200, scan_response.text
@@ -348,6 +362,7 @@ def test_scan_confirm_and_learning_status(tmp_path: Path) -> None:
         assert prediction_evidence["capture"]["submitted_frame_count"] == 2
         assert prediction_evidence["capture"]["accepted_frame_count"] == 2
         assert prediction_evidence["capture"]["rejected_frames"] == []
+        assert prediction_evidence["capture"]["readiness"] == _capture_readiness_context()
         assert (
             sum(
                 frame["selected_square_count"]
@@ -879,6 +894,18 @@ def test_startup_rejects_corrupted_active_model(tmp_path: Path) -> None:
             pass
 
     assert json.loads(base_metadata_path.read_text())["artifact_sha256"] == sha256_file(base_path)
+
+
+def _capture_readiness_context() -> dict[str, object]:
+    return {
+        "schema_version": "scan-readiness-1",
+        "capture_kind": "automatic",
+        "auto_capture_mode": "balanced",
+        "readiness_score": 84,
+        "readiness_threshold": 80,
+        "detection_attempts": 4,
+        "missed_detections": 1,
+    }
 
 
 def _capture_diagnostic_metadata() -> dict[str, object]:

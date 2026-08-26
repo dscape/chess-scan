@@ -7,7 +7,7 @@ Chess Scan extracts the useful single-image classifier from [Argus](https://gith
 ## Product flow
 
 1. Open the in-app camera and frame one diagram.
-2. Wait for two stable detections, verify the green grid surrounds the intended diagram, then tap **Capture board** and hold still through the visible four-frame burst.
+2. Keep the intended board dominant while scan readiness rises from amber toward green; automatic capture starts at the persisted Quick, Balanced, or Precise threshold, then hold still through the visible four-frame burst.
 3. Check the rectified crop immediately and adjust four corners when automatic framing was uncertain.
 4. Heed low-resolution, frame-rejection, and legality warnings and correct any piece on the editable board.
 5. Explicitly select side to move and orientation; authoritative server validation must accept the position before review.
@@ -75,7 +75,7 @@ The board pieces adapt [Chess Simple Assets](https://www.figma.com/community/fil
 
 ## Production
 
-The live camera uses a bounded fast detector, two-detection stability gate, explicit shutter, and three transient refinement frames to select the clearest source for each square. The UI stays live and reports four-frame progress; optical grid tracking or independent redetection gives every accepted frame its own geometry. The review reports how many submitted frames were usable. The unmodified center view remains the presented prediction; nearby crop and frame predictions provide auditable probabilities and stability evidence without changing labels. An unchecked diagnostic option can retain a short camera-only clip through the burst for 30 days after confirmation; it never records audio or the browser screen. See [`docs/camera-scanner.md`](docs/camera-scanner.md) for the pipeline, privacy contract, and replay export.
+The live camera uses a bounded fast detector and a continuous scan-readiness score built from board size, temporal and geometric stability, focus, glare, and visual prediction agreement. A large percentage and amber-to-green grid replace live piece guesses; automatic capture begins at a persisted Quick, Balanced, or Precise threshold, then takes three transient refinement frames. The UI stays live and reports four-frame progress; optical grid tracking or independent redetection gives every accepted frame its own geometry. The review reports how many submitted frames were usable. Readiness is a capture-quality estimate, never a claim that unconfirmed labels are correct. The unmodified center view remains the presented prediction; nearby crop and frame predictions provide auditable probabilities and stability evidence without changing labels. An unchecked diagnostic option can retain a short camera-only clip through the burst for 30 days after confirmation; it never records audio or the browser screen. See [`docs/camera-scanner.md`](docs/camera-scanner.md) for the pipeline, privacy contract, and replay export.
 
 The Docker image builds the React frontend and serves it from FastAPI:
 

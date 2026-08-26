@@ -61,6 +61,7 @@ from chess_scan.schemas import (
     BoardDetectionResponse,
     CaptureDiagnosticMetadata,
     CaptureDiagnosticResponse,
+    CaptureReadinessContext,
     ConfirmRequest,
     ConfirmResponse,
     LearningStatusResponse,
@@ -176,6 +177,7 @@ class ScannerService:
         corners: list[list[float]] | None = None,
         detection_method: str | None = None,
         supplemental_file_bytes: list[bytes] | None = None,
+        capture_readiness: CaptureReadinessContext | None = None,
     ) -> ScanResponse:
         source = decode_uploaded_image(
             file_bytes,
@@ -184,6 +186,8 @@ class ScannerService:
         if corners is None:
             if detection_method is not None:
                 raise ValueError("A detection method cannot be used without captured corners")
+            if capture_readiness is not None:
+                raise ValueError("Capture readiness requires automatically detected corners")
             detection = detect_board_corners(source)
             selected = order_corners(np.asarray(detection.corners, dtype=np.float32))
             method = detection.method
@@ -249,6 +253,7 @@ class ScannerService:
             captured_frames=captured_frames,
             rejected_frames=rejected_frames,
             selected_frames=selected_frames,
+            capture_readiness=capture_readiness,
         )
 
         scan_id = uuid.uuid4().hex
@@ -885,9 +890,10 @@ def _capture_evidence(
     captured_frames: list[CapturedBoardFrame],
     rejected_frames: list[dict[str, object]],
     selected_frames: tuple[int, ...],
+    capture_readiness: CaptureReadinessContext | None,
 ) -> dict[str, object]:
     selected_counts = Counter(selected_frames)
-    return {
+    evidence: dict[str, object] = {
         "schema_version": "capture-evidence-1",
         "submitted_frame_count": submitted_frame_count,
         "accepted_frame_count": len(captured_frames),
@@ -904,6 +910,9 @@ def _capture_evidence(
         ],
         "rejected_frames": rejected_frames,
     }
+    if capture_readiness is not None:
+        evidence["readiness"] = capture_readiness.model_dump(mode="json")
+    return evidence
 
 
 def _stored_submitted_frame_count(evidence_json: str | None, *, fallback: int) -> int:

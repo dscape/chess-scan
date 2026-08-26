@@ -65,10 +65,21 @@ export interface CaptureDiagnostic {
   metadata: CaptureDiagnosticMetadata;
 }
 
+export interface CaptureReadinessContext {
+  schema_version: "scan-readiness-1";
+  capture_kind: "automatic";
+  auto_capture_mode: "quick" | "balanced" | "precise";
+  readiness_score: number;
+  readiness_threshold: number;
+  detection_attempts: number;
+  missed_detections: number;
+}
+
 export interface CameraCapture {
   image: File;
   geometry?: CaptureGeometry;
   supplementalImages: File[];
+  readiness?: CaptureReadinessContext;
   diagnostic: Promise<CaptureDiagnostic | null>;
   diagnosticRequested: boolean;
 }

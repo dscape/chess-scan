@@ -18,17 +18,22 @@ export function minimumBoardEdge(corners: Point[]): number {
 }
 
 export function cornersAreStable(previous: Point[] | null, current: Point[]): boolean {
-  if (!previous || previous.length !== 4 || current.length !== 4) return false;
-  const boardEdge = minimumBoardEdge(current);
-  if (boardEdge <= 0 || quadrilateralIoU(previous, current) < 0.9) return false;
+  return cornerStability(previous, current) >= 0.7;
+}
 
+export function cornerStability(previous: Point[] | null, current: Point[]): number {
+  if (!previous || previous.length !== 4 || current.length !== 4) return 0;
+  const boardEdge = minimumBoardEdge(current);
+  if (boardEdge <= 0) return 0;
+  const overlapScore = clamp((quadrilateralIoU(previous, current) - 0.55) / 0.35);
   const maximumDrift = Math.max(
     ...current.map(([x, y], index) => {
       const prior = previous[index];
       return prior ? Math.hypot(x - prior[0], y - prior[1]) : boardEdge;
     }),
   );
-  return maximumDrift / boardEdge < 0.04;
+  const driftScore = clamp(1 - maximumDrift / boardEdge / 0.2);
+  return 0.65 * overlapScore + 0.35 * driftScore;
 }
 
 export function scaleCorners(
@@ -145,4 +150,8 @@ function signedPolygonArea(points: Point[]): number {
 
 function cross(ax: number, ay: number, bx: number, by: number): number {
   return ax * by - ay * bx;
+}
+
+function clamp(value: number): number {
+  return Math.min(1, Math.max(0, value));
 }

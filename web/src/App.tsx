@@ -274,6 +274,7 @@ export default function App() {
         capture.image,
         capture.geometry,
         capture.supplementalImages,
+        capture.readiness,
       );
       if (generation !== requestGeneration.current) return false;
       applyScan(result);

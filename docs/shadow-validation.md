@@ -29,9 +29,9 @@ For each position:
 
 1. Open `https://chess.s46.dev` on the phone; do not select an existing photo.
 2. Optionally enable **Share a short camera diagnostic** before opening the camera. It records only the camera, never audio or the browser screen, and expires automatically.
-3. Wait for the green outline and **Ready to capture**. Verify that it surrounds the intended diagram.
-4. Tap **Capture board** once and hold still through all four progress marks.
-5. Record the displayed usable-frame count. Retake if the target is wrong or the image is visibly blurred.
+3. Keep the intended diagram dominant in the frame and watch **scan readiness** rise. Verify that the tracked grid surrounds the intended diagram; the percentage estimates capture quality, not label accuracy.
+4. Let automatic capture start at the selected Quick, Balanced, or Precise threshold, then hold still through all four progress marks.
+5. Record the selected threshold and displayed usable-frame count. Retake if the target is wrong or the image is visibly blurred.
 6. Correct every wrong square rather than accepting a plausible-looking position.
 7. Choose the actual board orientation and side to move.
 8. Enable training consent and confirm the position.
@@ -45,7 +45,7 @@ make report-capture
 make report-shadow
 ```
 
-The pilot is acceptable when all three explicit captures target the intended board, the diagnostic (when enabled) covers the complete burst, most bursts retain at least three frames, and no new systematic geometry or focus failure appears. Exact model accuracy is reported but is not a pilot pass/fail criterion at only three boards.
+The pilot is acceptable when all three automatic captures target the intended board, readiness progresses without amber/green flashing, the diagnostic (when enabled) covers the complete burst, most bursts retain at least three frames, and no new systematic geometry or focus failure appears. Exact model accuracy is reported but is not a pilot pass/fail criterion at only three boards.
 
 ## Full cohort
 

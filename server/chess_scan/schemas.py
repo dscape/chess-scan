@@ -154,6 +154,27 @@ class ScanResponse(BaseModel):
     rectified_image_url: str
 
 
+class CaptureReadinessContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["scan-readiness-1"]
+    capture_kind: Literal["automatic"]
+    auto_capture_mode: Literal["quick", "balanced", "precise"]
+    readiness_score: int = Field(ge=0, le=100)
+    readiness_threshold: int = Field(ge=0, le=100)
+    detection_attempts: int = Field(ge=0, le=200)
+    missed_detections: int = Field(ge=0, le=200)
+
+    @model_validator(mode="after")
+    def validate_threshold_crossing(self) -> CaptureReadinessContext:
+        expected_thresholds = {"quick": 70, "balanced": 80, "precise": 90}
+        if self.readiness_threshold != expected_thresholds[self.auto_capture_mode]:
+            raise ValueError("Readiness threshold does not match its auto-capture mode")
+        if self.readiness_score < self.readiness_threshold:
+            raise ValueError("Automatic capture must meet its readiness threshold")
+        return self
+
+
 class CaptureDiagnosticMetadata(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

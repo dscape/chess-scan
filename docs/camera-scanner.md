@@ -2,7 +2,7 @@
 
 The live scanner is designed as a select-and-refine pipeline rather than a sequence of surprise automatic captures.
 
-## Explicit target selection
+## Continuous target tracking
 
 The browser sends a 720 px JPEG preview to the transient board-detection endpoint. Live detection uses a bounded OpenCV path: normalized checkerboard search, a fast classic check, one enhanced fallback, and a limited contour search. The slower two-image legacy fallback remains reserved for a manually chosen still image and cannot stall the live loop.
 
@@ -13,15 +13,17 @@ A successful live detection returns:
 - localized glare estimates; and
 - server processing time.
 
-The camera never captures the first grid it happens to find. Two consecutive detections must describe the same board before the shutter becomes available. The learner checks that the green projected grid surrounds the intended diagram and explicitly taps **Capture board**. This keeps pages containing several diagrams under human control and gives mobile autofocus time to settle.
+The camera does not capture the first grid it happens to find. It continuously combines board size, geometric overlap and drift, temporal label agreement, sharpness, glare, detector confidence, and settling time into a bounded **scan readiness** score. This is a capture-quality estimate, not a claim that the unconfirmed 64 labels are correct. The projected grid moves gradually from amber toward green as readiness rises, while a large percentage replaces distracting provisional chess pieces. A missed detection decays the score instead of flashing immediately back to zero.
 
-The resolution floor is measured after mapping preview corners back to the retained source frame, so lowering preview resolution cannot make the readiness gate harder. Provisional pieces remain projected over the live camera while the learner selects the target.
+Capture starts automatically once the same dominant board remains large and stable enough to cross the selected threshold. **Quick** (70%), **Balanced** (80%, default), and **Precise** (90%) are available in the camera UI; the preference is retained in local storage when the browser permits it. Precise mode can intentionally wait indefinitely for a blurred or unstable board. Pages with several diagrams still require the learner to fill the camera with the intended board because visual confidence cannot infer human intent.
+
+The resolution floor is measured after mapping preview corners back to the retained source frame, so lowering preview resolution cannot make the readiness gate harder. Automatic capture still requires two matching detections and at least 384 retained-source pixels across the board.
 
 The accepted source is capped at 1600 px and JPEG quality 0.88. The adaptive detail floor targets at least 384 source pixels across the board—about 48 pixels per square before the model's 64-pixel input—while still supporting lower-resolution cameras.
 
 ## Multi-frame refinement
 
-An explicit capture retains the selected frame and then captures three adjacent refinement frames over roughly 540 ms. The live feed remains visible with **1 of 4** through **4 of 4** progress and tells the learner to hold still. Only after the burst is complete does the UI freeze the selected frame and turn off the camera. Supplemental frames are transient and limited by the same upload-body cap as the primary image.
+An automatic capture retains the threshold-crossing frame and then captures three adjacent refinement frames over roughly 540 ms. The live feed remains visible with **1 of 4** through **4 of 4** progress and tells the learner to hold still. Only after the burst is complete does the UI freeze the selected frame and turn off the camera. Supplemental frames are transient and limited by the same upload-body cap as the primary image.
 
 The backend tracks the 7×7 internal grid from the selected frame into each supplemental frame with optical flow. A bounded independent detection is the fallback. It never treats stale primary corners as supplemental geometry merely because they still overlap a grid. Frames with different dimensions, an unavailable grid, or insufficient overlap with the selected board are rejected. The review reports the exact accepted/submitted count, such as **3 of 4 frames usable**.
 
@@ -42,7 +44,7 @@ The capture screen offers a separate, unchecked **Share a short camera diagnosti
 - uploaded only after the learner confirms the position; and
 - deleted automatically after 30 days by default.
 
-Abandoned scans never upload their in-memory recording. A recording now continues through the visible four-frame burst instead of stopping before the supplemental frames it is meant to audit. If live detection fails and the learner switches to **Photos**, the opted-in camera clip follows that photo through confirmation so the failure still has corrected labels. Each confirmed position can store at most one diagnostic, bounded to 8 MB. The app checks an exact supported video MIME type before enabling consent, includes Safari H.264 MP4 support, waits for the post-confirmation upload, and reports recording or upload failure instead of silently dropping it. Recordings are not publicly served and are not consumed automatically by model training. The immutable diagnostic record includes a content hash, bounded browser user-agent, capture timings, glare count, sharpness, and camera dimensions; its confirmed-feedback link supplies the model version, raw prediction, and final corrected labels during export. This makes the clip useful for replaying geometry and latency failures without conflating it with supervised training consent.
+Abandoned scans never upload their in-memory recording. A recording starts with the camera and automatic capture normally leaves room for the complete visible four-frame burst within the ten-second privacy cap. If live detection fails and the learner switches to **Photos**, the opted-in camera clip follows that photo through confirmation so the failure still has corrected labels. Each confirmed position can store at most one diagnostic, bounded to 8 MB. The app checks an exact supported video MIME type before enabling consent, includes Safari H.264 MP4 support, waits for the post-confirmation upload, and reports recording or upload failure instead of silently dropping it. Recordings are not publicly served and are not consumed automatically by model training. The immutable diagnostic record includes a content hash, bounded browser user-agent, capture timings, glare count, sharpness, and camera dimensions; its confirmed-feedback link supplies the model version, raw prediction, and final corrected labels during export. This makes the clip useful for replaying geometry and latency failures without conflating it with supervised training consent.
 
 Operators can disable collection or shorten retention:
 
@@ -65,7 +67,7 @@ Measure from the first usable camera frame, not from page load:
 
 - first detection round trip;
 - server detection and preview inference time;
-- stable-board readiness and explicit-capture latency;
+- readiness progression and automatic-capture latency by threshold mode;
 - retained scan round trip;
 - wrong-target and discarded-frame rate;
 - exact-board and per-square accuracy; and
@@ -80,4 +82,4 @@ make report-capture
 # or: uv run python scripts/report_capture_quality.py --since 2026-08-25T00:00:00+00:00
 ```
 
-The aggregate report includes exact-board and square accuracy, accepted/submitted burst frames, boards with fewer than three usable frames, rejection reasons, route-score range, glare, and sharpness. It scores only confirmed boards and resolves later append-only adjudications before calculating accuracy.
+The aggregate report includes exact-board and square accuracy, automatic-capture mode and threshold-crossing readiness, detection attempts and misses, accepted/submitted burst frames, boards with fewer than three usable frames, rejection reasons, route-score range, glare, and sharpness. It scores only confirmed boards and resolves later append-only adjudications before calculating accuracy.

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  cornerStability,
   cornersAreStable,
   minimumBoardEdge,
   polygonCenter,
@@ -20,9 +21,11 @@ test("measures board-relative stability", () => {
     true,
   );
   assert.equal(
-    cornersAreStable(board, [[125, 100], [525, 100], [525, 500], [125, 500]]),
+    cornersAreStable(board, [[160, 100], [560, 100], [560, 500], [160, 500]]),
     false,
   );
+  assert.ok(cornerStability(board, [[105, 102], [505, 103], [504, 503], [104, 502]]) > 0.8);
+  assert.ok(cornerStability(board, [[160, 100], [560, 100], [560, 500], [160, 500]]) < 0.7);
 });
 
 test("computes convex quadrilateral overlap", () => {

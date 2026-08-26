@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { detectBoard } from "../api";
 import {
-  cornersAreStable,
+  cornerStability,
   minimumBoardEdge,
   requiredCaptureBoardEdge,
   polygonCenter,
@@ -14,6 +14,18 @@ import {
   captureSupplementalFrames,
   type CameraFrame,
 } from "../cameraCapture";
+import {
+  AUTO_CAPTURE_PROFILES,
+  autoCaptureProfile,
+  automaticCaptureReady,
+  labelAgreement,
+  loadAutoCaptureMode,
+  meanPredictionConfidence,
+  saveAutoCaptureMode,
+  scanReadiness,
+  smoothScanReadiness,
+  type AutoCaptureMode,
+} from "../cameraReadiness";
 import {
   finiteMediaSetting,
   startDiagnosticRecording,
@@ -30,7 +42,6 @@ import type {
 import PhotoPicker from "./PhotoPicker";
 
 const SUPPLEMENTAL_FRAME_COUNT = 3;
-const REQUIRED_STABLE_DETECTIONS = 2;
 
 interface ReadyCapture {
   frame: CameraFrame;
@@ -44,7 +55,6 @@ type CameraPhase =
   | "searching"
   | "framing"
   | "steadying"
-  | "ready"
   | "capturing"
   | "locked"
   | "error";
@@ -72,18 +82,30 @@ export default function LiveCamera({
   const missedDetectionsRef = useRef(0);
   const previewRoundTripRef = useRef<number | null>(null);
   const previousCornersRef = useRef<Point[] | null>(null);
+  const previousLabelsRef = useRef<number[] | null>(null);
   const stableDetectionCountRef = useRef(0);
+  const consecutiveMissesRef = useRef(0);
   const readyCaptureRef = useRef<ReadyCapture | null>(null);
+  const readinessRef = useRef(0);
+  const [autoCaptureMode, setAutoCaptureModeState] = useState<AutoCaptureMode>(() =>
+    loadAutoCaptureMode(browserStorage()),
+  );
+  const autoCaptureModeRef = useRef(autoCaptureMode);
   const [phase, setPhase] = useState<CameraPhase>("requesting");
   const [detection, setDetection] = useState<BoardDetection | null>(null);
   const [lockedFrameUrl, setLockedFrameUrl] = useState<string | null>(null);
   const [diagnosticActive, setDiagnosticActive] = useState(false);
   const [burstProgress, setBurstProgress] = useState(0);
+  const [readiness, setReadiness] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     onCaptureRef.current = onCapture;
   }, [onCapture]);
+
+  useEffect(() => {
+    autoCaptureModeRef.current = autoCaptureMode;
+  }, [autoCaptureMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -172,14 +194,12 @@ export default function LiveCamera({
       const roundTripMs = Math.max(0, Math.round(performance.now() - requestStarted));
       if (stoppedRef.current || lockedRef.current) return;
       if (!result.found) {
-        missedDetectionsRef.current += 1;
-        resetCaptureReadiness();
-        setDetection(null);
-        setPhase("searching");
+        handleDetectionMiss();
         scheduleDetection(100);
         return;
       }
 
+      consecutiveMissesRef.current = 0;
       setDetection(result);
       const capturedCorners = scaleCorners(
         result.corners,
@@ -188,21 +208,34 @@ export default function LiveCamera({
         frame.source.width,
         frame.source.height,
       );
-      if (
-        minimumBoardEdge(capturedCorners)
-        < requiredCaptureBoardEdge(frame.source.width, frame.source.height)
-      ) {
-        resetCaptureReadiness();
-        setPhase("framing");
-        scheduleDetection(80);
-        return;
-      }
-
-      const stable = cornersAreStable(previousCornersRef.current, result.corners);
-      stableDetectionCountRef.current = stable
+      const requiredBoardEdge = requiredCaptureBoardEdge(
+        frame.source.width,
+        frame.source.height,
+      );
+      const boardSizeRatio = minimumBoardEdge(capturedCorners) / requiredBoardEdge;
+      const stability = cornerStability(previousCornersRef.current, result.corners);
+      const prediction = result.prediction;
+      const agreement = prediction
+        ? labelAgreement(previousLabelsRef.current, prediction.labels)
+        : null;
+      const sameBoard = stability >= 0.7
+        || (stability >= 0.35 && agreement !== null && agreement >= 0.88);
+      stableDetectionCountRef.current = sameBoard
         ? stableDetectionCountRef.current + 1
         : 1;
       previousCornersRef.current = result.corners;
+      previousLabelsRef.current = prediction?.labels ?? null;
+      const measuredReadiness = scanReadiness({
+        boardSizeRatio,
+        geometryStability: stability,
+        predictionAgreement: agreement,
+        sharpnessScore: prediction?.sharpness_score ?? 0,
+        glareScore: prediction?.glare_score ?? 1,
+        detectionConfidence: result.confidence,
+        predictionConfidence: meanPredictionConfidence(prediction?.confidences ?? []),
+        stableRounds: stableDetectionCountRef.current,
+      });
+      const nextReadiness = updateScanReadiness(measuredReadiness);
       previewRoundTripRef.current = roundTripMs;
       readyCaptureRef.current = {
         frame,
@@ -213,11 +246,25 @@ export default function LiveCamera({
         detection: result,
         roundTripMs,
       };
-      setPhase(
-        stableDetectionCountRef.current >= REQUIRED_STABLE_DETECTIONS
-          ? "ready"
-          : "steadying",
-      );
+
+      if (boardSizeRatio < 1) {
+        setPhase("framing");
+        scheduleDetection(80);
+        return;
+      }
+      const profile = autoCaptureProfile(autoCaptureModeRef.current);
+      if (automaticCaptureReady(
+        nextReadiness,
+        profile,
+        stableDetectionCountRef.current,
+        boardSizeRatio,
+        prediction !== null,
+      )) {
+        await captureAutomatically();
+        return;
+      }
+
+      setPhase("steadying");
       scheduleDetection(120);
     } catch {
       if (stoppedRef.current) return;
@@ -226,15 +273,12 @@ export default function LiveCamera({
         setCameraError("The locked frame could not be prepared. Close and try again.");
         return;
       }
-      missedDetectionsRef.current += 1;
-      resetCaptureReadiness();
-      setDetection(null);
-      setPhase("searching");
+      handleDetectionMiss();
       scheduleDetection(220);
     }
   }
 
-  async function captureManually() {
+  async function captureAutomatically() {
     const video = videoRef.current;
     const ready = readyCaptureRef.current;
     if (!video || !ready || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
@@ -249,7 +293,7 @@ export default function LiveCamera({
         ready.frame.source,
         video,
         ready.geometry,
-        "manual",
+        "automatic",
         ready.detection,
       );
     } catch {
@@ -265,7 +309,7 @@ export default function LiveCamera({
     source: HTMLCanvasElement,
     video: HTMLVideoElement,
     geometry: CaptureGeometry | undefined,
-    captureKind: "automatic" | "manual",
+    captureKind: "automatic",
     currentDetection: BoardDetection | null,
   ) {
     const primaryBlobPromise = canvasBlob(source, 0.88);
@@ -292,10 +336,20 @@ export default function LiveCamera({
           supplementalImages.length + 1,
         )
       : null);
+    const profile = autoCaptureProfile(autoCaptureModeRef.current);
     const accepted = await onCaptureRef.current({
       image,
       geometry,
       supplementalImages,
+      readiness: {
+        schema_version: "scan-readiness-1",
+        capture_kind: "automatic",
+        auto_capture_mode: profile.mode,
+        readiness_score: readinessRef.current,
+        readiness_threshold: profile.threshold,
+        detection_attempts: detectionAttemptsRef.current,
+        missed_detections: missedDetectionsRef.current,
+      },
       diagnostic,
       diagnosticRequested: diagnosticsEnabled,
     });
@@ -340,10 +394,42 @@ export default function LiveCamera({
     streamRef.current = null;
   }
 
+  function handleDetectionMiss() {
+    missedDetectionsRef.current += 1;
+    consecutiveMissesRef.current += 1;
+    stableDetectionCountRef.current = Math.max(0, stableDetectionCountRef.current - 1);
+    updateScanReadiness(null);
+    if (consecutiveMissesRef.current >= 3) {
+      previousCornersRef.current = null;
+      previousLabelsRef.current = null;
+      readyCaptureRef.current = null;
+      setDetection(null);
+      setPhase("searching");
+      return;
+    }
+    setPhase("steadying");
+  }
+
+  function updateScanReadiness(measured: number | null): number {
+    const next = smoothScanReadiness(readinessRef.current, measured);
+    readinessRef.current = next;
+    setReadiness(next);
+    return next;
+  }
+
+  function chooseAutoCaptureMode(mode: AutoCaptureMode) {
+    autoCaptureModeRef.current = mode;
+    setAutoCaptureModeState(mode);
+    saveAutoCaptureMode(browserStorage(), mode);
+  }
+
   function resetCaptureReadiness() {
     previousCornersRef.current = null;
+    previousLabelsRef.current = null;
     stableDetectionCountRef.current = 0;
+    consecutiveMissesRef.current = 0;
     readyCaptureRef.current = null;
+    readinessRef.current = 0;
   }
 
   function stopCamera() {
@@ -382,9 +468,10 @@ export default function LiveCamera({
     onCancel();
   }
 
-  const status = cameraStatus(phase, burstProgress);
+  const profile = autoCaptureProfile(autoCaptureMode);
+  const status = cameraStatus(phase, burstProgress, readiness, profile.threshold);
   const locked = phase === "locked";
-  const boardSelected = phase === "ready" || phase === "capturing" || locked;
+  const captureStarted = phase === "capturing" || locked;
 
   return (
     <section className={`live-camera is-${phase}`} aria-label="Live chess board camera">
@@ -394,7 +481,11 @@ export default function LiveCamera({
       )}
       <div className="live-camera__shade" aria-hidden="true" />
       {detection?.found && (
-        <BoardGridOverlay detection={detection} locked={boardSelected} />
+        <BoardGridOverlay
+          detection={detection}
+          readiness={readiness}
+          locked={captureStarted}
+        />
       )}
       <div className="live-camera__corners" aria-hidden="true">
         <i />
@@ -416,16 +507,26 @@ export default function LiveCamera({
         </span>
       </header>
       {phase !== "error" && phase !== "capturing" && !locked && (
-        <div className="live-camera__manual-controls">
-          <button
-            type="button"
-            className="camera-shutter"
-            disabled={phase !== "ready"}
-            onClick={() => void captureManually()}
-          >
-            <span aria-hidden="true"><i /></span>
-            <strong>{phase === "ready" ? "Capture board" : "Hold steady"}</strong>
-          </button>
+        <div className="live-camera__auto-controls">
+          <div className="camera-auto-mode">
+            <span>Auto-capture</span>
+            <div role="group" aria-label="Automatic capture precision">
+              {AUTO_CAPTURE_PROFILES.map((option) => (
+                <button
+                  type="button"
+                  key={option.mode}
+                  className={option.mode === autoCaptureMode ? "is-active" : ""}
+                  aria-pressed={option.mode === autoCaptureMode}
+                  aria-label={`${option.label}, capture at ${option.threshold}% readiness`}
+                  title={option.detail}
+                  onClick={() => chooseAutoCaptureMode(option.mode)}
+                >
+                  <strong>{option.label}</strong>
+                  <small>{option.threshold}%</small>
+                </button>
+              ))}
+            </div>
+          </div>
           <PhotoPicker
             className="camera-photo-button"
             onOpen={openPhotoPicker}
@@ -473,7 +574,15 @@ export default function LiveCamera({
   );
 }
 
-function BoardGridOverlay({ detection, locked }: { detection: BoardDetection; locked: boolean }) {
+function BoardGridOverlay({
+  detection,
+  readiness,
+  locked,
+}: {
+  detection: BoardDetection;
+  readiness: number;
+  locked: boolean;
+}) {
   const rows = Array.from({ length: 9 }, (_, row) =>
     detection.grid_points.slice(row * 9, row * 9 + 9),
   );
@@ -483,12 +592,18 @@ function BoardGridOverlay({ detection, locked }: { detection: BoardDetection; lo
     ),
   );
   const prediction = detection.prediction;
+  const center = polygonCenter(detection.corners);
+  const boardEdge = averageEdge(detection.corners);
+  const style = {
+    "--camera-readiness-color": readinessColor(readiness),
+  } as CSSProperties;
   return (
     <svg
       className={`camera-grid ${locked ? "is-locked" : ""}`}
       viewBox={`0 0 ${detection.image_width} ${detection.image_height}`}
       preserveAspectRatio="xMidYMid slice"
       aria-hidden="true"
+      style={style}
     >
       <polygon points={pointString(detection.corners)} className="camera-grid__fill" />
       {[...rows, ...columns].map((points, index) => (
@@ -500,25 +615,33 @@ function BoardGridOverlay({ detection, locked }: { detection: BoardDetection; lo
           ? <polygon key={`glare-${index}`} points={pointString(cell)} className="camera-grid__glare" />
           : null;
       })}
-      {prediction?.labels.map((label, index) => {
-        if (label === 0 || (prediction.confidences[index] ?? 0) < 0.45) return null;
-        const cell = projectedBoardCell(detection.grid_points, index);
-        const center = cell ? polygonCenter(cell) : null;
-        if (!cell || !center) return null;
-        const size = Math.max(15, averageEdge(cell) * 0.68);
-        return (
+      {center && (
+        <g className="camera-grid__readiness">
+          <rect
+            x={center[0] - boardEdge * 0.3}
+            y={center[1] - boardEdge * 0.14}
+            width={boardEdge * 0.6}
+            height={boardEdge * 0.28}
+            rx={boardEdge * 0.045}
+          />
           <text
-            key={`piece-${index}`}
             x={center[0]}
-            y={center[1]}
-            className="camera-grid__piece"
-            fontSize={size}
-            style={{ animationDelay: `${Math.min(index, 40) * 9}ms` }}
+            y={center[1] - boardEdge * 0.012}
+            className="camera-grid__readiness-value"
+            fontSize={Math.max(34, boardEdge * 0.15)}
           >
-            {PIECE_GLYPHS[label]}
+            {readiness}%
           </text>
-        );
-      })}
+          <text
+            x={center[0]}
+            y={center[1] + boardEdge * 0.075}
+            className="camera-grid__readiness-label"
+            fontSize={Math.max(9, boardEdge * 0.027)}
+          >
+            SCAN READINESS
+          </text>
+        </g>
+      )}
       {detection.corners.map(([x, y], index) => (
         <circle key={index} cx={x} cy={y} r={9} className="camera-grid__corner" />
       ))}
@@ -526,23 +649,25 @@ function BoardGridOverlay({ detection, locked }: { detection: BoardDetection; lo
   );
 }
 
-function cameraStatus(phase: CameraPhase, burstProgress: number) {
+function cameraStatus(
+  phase: CameraPhase,
+  burstProgress: number,
+  readiness: number,
+  threshold: number,
+) {
   if (phase === "requesting") {
     return { title: "Opening camera", detail: "Camera permission is required once." };
   }
   if (phase === "framing") {
-    return { title: "Move closer", detail: "Keep all four edges visible and fill the guide." };
+    return {
+      title: `${readiness}% scan readiness`,
+      detail: "Move closer while keeping all four board edges visible.",
+    };
   }
   if (phase === "steadying") {
     return {
-      title: "Hold steady",
-      detail: "Keep the board inside the outline while the camera settles.",
-    };
-  }
-  if (phase === "ready") {
-    return {
-      title: "Ready to capture",
-      detail: "Check that the green outline surrounds the board you want, then tap Capture board.",
+      title: `${readiness}% scan readiness`,
+      detail: `Hold steady—capture starts automatically at ${threshold}%.`,
     };
   }
   if (phase === "capturing") {
@@ -560,7 +685,13 @@ function cameraStatus(phase: CameraPhase, burstProgress: number) {
   if (phase === "error") {
     return { title: "Camera unavailable", detail: "Use an existing photograph instead." };
   }
-  return { title: "Find the board", detail: "Fill the guide with one complete diagram." };
+  if (readiness > 0) {
+    return {
+      title: `${readiness}% scan readiness`,
+      detail: "Keep one complete board centered while tracking recovers.",
+    };
+  }
+  return { title: "Find one board", detail: "Fill the guide with one complete diagram." };
 }
 
 function pointString(points: Point[]): string {
@@ -575,17 +706,16 @@ function averageEdge(points: Point[]): number {
   }, 0) / points.length;
 }
 
-const PIECE_GLYPHS: Record<number, string> = {
-  1: "♙",
-  2: "♘",
-  3: "♗",
-  4: "♖",
-  5: "♕",
-  6: "♔",
-  7: "♟",
-  8: "♞",
-  9: "♝",
-  10: "♜",
-  11: "♛",
-  12: "♚",
-};
+function readinessColor(readiness: number): string {
+  const progress = Math.min(100, Math.max(0, readiness)) / 100;
+  const hue = 35 + 110 * progress ** 1.4;
+  return `hsl(${hue} 82% 58%)`;
+}
+
+function browserStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}

@@ -3,6 +3,7 @@ import type {
   BoardDetection,
   CaptureDiagnostic,
   CaptureGeometry,
+  CaptureReadinessContext,
   CoachingPresentationStatus,
   ConfirmResult,
   Orientation,
@@ -83,6 +84,7 @@ export async function scanImage(
   image: File,
   geometry?: CaptureGeometry,
   supplementalImages: File[] = [],
+  readiness?: CaptureReadinessContext,
 ): Promise<ScanResult> {
   const form = new FormData();
   form.append("image", image);
@@ -91,6 +93,7 @@ export async function scanImage(
     form.append("corners", JSON.stringify(geometry.corners));
     form.append("detection_method", geometry.method);
   }
+  if (readiness) form.append("capture_readiness", JSON.stringify(readiness));
   return request<ScanResult>("/api/scans", { method: "POST", body: form });
 }
 
